@@ -1,9 +1,18 @@
+export interface AudioAssetOrigin {
+  readonly kind: 'user-import' | 'ai-generated';
+  readonly providerId?: string;
+  readonly jobId?: string;
+  readonly prompt?: string;
+  readonly createdAt?: string;
+}
+
 export interface AudioSampleAsset {
   readonly id: string;
   readonly name: string;
   readonly mimeType: string;
   readonly data: ArrayBuffer;
   readonly updatedAt: string;
+  readonly origin?: AudioAssetOrigin;
 }
 
 export interface AudioAssetStore {
@@ -16,7 +25,11 @@ const DATABASE_VERSION = 1;
 const SAMPLE_STORE = 'samples';
 
 function cloneAsset(asset: AudioSampleAsset): AudioSampleAsset {
-  return { ...asset, data: asset.data.slice(0) };
+  return {
+    ...asset,
+    data: asset.data.slice(0),
+    ...(asset.origin ? { origin: { ...asset.origin } } : {}),
+  };
 }
 
 function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
@@ -34,7 +47,7 @@ function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   });
 }
 
-/** Separate binary asset storage keeps imported audio out of JSON project snapshots. */
+/** Separate binary asset storage keeps imported/AI audio and provenance out of JSON project snapshots. */
 export class IndexedDbAudioAssetStore implements AudioAssetStore {
   private readonly database: Promise<IDBDatabase>;
 
