@@ -70,7 +70,7 @@ async def call_elevenlabs(request: GenerateAudioRequest) -> tuple[bytes, str]:
         raise RuntimeError("ELEVENLABS_API_KEY is not configured on the AI gateway.")
 
     output_format = os.getenv("ELEVENLABS_OUTPUT_FORMAT", "mp3_44100_128")
-    model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_text_to_sound_v2")
+    model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_text_to_sound_v3")
     try:
         prompt_influence = float(os.getenv("ELEVENLABS_PROMPT_INFLUENCE", "0.35"))
     except ValueError as error:
@@ -118,7 +118,7 @@ async def _run_generation(job_id: str, request: GenerateAudioRequest) -> None:
     job = JOBS.get(job_id)
     if not job:
         return
-    job.update(status="running", progress=10, message="Generating audio with ElevenLabs")
+    job.update(status="running", progress=10, message="Generating audio with ElevenLabs SFX v3")
 
     try:
         data, mime_type = await call_elevenlabs(request)
@@ -128,7 +128,7 @@ async def _run_generation(job_id: str, request: GenerateAudioRequest) -> None:
             message="Audio generated",
             data=data,
             mimeType=mime_type,
-            fileName=f"vibe-wizard-{job_id}.mp3",
+            fileName=f"vibe-wizard-{job_id}." + ("mp3" if mime_type in {"audio/mpeg", "audio/mp3"} else "wav" if mime_type in {"audio/wav", "audio/x-wav"} else "audio"),
         )
     except Exception as error:  # Keep the job pollable and avoid leaking secrets in tracebacks to clients.
         logger.warning("Audio generation job %s failed: %s", job_id, error)

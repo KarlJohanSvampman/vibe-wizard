@@ -2,7 +2,7 @@
 
 ## First AI workflow: prompt to playable sample
 
-The first concrete integration uses **ElevenLabs text-to-sound generation** through a local FastAPI gateway. ElevenLabs accepts a natural-language sound description and returns generated audio. Its Sound Effects API also documents musical components such as drum loops, bass lines, vintage brass stabs, and synth pads. The API currently supports generation durations up to 30 seconds and returns MP3 by default. ElevenLabs documents a cost of 40 credits per second when an explicit duration is requested, so the UI warns about usage and defaults to a three-second sample. Check the current account pricing before generating. See the [official Sound Effects API reference](https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert) and [capability guide](https://elevenlabs.io/docs/overview/capabilities/sound-effects).
+The first concrete integration uses **ElevenLabs SFX v3 text-to-sound generation** through a local FastAPI gateway. We explicitly select `eleven_text_to_sound_v3`: ElevenLabs announced it on November 2, 2026, and has marked SFX v2 for removal on March 1, 2027. ElevenLabs accepts a natural-language sound description and returns generated audio. Its Sound Effects API also documents musical components such as drum loops, bass lines, vintage brass stabs, and synth pads. The API currently supports generation durations up to 30 seconds and returns MP3 by default. SFX v3 has better handling for multipart prompts and musical/vocal content than v2. ElevenLabs documents a cost of 40 credits per second when an explicit duration is requested, so the UI warns about usage and defaults to a three-second sample. Check the current account pricing before generating. See the [official Sound Effects API reference](https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert) and [capability guide](https://elevenlabs.io/docs/overview/capabilities/sound-effects).
 
 Workflow:
 
@@ -40,7 +40,7 @@ Run Vibe-Wizard separately with `npm run dev`. The Vite development server liste
 Environment variables:
 
 - `ELEVENLABS_API_KEY` — required server-side secret.
-- `ELEVENLABS_MODEL_ID` — defaults to `eleven_text_to_sound_v2`.
+- `ELEVENLABS_MODEL_ID` — defaults to `eleven_text_to_sound_v3` (recommended; v2 is deprecated and scheduled for removal on March 1, 2027).
 - `ELEVENLABS_OUTPUT_FORMAT` — defaults to `mp3_44100_128`.
 - `ELEVENLABS_PROMPT_INFLUENCE` — defaults to `0.35`, valid range 0..1.
 - `CORS_ORIGINS` — comma-separated browser origins; default includes localhost port 8081.
