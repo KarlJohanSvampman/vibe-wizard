@@ -111,6 +111,7 @@ export class AudioEngine implements RackModule {
     const nodes: AudioNode[] = [envelope];
     const pitchControls: PitchControl[] = [];
     const oneShot = this.instrumentType === 'drums';
+    const sourceStopTimes = new Map<AudioScheduledSourceNode, number>();
     const amplitude = Math.max(0.0001, velocity);
 
     envelope.gain.setValueAtTime(0.0001, startTime);
@@ -167,8 +168,7 @@ export class AudioEngine implements RackModule {
         filter.connect(envelope);
         sources.push(noise);
         nodes.push(noise, filter);
-        noise.start(startTime);
-        noise.stop(startTime + duration);
+        sourceStopTimes.set(noise, startTime + duration);
       };
 
       if (pitch === 35 || pitch === 36) {
@@ -176,14 +176,14 @@ export class AudioEngine implements RackModule {
         kick.frequency.setValueAtTime(155, startTime);
         kick.frequency.exponentialRampToValueAtTime(46, startTime + 0.13);
         envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.48);
-        kick.stop(startTime + 0.5);
+        sourceStopTimes.set(kick, startTime + 0.5);
       } else if (pitch === 38 || pitch === 40) {
         addNoise('bandpass', 1850, 0.28);
         const body = addOscillator('triangle', 1);
         body.frequency.setValueAtTime(pitch === 38 ? 185 : 160, startTime);
         body.frequency.exponentialRampToValueAtTime(80, startTime + 0.11);
         envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.32);
-        body.stop(startTime + 0.34);
+        sourceStopTimes.set(body, startTime + 0.34);
       } else if ([42, 44, 46, 49, 51, 53].includes(pitch)) {
         addNoise('highpass', pitch === 46 || pitch === 49 ? 5200 : 7200, pitch === 46 ? 0.55 : 0.18);
         envelope.gain.exponentialRampToValueAtTime(
@@ -196,7 +196,7 @@ export class AudioEngine implements RackModule {
         tom.frequency.setValueAtTime(base * 1.8, startTime);
         tom.frequency.exponentialRampToValueAtTime(base * 0.72, startTime + 0.2);
         envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.38);
-        tom.stop(startTime + 0.4);
+        sourceStopTimes.set(tom, startTime + 0.4);
       }
     } else if (this.sampleBuffer) {
       const sample = context.createBufferSource();
@@ -211,16 +211,6 @@ export class AudioEngine implements RackModule {
     } else {
       // Keep an unloaded sampler track responsive, while the UI asks for a file.
       addOscillator('triangle', 1);
-    }
-
-    if (!oneShot || this.instrumentType === 'sampler') {
-      for (const source of sources) {
-        if (source instanceof OscillatorNode && source.context !== context) continue;
-        if (source instanceof OscillatorNode && sources.length > 0) {
-          // Oscillators are started together below; the check avoids double-starting
-          // any source created by a branch-specific helper.
-        }
-      }
     }
 
     const voice: InstrumentVoice = {
@@ -247,13 +237,9 @@ export class AudioEngine implements RackModule {
           if (this.voices.get(event.noteId) === voice) this.voices.delete(event.noteId);
         }
       };
-      if (!(source instanceof AudioBufferSourceNode) || this.instrumentType !== 'drums') {
-        // Buffer-backed drum noise sources are started at their construction site.
-        // Other scheduled sources are started once here.
-        if (!(source instanceof OscillatorNode && this.instrumentType === 'drums')) {
-          source.start(startTime);
-        }
-      }
+      source.start(startTime);
+      const stopAt = sourceStopTimes.get(source);
+      if (stopAt !== undefined) source.stop(stopAt);
     }
 
     if (sources.length === 0) {
