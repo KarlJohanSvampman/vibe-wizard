@@ -88,7 +88,7 @@ export class ThereminSpatialAdapter {
   dispose(): void {
     this.stopXRFrame();
     this.stopVisibilitySubscription();
-    this.deactivate(performance.now() / 1000);
+    this.deactivate(this.lastXRTime);
     this.world.scene.remove(this.root);
 
     this.root.traverse((object) => {
