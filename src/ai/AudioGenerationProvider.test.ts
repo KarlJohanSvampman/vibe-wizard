@@ -33,7 +33,7 @@ describe('HTTP audio generation provider', () => {
       item => progress.push(item),
     );
     expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
-      prompt: 'A warm analog bass note', durationSeconds: 4, outputFormat: 'wav',
+      prompt: 'A warm analog bass note', durationSeconds: 4, outputFormat: 'mp3',
     });
     expect(String(fetcher.mock.calls[1]?.[0])).toBe('http://localhost:8787/api/audio/generations/job-42');
     expect(String(fetcher.mock.calls[3]?.[0])).toBe('http://localhost:8787/files/bright-pad.wav');
