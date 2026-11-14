@@ -2,7 +2,7 @@
 
 ## 1. Product shape
 
-Vibe-Wizard is a local-first DAW and immersive instrument playground. Its central abstraction is a **modular rack** connected to tracks and an audio graph. Inputs generate typed musical/control events; the sequencer can record and replay those events; controller outputs can also modulate arbitrary rack parameters.
+Vibe-Wizard is a local-first DAW and immersive instrument playground. Its central abstraction is a **modular rack** connected to tracks and an audio graph. Inputs generate typed musical/control events; the sequencer records and replays those events; controller outputs can modulate compatible rack parameters.
 
 The application is split into independently testable domains:
 
@@ -10,7 +10,7 @@ The application is split into independently testable domains:
 2. **Rack** — module lifecycle, module registry, ports, track assignment, routing.
 3. **Input** — XR hands/controllers, virtual keyboard, MIDI devices, desktop input.
 4. **Parameter system** — typed control sources mapped to module parameters.
-5. **Sequencer** — transport, event tracks, automation, arrangement, piano roll.
+5. **Sequencer** — clip audition, arrangement transport, automation, piano roll.
 6. **Persistence** — project serialization, IndexedDB asset store, presets.
 7. **AI integration** — asynchronous generation/transformation providers.
 8. **Presentation** — desktop DAW views and IWSDK-powered spatial interactions.
@@ -47,15 +47,16 @@ XR hands / Desktop / MIDI / Sequencer
           |
       Master output
 
+ArrangementTransport --(one AudioContext clock)--> all instrument tracks
 Sequencer recorder observes event/control streams and persists timestamped clips.
 AI providers --(async assets)--> validation/import --> local sample/instrument library
 ```
 
-## 4. Rack model
+## 4. Rack and track model
 
-A project owns one global rack. The rack contains instruments, effects, and controllers. Instruments are assigned to one or more tracks (subject to routing rules); effects can be inserted into track or send paths; controllers are not necessarily assigned to a track and may target any parameter.
+A project owns one global rack. The rack contains instruments, effects, and controllers. Each instrument track references a unique instrument instance and its independent track audio bus. All instrument instances in a project share one lazy AudioRuntime/AudioContext, but retain independent voice pools and output connections.
 
-A track references a unique instrument instance and its independent track audio bus. All instrument instances in a project share one lazy AudioRuntime/AudioContext, but retain independent voice pools and output connections. A track bus applies track level and stereo pan; project mute/solo state is applied to the bus level. Do not make each track own a separate, duplicated module registry.
+A track bus applies track level and stereo pan; project mute/solo state is applied to its bus level. Controllers are not necessarily assigned to one track and may target any compatible parameter through the global Parameter Bus.
 
 ## 5. Typed ports
 
@@ -71,7 +72,10 @@ Modules declare accepted input and output port types, supported parameter defini
 
 ## 6. Scheduling and performance
 
-- Schedule audio ahead using the AudioContext clock; do not rely on animation-frame timing for note precision.
+- Schedule audio ahead using the shared AudioContext clock; do not rely on animation-frame timing for note precision.
+- The arrangement transport translates each event to clip start position plus clip-relative event offset.
+- All arrangement clips share one start time and scheduler, preserving alignment across instrument tracks.
+- Automation recorded into a clip is routed to the instrument assigned to that clip's track; live controllers may still fan out globally.
 - Keep rendering and audio timing independent.
 - Preload samples before playback and avoid decoding or large allocations in the audio callback.
 - Use AudioWorklet for custom DSP only where native Web Audio nodes are insufficient.
@@ -80,7 +84,7 @@ Modules declare accepted input and output port types, supported parameter defini
 
 ## 7. Persistence
 
-Projects are versioned JSON documents. Schema version 2 stores instrument-track routing references and independent level/pan/mute/solo/arm state. The IndexedDB upgrade migrates version 1 tracks with neutral mix defaults. Large binary assets are stored separately in IndexedDB and referenced by stable asset IDs. Presets should serialize module configuration and mapping definitions without serializing runtime AudioNode objects.
+Projects are versioned JSON documents. Schema version 2 stores instrument-track routing references, clip start positions and independent level/pan/mute/solo/arm state. The IndexedDB upgrade migrates version 1 tracks with neutral mix defaults. Large binary assets are stored separately in IndexedDB and referenced by stable asset IDs. Presets should serialize module configuration and mapping definitions without serializing runtime AudioNode objects.
 
 ## 8. IWSDK integration
 
@@ -88,10 +92,10 @@ IWSDK provides app lifecycle, ECS, XR input integration, scene/runtime tools, an
 
 ## 9. First milestone acceptance criteria
 
-- One polyphonic synth module produces sound.
+- One synth module produces sound.
 - Theremin X/Y are exposed as typed controller outputs.
 - Parameter mappings alter synth pitch and amplitude predictably.
 - A controller can be disconnected and remapped without rebuilding the synth.
 - Recording captures both note/gate events and continuous control automation.
-- Playback reproduces the performance with stable scheduling.
+- Per-track and shared-arrangement playback use stable AudioContext scheduling.
 - Core tests run without a headset; XR interaction gets a separate hardware validation pass.

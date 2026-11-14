@@ -63,14 +63,18 @@ export class ParameterBus {
     return this.mappings.delete(mappingId);
   }
 
-  /** Route one continuous controller signal to every matching mapping. */
-  process(signal: ControlSignal): number {
+  /**
+   * Route one continuous signal to matching mappings. Supplying a target module
+   * scopes recorded automation to the instrument that owns its arrangement clip.
+   */
+  process(signal: ControlSignal, targetModuleId?: string): number {
     let applied = 0;
 
     for (const mapping of this.mappings.values()) {
       if (
         mapping.sourceModuleId !== signal.sourceId ||
-        mapping.sourcePortId !== signal.portId
+        mapping.sourcePortId !== signal.portId ||
+        (targetModuleId !== undefined && mapping.targetModuleId !== targetModuleId)
       ) {
         continue;
       }

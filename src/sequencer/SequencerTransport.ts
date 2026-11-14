@@ -36,6 +36,7 @@ export class SequencerTransport {
     private readonly parameterBus: ParameterBus,
     private readonly lookAheadSeconds = 0.12,
     private readonly intervalMilliseconds = 25,
+    private readonly controlTargetModuleId?: string,
   ) {}
 
   subscribe(listener: TransportListener): () => void {
@@ -157,7 +158,7 @@ export class SequencerTransport {
 
     if (event.kind === 'control') {
       const control: ControlSignal = { ...event, timestamp };
-      this.parameterBus.process(control);
+      this.parameterBus.process(control, this.controlTargetModuleId);
     }
     // Gate events will be connected to gate-capable modules in the next pass.
   }
@@ -183,6 +184,7 @@ export class SequencerTransport {
 export function createSequencerTransport(
   audio: AudioEngine,
   parameterBus: ParameterBus,
+  controlTargetModuleId?: string,
 ): SequencerTransport {
-  return new SequencerTransport(audio, parameterBus);
+  return new SequencerTransport(audio, parameterBus, 0.12, 25, controlTargetModuleId);
 }

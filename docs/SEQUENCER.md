@@ -21,39 +21,44 @@ The first capture path uses one monotonic event clock: performance-time seconds.
 4. Stop recording to commit a clip to the armed track.
 5. Automatically close note instances still held at stop time.
 6. Inspect the X/Y automation lanes and note-duration lane.
-7. Play the selected clip through the Parameter Bus and the instrument assigned to its owning track.
+7. Audition the selected clip on the instrument assigned to its owning track.
 
 The theremin publishes control signals to observers after routing them through the Parameter Bus. The recorder subscribes to that stream, so it captures the same normalized values regardless of whether a desktop slider or tracked fingertip produced them.
 
 ## Project and clip persistence
 
-A project owns stable track records; each clip references one track by trackId. The runtime creates one transport per instrument track. Recordings are appended to the active armed track, with their original clip-relative event offsets preserved. Selecting a different track filters the clip picker to that track's clips.
+A project owns stable track records; each clip references one track by `trackId`. The runtime creates one clip-audition transport per instrument track and one project-wide arrangement transport. Recordings are appended to the active armed track, with their original clip-relative event offsets preserved.
 
-Project snapshots are versioned and stored in IndexedDB. The application restores the most recently updated project during startup and offers a selector for its saved performances. Each completed recording is persisted automatically; project renames are saved with Save project.
+Project snapshots are versioned and stored in IndexedDB. The application restores the most recently updated project during startup and offers a selector for saved performances on the active track. Each completed recording is persisted automatically; clip moves and track mixer changes are also saved.
 
 The IndexedDB repository writes a complete project snapshot in one transaction. If IndexedDB is unavailable or fails to open, the app uses a session-only memory repository and labels this in the UI. Browser storage is local to the current browser profile and is not a backup or cloud-sync service.
 
-See [Projects and Tracks](PROJECTS_AND_TRACKS.md) for the document schema and storage contract.
+See [Projects and Tracks](PROJECTS_AND_TRACKS.md) and [Arrangement Editing](ARRANGEMENT.md) for the document and interaction contracts.
 
 ## Playback and scheduling
 
-- The transport uses a short look-ahead scheduler driven by a lightweight interval.
-- Each event is translated from clip-relative seconds into a future AudioContext time.
-- The audio engine converts the future audio time back into the shared performance-time clock, allowing AudioParam values and notes to be scheduled ahead.
-- Playback note IDs are namespaced so recorded voices do not collide with live input note IDs.
-- Stopping playback releases notes owned by the playback source.
-- Live and playback control signals use the same global Parameter Bus mappings. In this prototype, a controller's X/Y signals fan out to the compatible instrument parameters registered on each track.
+- The per-track clip audition transport uses a short look-ahead scheduler.
+- The project-wide arrangement transport schedules every clip against one shared AudioContext start time.
+- Event time is computed as arrangement clip position plus clip-relative event offset.
+- Events are sorted once by event time and then by stable source order; they are sent to the instrument belonging to the clip's track.
+- Playback note IDs are namespaced by clip and transport sequence so they do not collide with live input or other arranged clips.
+- Stopping the arrangement releases notes whose matching note-off events have not yet been scheduled.
+- Each clip's recorded controller automation is sent through the Parameter Bus but scoped to the clip's owning instrument. Live controller output remains free to fan out to compatible mapped instruments.
 
-The render loop is not used as the audio clock. XR frames update tracked input; audio scheduling is performed against AudioContext time.
+The render loop is not used as the audio clock. XR frames update tracked input; both transports schedule against AudioContext time.
 
 ## Current prototype UI
 
-The workbench exposes track selection, add instrument, arm, mute, solo, track level, stereo pan, Record, Stop recording, a saved-performance selector, Play clip, and Stop playback. Each clip is played by the transport associated with its owning track. The current UI stops other clip transports before starting a selected clip; simultaneous arrangement playback is deferred. The canvas timeline shows X-axis automation, Y-axis automation, and note blocks showing pitch and held duration.
+The workbench exposes track selection, add instrument, arm, mute, solo, track level, stereo pan, Record, Stop recording, a saved-clip selector, Play clip, and Stop playback. The arrangement view displays one lane per instrument track. Clips can be dragged horizontally to change their start time or vertically to move them to another track. Play arrangement schedules clips from all tracks in sync; Stop arrangement releases held playback notes.
+
+The selected-clip canvas below the arrangement still displays X-axis automation, Y-axis automation, and note blocks showing pitch and held duration.
 
 ## Automation
 
-The first implementation records source controller output values and replays them through the current Parameter Bus mappings. Changing a mapping can change the result without rewriting the recorded controller trajectory. A future bake-automation operation can store resolved target parameter values when decoupling is desired.
+The first implementation records source controller output values and replays them through the current Parameter Bus mappings. Changing a mapping can change the result without rewriting the recorded controller trajectory. During arrangement playback the recorded signal is scoped to the clip's destination instrument, preventing one track's automation from unintentionally changing every other instrument.
+
+A future bake-automation operation can store resolved target parameter values when decoupling is desired.
 
 ## Deferred sequencer features
 
-The project already reserves tempo and time-signature metadata, but transport and event offsets remain seconds-based. Musical beat conversion, tempo maps, quantization, loop sections, clip editing, simultaneous arrangement playback across tracks, and rendered audio recording remain future work.
+The project already reserves tempo and time-signature metadata, but transport and event offsets remain seconds-based. Musical beat conversion, tempo maps, bar/beat grid, configurable quantization, loop sections, clip resizing/trimming, duplication, multi-select, and rendered audio recording remain future work.

@@ -8,11 +8,13 @@ import { TrackAudioBus } from '../rack/TrackAudioBus.js';
 import { ThereminController } from '../controllers/theremin/ThereminController.js';
 import { ThereminSpatialAdapter } from '../controllers/theremin/ThereminSpatialAdapter.js';
 import { EventRecorder, type RecordingClip } from '../sequencer/Recorder.js';
+import { ArrangementTransport } from '../sequencer/ArrangementTransport.js';
 import { createSequencerTransport, type TransportState } from '../sequencer/SequencerTransport.js';
 import {
   addInstrumentTrack,
   addRecordingToProject,
   createDefaultProject,
+  moveProjectClip,
   setActiveProjectTrack,
   updateProjectTrack,
   type ProjectClip,
@@ -31,6 +33,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const parameterBus = new ParameterBus();
   const theremin = rack.add(new ThereminController('theremin-main', parameterBus));
   const recorder = new EventRecorder();
+  const arrangementTransport = new ArrangementTransport(audioRuntime, parameterBus);
   const trackResources = new Map<string, {
     instrument: AudioEngine;
     bus: TrackAudioBus;
@@ -91,7 +94,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       smoothingMs: 14,
     });
 
-    const transport = createSequencerTransport(instrument, parameterBus);
+    const transport = createSequencerTransport(instrument, parameterBus, instrument.id);
     const unsubscribeTransport = transport.subscribe((state) =>
       handleTransportState(track.id, state),
     );
@@ -224,6 +227,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '  <div class="controller-panel sequencer-panel">',
     '    <div class="section-heading"><div><p class="eyebrow">ARRANGEMENT · TRACKS</p><h2 id="active-track-name">Theremin Synth</h2></div>',
     '      <span class="module-chip" id="clip-summary">NO CLIP</span></div>',
+    '    <div class="arrangement-toolbar">',
+    '      <span class="arrangement-label">MULTI-TRACK ARRANGEMENT</span>',
+    '      <button class="transport-button" id="arrangement-play" type="button" disabled>▶ Play arrangement</button>',
+    '      <button class="transport-button" id="arrangement-stop" type="button" disabled>■ Stop arrangement</button>',
+    '      <span class="arrangement-hint">Drag clips horizontally to move in time and vertically to move between tracks.</span>',
+    '    </div>',
+    '    <div class="arrangement-wrap"><canvas id="arrangement-timeline" width="1000" height="220" aria-label="Multi-track arrangement. Drag clips to reposition or move them to another instrument track."></canvas></div>',
     '    <div class="track-toolbar">',
     '      <label for="track-select"><span>ACTIVE TRACK</span><select id="track-select"></select></label>',
     '      <button class="transport-button" id="add-track" type="button">+ Add instrument</button>',
@@ -282,6 +292,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const clipPlayButton = get<HTMLButtonElement>('#clip-play');
   const clipStopButton = get<HTMLButtonElement>('#clip-stop');
   const clipSummary = get<HTMLElement>('#clip-summary');
+  const arrangementPlayButton = get<HTMLButtonElement>('#arrangement-play');
+  const arrangementStopButton = get<HTMLButtonElement>('#arrangement-stop');
+  const arrangementTimeline = get<HTMLCanvasElement>('#arrangement-timeline');
   const captureStatus = get<HTMLElement>('#capture-status');
   const timeline = get<HTMLCanvasElement>('#clip-timeline');
 
@@ -292,12 +305,155 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !trackSelect || !addTrackButton || !armTrackButton || !muteTrackButton ||
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
-    !clipStopButton || !clipSummary || !captureStatus || !timeline
+    !clipStopButton || !clipSummary || !arrangementPlayButton ||
+    !arrangementStopButton || !arrangementTimeline || !captureStatus || !timeline
   ) {
+    arrangementTransport.dispose();
     spatialAdapter.dispose();
     unsubscribeController();
     throw new Error('The workbench UI is missing a required control.');
   }
+
+  type ArrangementHitRegion = {
+    readonly clipId: string;
+    readonly trackId: string;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  type ArrangementPreview = {
+    readonly clipId: string;
+    readonly trackId: string;
+    readonly startSeconds: number;
+  };
+
+  let arrangementHitRegions: ArrangementHitRegion[] = [];
+  let arrangementDrag: {
+    readonly clipId: string;
+    readonly pointerId: number;
+    readonly pointerStartX: number;
+    readonly originalStartSeconds: number;
+    readonly originalTrackId: string;
+    readonly originalActiveTrackId: string;
+    previewTrackId: string;
+    previewStartSeconds: number;
+  } | undefined;
+
+  const getArrangementMetrics = () => {
+    const tracks = [...project.tracks].sort((a, b) => a.order - b.order);
+    const width = Math.max(320, arrangementTimeline.clientWidth || 900);
+    const left = 142;
+    const right = 14;
+    const top = 34;
+    const rowHeight = 46;
+    const duration = Math.max(
+      8,
+      ...project.clips.map(clip => clip.startSeconds + clip.durationSeconds),
+    );
+    return {
+      tracks,
+      width,
+      height: top + tracks.length * rowHeight + 12,
+      left,
+      right,
+      top,
+      rowHeight,
+      duration,
+      pixelsPerSecond: (width - left - right) / duration,
+    };
+  };
+
+  const drawArrangement = (preview?: ArrangementPreview): void => {
+    const context = arrangementTimeline.getContext('2d');
+    if (!context) return;
+
+    const metrics = getArrangementMetrics();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    arrangementTimeline.style.height = metrics.height + 'px';
+    arrangementTimeline.width = Math.round(metrics.width * dpr);
+    arrangementTimeline.height = Math.round(metrics.height * dpr);
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, metrics.width, metrics.height);
+    context.fillStyle = '#100f18';
+    context.fillRect(0, 0, metrics.width, metrics.height);
+    context.font = '10px Inter, system-ui, sans-serif';
+
+    const plotRight = metrics.width - metrics.right;
+    const tickStep = metrics.duration > 40 ? 5 : metrics.duration > 20 ? 2 : 1;
+    context.fillStyle = '#8b8499';
+    context.strokeStyle = 'rgba(180, 164, 209, 0.14)';
+    for (let second = 0; second <= metrics.duration; second += tickStep) {
+      const x = metrics.left + second * metrics.pixelsPerSecond;
+      context.beginPath();
+      context.moveTo(x, 22);
+      context.lineTo(x, metrics.height - 8);
+      context.stroke();
+      context.fillText(second + 's', x + 3, 15);
+    }
+
+    arrangementHitRegions = [];
+    metrics.tracks.forEach((track, index) => {
+      const y = metrics.top + index * metrics.rowHeight;
+      context.fillStyle = track.id === project.activeTrackId
+        ? 'rgba(132, 97, 188, 0.16)'
+        : 'rgba(255, 255, 255, 0.025)';
+      context.fillRect(0, y, metrics.width, metrics.rowHeight - 2);
+      context.fillStyle = track.id === project.activeTrackId ? '#e5d6ff' : '#a39aae';
+      context.fillText(track.name.slice(0, 19), 10, y + 19);
+      context.fillStyle = '#716b80';
+      context.fillText(track.muted ? 'MUTED' : track.solo ? 'SOLO' : track.armed ? 'ARMED' : 'READY', 10, y + 33);
+
+      context.strokeStyle = 'rgba(180, 164, 209, 0.12)';
+      context.beginPath();
+      context.moveTo(metrics.left, y + metrics.rowHeight - 2);
+      context.lineTo(plotRight, y + metrics.rowHeight - 2);
+      context.stroke();
+    });
+
+    const previewClip = preview
+      ? project.clips.find(clip => clip.id === preview.clipId)
+      : undefined;
+    for (const clip of project.clips) {
+      const isPreview = Boolean(preview && previewClip?.id === clip.id);
+      const trackId = isPreview ? preview!.trackId : clip.trackId;
+      const startSeconds = isPreview ? preview!.startSeconds : clip.startSeconds;
+      const trackIndex = metrics.tracks.findIndex(track => track.id === trackId);
+      if (trackIndex < 0) continue;
+
+      const x = metrics.left + startSeconds * metrics.pixelsPerSecond;
+      const y = metrics.top + trackIndex * metrics.rowHeight + 8;
+      const width = Math.max(24, clip.durationSeconds * metrics.pixelsPerSecond);
+      const height = 27;
+      const selected = clip.id === selectedClipId;
+      context.fillStyle = isPreview
+        ? 'rgba(183, 151, 238, 0.85)'
+        : selected
+          ? 'rgba(155, 115, 220, 0.92)'
+          : 'rgba(75, 135, 143, 0.78)';
+      context.fillRect(x, y, width, height);
+      context.strokeStyle = selected ? '#e9d8ff' : 'rgba(220, 210, 240, 0.28)';
+      context.strokeRect(x + 0.5, y + 0.5, Math.max(1, width - 1), height - 1);
+      context.fillStyle = '#fff';
+      if (width > 42) context.fillText(clip.name.slice(0, Math.max(4, Math.floor(width / 7))), x + 6, y + 17);
+
+      if (!isPreview) {
+        arrangementHitRegions.push({
+          clipId: clip.id,
+          trackId: clip.trackId,
+          x,
+          y,
+          width,
+          height,
+        });
+      }
+    }
+
+    if (project.clips.length === 0) {
+      context.fillStyle = '#777184';
+      context.fillText('Record a performance to create a clip, then drag it onto this timeline.', metrics.left + 10, metrics.top + 24);
+    }
+  };
 
   const drawTimeline = (clip: RecordingClip | undefined): void => {
     const context = timeline.getContext('2d');
@@ -407,12 +563,16 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   };
 
   const anyTransportPlaying = (): boolean =>
+    arrangementTransport.currentState === 'playing' ||
     [...trackResources.values()].some(resources => resources.transport.currentState === 'playing');
 
   const updateClipUi = (): void => {
     const hasClip = Boolean(selectedClip && selectedClip.events.length > 0);
-    clipPlayButton.disabled = !hasClip || !audioReady || anyTransportPlaying();
+    clipPlayButton.disabled = !hasClip || !audioReady || recorder.isRecording || anyTransportPlaying();
     clipStopButton.disabled = !anyTransportPlaying();
+    arrangementPlayButton.disabled = !audioReady || recorder.isRecording ||
+      project.clips.length === 0 || anyTransportPlaying();
+    arrangementStopButton.disabled = arrangementTransport.currentState !== 'playing';
     clipSummary.textContent = selectedClip
       ? selectedClip.name.toUpperCase() + ' · ' + selectedClip.durationSeconds.toFixed(1) + 'S'
       : 'NO CLIP';
@@ -474,6 +634,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     trackVolumeInput.disabled = recorder.isRecording;
     trackPanInput.disabled = recorder.isRecording;
     refreshClipList();
+    drawArrangement();
     applyTrackMix();
   };
 
@@ -544,6 +705,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const startRecording = (): void => {
     if (!persistenceReady || recorder.isRecording) return;
     if (anyTransportPlaying()) {
+      arrangementTransport.stop();
       for (const resources of trackResources.values()) resources.transport.stop();
     }
     selectedClipId = undefined;
@@ -573,14 +735,18 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const recording = recorder.stop(performance.now() / 1000);
     recordStartButton.disabled = !persistenceReady;
     recordStopButton.disabled = true;
-    if (!recording) return;
+    recordingTrackId = undefined;
+    if (!recording) {
+      updateProjectUi();
+      updateClipUi();
+      return;
+    }
 
     project = {
       ...project,
       name: projectNameInput.value.trim() || project.name,
     };
     project = addRecordingToProject(project, recordingTrackId ?? project.activeTrackId, recording);
-    recordingTrackId = undefined;
     selectedClipId = recording.id;
     captureStatus.textContent = 'Captured ' + recording.events.length + ' events over ' +
       recording.durationSeconds.toFixed(2) + ' seconds. Saving to this device…';
@@ -626,6 +792,102 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     playButton.disabled = false;
     updateProjectUi();
   };
+
+  arrangementTimeline.addEventListener('pointerdown', (event) => {
+    if (recorder.isRecording || anyTransportPlaying()) return;
+    const rect = arrangementTimeline.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const hit = [...arrangementHitRegions].reverse().find(region =>
+      x >= region.x && x <= region.x + region.width &&
+      y >= region.y && y <= region.y + region.height,
+    );
+    if (!hit) return;
+
+    const clip = project.clips.find(item => item.id === hit.clipId);
+    if (!clip) return;
+    const originalActiveTrackId = project.activeTrackId;
+    project = setActiveProjectTrack(project, hit.trackId);
+    selectedClipId = clip.id;
+    selectedClip = clip;
+    arrangementDrag = {
+      clipId: clip.id,
+      pointerId: event.pointerId,
+      pointerStartX: event.clientX,
+      originalStartSeconds: clip.startSeconds,
+      originalTrackId: clip.trackId,
+      originalActiveTrackId,
+      previewTrackId: clip.trackId,
+      previewStartSeconds: clip.startSeconds,
+    };
+    arrangementTimeline.setPointerCapture(event.pointerId);
+    updateProjectUi();
+    event.preventDefault();
+  });
+
+  arrangementTimeline.addEventListener('pointermove', (event) => {
+    if (!arrangementDrag || arrangementDrag.pointerId !== event.pointerId) return;
+    const metrics = getArrangementMetrics();
+    const rect = arrangementTimeline.getBoundingClientRect();
+    const localY = event.clientY - rect.top;
+    const rowIndex = Math.floor((localY - metrics.top) / metrics.rowHeight);
+    const boundedRow = Math.max(0, Math.min(metrics.tracks.length - 1, rowIndex));
+    const targetTrack = metrics.tracks[boundedRow];
+    const deltaSeconds = (event.clientX - arrangementDrag.pointerStartX) / metrics.pixelsPerSecond;
+    const rawStart = Math.max(0, arrangementDrag.originalStartSeconds + deltaSeconds);
+    const snappedStart = Math.round(rawStart * 4) / 4;
+
+    arrangementDrag.previewStartSeconds = snappedStart;
+    if (targetTrack) arrangementDrag.previewTrackId = targetTrack.id;
+    drawArrangement({
+      clipId: arrangementDrag.clipId,
+      trackId: arrangementDrag.previewTrackId,
+      startSeconds: arrangementDrag.previewStartSeconds,
+    });
+    event.preventDefault();
+  });
+
+  const finishArrangementDrag = (event: PointerEvent): void => {
+    if (!arrangementDrag || arrangementDrag.pointerId !== event.pointerId) return;
+    const drag = arrangementDrag;
+    arrangementDrag = undefined;
+    const clipChanged = drag.previewStartSeconds !== drag.originalStartSeconds ||
+      drag.previewTrackId !== drag.originalTrackId;
+    const activeTrackChanged = drag.originalActiveTrackId !== drag.previewTrackId;
+    if (
+      drag.previewStartSeconds !== drag.originalStartSeconds ||
+      drag.previewTrackId !== drag.originalTrackId
+    ) {
+      project = moveProjectClip(
+        project,
+        drag.clipId,
+        drag.previewTrackId,
+        drag.previewStartSeconds,
+      );
+      project = setActiveProjectTrack(project, drag.previewTrackId);
+    }
+    selectedClipId = drag.clipId;
+    selectedClip = project.clips.find(clip => clip.id === selectedClipId);
+    updateProjectUi();
+    if (clipChanged || activeTrackChanged) {
+      void persistProject().catch((error: unknown) => {
+        projectStatus.textContent = error instanceof Error
+          ? error.message
+          : 'Could not save the clip position.';
+      });
+    }
+    event.preventDefault();
+  };
+
+  arrangementTimeline.addEventListener('pointerup', finishArrangementDrag);
+  arrangementTimeline.addEventListener('pointercancel', (event) => {
+    if (!arrangementDrag || arrangementDrag.pointerId !== event.pointerId) return;
+    const originalActiveTrackId = arrangementDrag.originalActiveTrackId;
+    arrangementDrag = undefined;
+    project = setActiveProjectTrack(project, originalActiveTrackId);
+    selectedClip = project.clips.find(clip => clip.id === selectedClipId);
+    updateProjectUi();
+  });
 
   trackSelect.addEventListener('change', () => {
     if (recorder.isRecording) return;
@@ -702,6 +964,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   clipPlayButton.addEventListener('click', () => {
     if (!selectedClip || !audioReady) return;
     try {
+      arrangementTransport.stop();
       for (const resources of trackResources.values()) resources.transport.stop();
       const resources = resourceFor(selectedClip.trackId);
       if (!resources) throw new Error('The clip track has no instrument runtime.');
@@ -711,8 +974,33 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
   });
   clipStopButton.addEventListener('click', () => {
+    arrangementTransport.stop();
     for (const resources of trackResources.values()) resources.transport.stop();
   });
+
+  const startArrangementPlayback = async (): Promise<void> => {
+    if (!audioReady) throw new Error('Enable audio before playing the arrangement.');
+    arrangementTransport.stop();
+    for (const resources of trackResources.values()) resources.transport.stop();
+    await Promise.all(project.tracks.map(async track => {
+      ensureTrackRuntime(track);
+      await ensureTrackAudioReady(track.id);
+    }));
+    const sinks = new Map(
+      project.tracks.map(track => [track.id, resourceFor(track.id)!.instrument] as const),
+    );
+    arrangementTransport.play(project, sinks);
+    updateClipUi();
+  };
+
+  arrangementPlayButton.addEventListener('click', () => {
+    void startArrangementPlayback().catch((error: unknown) => {
+      captureStatus.textContent = error instanceof Error
+        ? error.message
+        : 'Could not play the arrangement.';
+    });
+  });
+  arrangementStopButton.addEventListener('click', () => arrangementTransport.stop());
 
   projectSaveButton.addEventListener('click', () => {
     projectSaveButton.disabled = true;
@@ -778,23 +1066,45 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   playButton.addEventListener('pointercancel', stopDesktopTone);
   playButton.addEventListener('lostpointercapture', stopDesktopTone);
   window.addEventListener('blur', stopDesktopTone);
-  const resizeHandler = (): void => drawTimeline(selectedClip);
+  const resizeHandler = (): void => {
+    drawTimeline(selectedClip);
+    drawArrangement();
+  };
   window.addEventListener('resize', resizeHandler);
 
   root.addEventListener('vibe-wizard-dispose', () => {
     stopDesktopTone();
     if (recorder.isRecording) stopRecording();
+    arrangementTransport.dispose();
     for (const resources of trackResources.values()) {
       resources.transport.dispose();
       resources.unsubscribeTransport();
     }
+    unsubscribeArrangementTransport();
     unsubscribeController();
     spatialAdapter.dispose();
     window.removeEventListener('resize', resizeHandler);
     void rack.dispose().then(() => audioRuntime.dispose());
   }, { once: true });
 
+  const unsubscribeArrangementTransport = arrangementTransport.subscribe((state) => {
+    updateClipUi();
+    if (state === 'playing') {
+      captureStatus.textContent = 'Playing the multi-track arrangement…';
+      updateStatus('Arrangement playing');
+    } else if (state === 'completed' && ![...trackResources.values()].some(
+      resources => resources.transport.currentState === 'playing',
+    )) {
+      captureStatus.textContent = 'Arrangement playback complete.';
+      updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
+    } else if (state === 'stopped') {
+      captureStatus.textContent = 'Arrangement stopped.';
+      updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
+    }
+  });
+
   updateController();
   drawTimeline(undefined);
+  drawArrangement();
   void initializeProject();
 }

@@ -85,6 +85,27 @@ describe('ParameterBus', () => {
     expect(second.values[0]?.value).toBe(6100);
   });
 
+  it('can scope recorded automation to the instrument that owns a clip', () => {
+    const bus = new ParameterBus();
+    const first = new TestTarget('synth');
+    const second = new TestTarget('second');
+    bus.registerTarget(first);
+    bus.registerTarget(second);
+    bus.addMapping(baseMapping);
+    bus.addMapping({
+      ...baseMapping,
+      id: 'theremin-x-to-second',
+      targetModuleId: 'second',
+    });
+
+    expect(bus.process(signal(0.5), 'second')).toBe(1);
+    expect(first.values).toEqual([]);
+    expect(second.values).toEqual([{ parameterId: 'pitch', value: 66 }]);
+    expect(bus.process(signal(0.25))).toBe(2);
+    expect(first.values).toHaveLength(1);
+    expect(second.values).toHaveLength(2);
+  });
+
   it('rejects mappings to unknown targets', () => {
     const bus = new ParameterBus();
     expect(() => bus.addMapping(baseMapping)).toThrow(/Unknown parameter target/);

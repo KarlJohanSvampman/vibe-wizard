@@ -148,6 +148,44 @@ export function setActiveProjectTrack(
   return { ...project, activeTrackId: trackId, updatedAt: now.toISOString() };
 }
 
+/** Move a clip on the arrangement timeline, optionally to another instrument lane. */
+export function moveProjectClip(
+  snapshot: ProjectSnapshot,
+  clipId: string,
+  targetTrackId: string,
+  startSeconds: number,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (!project.tracks.some(track => track.id === targetTrackId)) {
+    throw new Error('Cannot move a clip to unknown track: ' + targetTrackId);
+  }
+  if (!finiteNumber(startSeconds) || startSeconds < 0) {
+    throw new Error('Clip arrangement position must be a finite non-negative number.');
+  }
+  if (!project.clips.some(clip => clip.id === clipId)) {
+    throw new Error('Cannot move unknown clip: ' + clipId);
+  }
+
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    clips: project.clips.map(clip =>
+      clip.id === clipId ? { ...clip, trackId: targetTrackId, startSeconds } : clip,
+    ),
+  });
+}
+
+export function getArrangementDurationSeconds(
+  project: ProjectSnapshot,
+  minimumSeconds = 8,
+): number {
+  return Math.max(
+    minimumSeconds,
+    ...project.clips.map(clip => clip.startSeconds + clip.durationSeconds),
+  );
+}
+
 export function addRecordingToProject(
   snapshot: ProjectSnapshot,
   trackId: string,

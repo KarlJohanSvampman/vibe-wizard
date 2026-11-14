@@ -4,7 +4,9 @@ import {
   addInstrumentTrack,
   addRecordingToProject,
   createDefaultProject,
+  getArrangementDurationSeconds,
   migrateProjectRecord,
+  moveProjectClip,
   setActiveProjectTrack,
   updateProjectTrack,
   validateProjectSnapshot,
@@ -102,6 +104,51 @@ describe('project model', () => {
     recorder.start(1);
     const clip = recorder.stop(1, 'empty')!;
     expect(() => addRecordingToProject(project, 'missing-track', clip)).toThrow(/unknown track/i);
+  });
+
+  it('moves a clip to another track and updates the arrangement duration', () => {
+    const firstProject = createDefaultProject('synth-main');
+    const recorder = new EventRecorder();
+    recorder.start(10);
+    recorder.record({
+      kind: 'note-on',
+      sourceId: 'theremin-main',
+      noteId: 'note-1',
+      pitch: 60,
+      velocity: 0.8,
+      timestamp: 10.1,
+    });
+    const recording = recorder.stop(11, 'clip-move')!;
+    const withClip = addRecordingToProject(
+      firstProject,
+      firstProject.activeTrackId,
+      recording,
+    );
+    const withSecondTrack = addInstrumentTrack(withClip, 'Second', 'synth-second');
+    const targetTrackId = withSecondTrack.activeTrackId;
+    const moved = moveProjectClip(
+      withSecondTrack,
+      recording.id,
+      targetTrackId,
+      3.25,
+      new Date('2026-11-14T12:02:00.000Z'),
+    );
+
+    expect(moved.clips[0]).toMatchObject({
+      id: recording.id,
+      trackId: targetTrackId,
+      startSeconds: 3.25,
+    });
+    expect(getArrangementDurationSeconds(moved)).toBe(8);
+    expect(getArrangementDurationSeconds(moved, 1)).toBe(4.25);
+  });
+
+  it('rejects negative positions and unknown tracks when moving clips', () => {
+    const project = createDefaultProject('synth-main');
+    expect(() => moveProjectClip(project, 'missing', project.activeTrackId, 0))
+      .toThrow(/unknown clip/i);
+    expect(() => moveProjectClip(project, 'missing', 'missing-track', 0))
+      .toThrow(/unknown track/i);
   });
 
   it('migrates a version 1 project while preserving its tracks and clips', () => {
