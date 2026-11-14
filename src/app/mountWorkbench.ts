@@ -2,6 +2,9 @@ import { VisibilityState, type World } from '@iwsdk/core';
 import type { MusicalEvent, NoteOffEvent, NoteOnEvent } from '../audio/events.js';
 import { AudioRuntime } from '../audio/AudioRuntime.js';
 import { AudioEngine } from '../audio/AudioEngine.js';
+import { createAudioAssetStore } from '../audio/AudioAssetStore.js';
+import { getInstrumentLabel, isInstrumentType } from '../audio/InstrumentTypes.js';
+import type { InstrumentType } from '../audio/InstrumentTypes.js';
 import { Rack } from '../rack/Rack.js';
 import { ParameterBus } from '../rack/ParameterBus.js';
 import { TrackAudioBus } from '../rack/TrackAudioBus.js';
@@ -43,6 +46,7 @@ import {
 export function mountWorkbench(root: HTMLElement, world: World): void {
   const rack = new Rack();
   const audioRuntime = new AudioRuntime();
+  const sampleAssets = createAudioAssetStore();
   const parameterBus = new ParameterBus();
   const theremin = rack.add(new ThereminController('theremin-main', parameterBus));
   const recorder = new EventRecorder();
@@ -86,23 +90,25 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const existing = trackResources.get(track.id);
     if (existing) return existing;
 
-    const instrument = rack.add(new AudioEngine(track.instrumentModuleId, audioRuntime));
+    const instrument = rack.add(new AudioEngine(track.instrumentModuleId, audioRuntime, track.instrumentType));
     const bus = rack.add(new TrackAudioBus('track-bus-' + track.id, audioRuntime));
     parameterBus.registerTarget(instrument);
     parameterBus.registerTarget(bus);
-    parameterBus.addMapping({
-      id: 'theremin-x-to-' + instrument.id,
-      sourceModuleId: theremin.id,
-      sourcePortId: 'x',
-      targetModuleId: instrument.id,
-      targetParameterId: 'pitch',
-      inputRange: [0, 1],
-      outputRange: [48, 84],
-      curve: 'linear',
-      invert: false,
-      deadZone: 0,
-      smoothingMs: 10,
-    });
+    if (track.instrumentType !== 'drums') {
+      parameterBus.addMapping({
+        id: 'theremin-x-to-' + instrument.id,
+        sourceModuleId: theremin.id,
+        sourcePortId: 'x',
+        targetModuleId: instrument.id,
+        targetParameterId: 'pitch',
+        inputRange: [0, 1],
+        outputRange: [48, 84],
+        curve: 'linear',
+        invert: false,
+        deadZone: 0,
+        smoothingMs: 10,
+      });
+    }
     parameterBus.addMapping({
       id: 'theremin-y-to-' + instrument.id,
       sourceModuleId: theremin.id,
@@ -137,6 +143,18 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     // context resume, so XR input cannot race an unprepared track graph.
     resources.instrument.connectOutput(resources.bus.inputNode);
     await Promise.all([instrumentStart, busStart]);
+    if (track.instrumentType === 'sampler' && track.sampleAssetId && !resources.instrument.hasSample) {
+      try {
+        const asset = await sampleAssets.load(track.sampleAssetId);
+        if (asset) await resources.instrument.loadSample(asset.data);
+      } catch (error) {
+        if (track.id === project.activeTrackId) {
+          captureStatus.textContent = error instanceof Error
+            ? 'Could not restore sample: ' + error.message
+            : 'Could not restore this sampler sample.';
+        }
+      }
+    }
     applyTrackMix();
   };
 
@@ -270,10 +288,15 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '    <div class="arrangement-wrap"><canvas id="arrangement-timeline" width="1000" height="220" aria-label="Multi-track arrangement. Drag clips to reposition or move them to another instrument track."></canvas></div>',
     '    <div class="track-toolbar">',
     '      <label for="track-select"><span>ACTIVE TRACK</span><select id="track-select"></select></label>',
+    '      <label for="new-instrument-type"><span>NEW TRACK INSTRUMENT</span><select id="new-instrument-type"><option value="synth">Analog Synth</option><option value="piano">Piano</option><option value="drums">Drum Kit</option><option value="sampler">Sampler</option></select></label>',
     '      <button class="transport-button" id="add-track" type="button">+ Add instrument</button>',
     '      <button class="transport-button" id="arm-track" type="button">● Armed</button>',
     '      <button class="transport-button" id="mute-track" type="button">Mute</button>',
     '      <button class="transport-button" id="solo-track" type="button">Solo</button>',
+    '    </div>',
+    '    <div class="instrument-asset-row" id="sample-import-row" hidden>',
+    '      <label for="sample-file"><span>SAMPLER AUDIO FILE</span><input id="sample-file" type="file" accept="audio/*" /></label>',
+    '      <span id="sample-status">Choose a Sampler track to import audio.</span>',
     '    </div>',
     '    <div class="track-mixer-controls">',
     '      <label for="track-volume"><span>TRACK LEVEL</span><input id="track-volume" type="range" min="0" max="1" step="0.01" value="0.8" /></label>',
@@ -328,6 +351,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const projectStatus = get<HTMLElement>('#project-status');
   const trackName = get<HTMLElement>('#active-track-name');
   const trackSelect = get<HTMLSelectElement>('#track-select');
+  const newInstrumentTypeSelect = get<HTMLSelectElement>('#new-instrument-type');
+  const sampleImportRow = get<HTMLElement>('#sample-import-row');
+  const sampleFileInput = get<HTMLInputElement>('#sample-file');
+  const sampleStatus = get<HTMLElement>('#sample-status');
   const addTrackButton = get<HTMLButtonElement>('#add-track');
   const armTrackButton = get<HTMLButtonElement>('#arm-track');
   const muteTrackButton = get<HTMLButtonElement>('#mute-track');
@@ -364,7 +391,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !enableButton || !enterVrButton || !playButton || !xInput || !yInput ||
     !status || !statusDot || !xValue || !yValue || !pitchValue ||
     !projectNameInput || !projectSaveButton || !projectStatus || !trackName ||
-    !trackSelect || !addTrackButton || !armTrackButton || !muteTrackButton ||
+    !trackSelect || !newInstrumentTypeSelect || !sampleImportRow || !sampleFileInput ||
+    !sampleStatus || !addTrackButton || !armTrackButton || !muteTrackButton ||
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
     !clipStopButton || !clipDuplicateButton || !clipSummary || !arrangementPlayButton ||
@@ -938,13 +966,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     loopStartBarInput.disabled = timingControlsDisabled;
     loopEndBarInput.disabled = timingControlsDisabled;
     const selectedTrack = activeTrack();
-    trackName.textContent = selectedTrack?.name ?? 'No active track';
+    trackName.textContent = selectedTrack.name + ' · ' + getInstrumentLabel(selectedTrack.instrumentType);
 
     trackSelect.replaceChildren();
     for (const track of [...project.tracks].sort((a, b) => a.order - b.order)) {
       const option = document.createElement('option');
       option.value = track.id;
-      option.textContent = track.name;
+      option.textContent = track.name + ' · ' + getInstrumentLabel(track.instrumentType);
       trackSelect.append(option);
     }
     trackSelect.value = selectedTrack.id;
@@ -955,6 +983,16 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     trackVolumeInput.value = String(selectedTrack.volume);
     trackPanInput.value = String(selectedTrack.pan);
     trackSelect.disabled = recorder.isRecording;
+    newInstrumentTypeSelect.disabled = recorder.isRecording;
+    sampleImportRow.hidden = selectedTrack.instrumentType !== 'sampler';
+    sampleFileInput.disabled = recorder.isRecording;
+    sampleStatus.textContent = selectedTrack.instrumentType !== 'sampler'
+      ? 'Choose a Sampler track to import audio.'
+      : selectedTrack.sampleFileName
+        ? (resourceFor(selectedTrack.id)?.instrument.hasSample
+          ? 'Loaded: ' + selectedTrack.sampleFileName
+          : 'Stored: ' + selectedTrack.sampleFileName + ' · enable audio to decode')
+        : 'Choose an audio file. It will be stored locally with the project reference.';
     addTrackButton.disabled = recorder.isRecording;
     armTrackButton.disabled = recorder.isRecording;
     muteTrackButton.disabled = recorder.isRecording;
@@ -1383,9 +1421,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   addTrackButton.addEventListener('click', () => {
     if (recorder.isRecording) return;
     const count = project.tracks.length + 1;
-    const moduleId = 'synth-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+    const instrumentType = newInstrumentTypeSelect.value;
+    if (!isInstrumentType(instrumentType)) return;
+    const moduleId = instrumentType + '-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+    const trackName = getInstrumentLabel(instrumentType) + ' ' + String(count).padStart(2, '0');
     const beforeEdit = project;
-    project = addInstrumentTrack(project, 'Instrument Track ' + String(count).padStart(2, '0'), moduleId);
+    project = addInstrumentTrack(project, trackName, moduleId, new Date(), instrumentType);
     projectHistory.commit(beforeEdit, project);
     const track = activeTrack();
     ensureTrackRuntime(track);
@@ -1395,6 +1436,53 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     void persistProject().catch((error: unknown) => {
       projectStatus.textContent = error instanceof Error ? error.message : 'Could not save new track';
     });
+  });
+
+  sampleFileInput.addEventListener('change', () => {
+    const file = sampleFileInput.files?.[0];
+    const track = activeTrack();
+    if (!file) return;
+    if (track.instrumentType !== 'sampler') {
+      sampleStatus.textContent = 'Select a Sampler track before importing audio.';
+      sampleFileInput.value = '';
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      sampleStatus.textContent = 'Sample files must be 25 MB or smaller.';
+      sampleFileInput.value = '';
+      return;
+    }
+
+    sampleStatus.textContent = 'Importing ' + file.name + '…';
+    void (async () => {
+      const data = await file.arrayBuffer();
+      const assetId = 'sample-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+      await sampleAssets.save({
+        id: assetId,
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        data,
+        updatedAt: new Date().toISOString(),
+      });
+      const beforeEdit = project;
+      project = updateProjectTrack(project, track.id, {
+        sampleAssetId: assetId,
+        sampleFileName: file.name,
+      });
+      projectHistory.commit(beforeEdit, project);
+      const resources = resourceFor(track.id);
+      if (audioReady && resources) await resources.instrument.loadSample(data);
+      sampleStatus.textContent = audioReady
+        ? 'Loaded: ' + file.name
+        : 'Stored: ' + file.name + ' · enable audio to decode';
+      updateProjectUi();
+      await persistProject();
+    })().catch((error: unknown) => {
+      sampleStatus.textContent = error instanceof Error
+        ? 'Sample import failed: ' + error.message
+        : 'Sample import failed.';
+    });
+    sampleFileInput.value = '';
   });
 
   armTrackButton.addEventListener('click', () => {
