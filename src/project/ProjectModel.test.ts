@@ -216,8 +216,16 @@ describe('project model', () => {
     recorder.record({
       kind: 'note-on', sourceId: 'test', noteId: 'note-1', pitch: 60, velocity: 0.8, timestamp: 1.1,
     });
+    recorder.record({
+      kind: 'note-off', sourceId: 'test', noteId: 'note-1', timestamp: 1.8,
+    });
     const recording = recorder.stop(2, 'original')!;
     const withClip = addRecordingToProject(project, project.activeTrackId, recording);
+    const shortened = resizeProjectClip(withClip, 'original', 0.5);
+    const audition = projectClipToRecordingClip(shortened.clips[0]!, 120);
+    expect(audition.durationSeconds).toBe(0.25);
+    expect(audition.events.map(item => item.event.kind)).toEqual(['note-on']);
+
     const resized = resizeProjectClip(withClip, 'original', 3);
     expect(resized.clips[0]?.lengthBeats).toBe(3);
     const duplicate = duplicateProjectClip(resized, 'original', 'duplicate');
@@ -228,6 +236,16 @@ describe('project model', () => {
     expect(duplicate.clips[1]?.events).toEqual(duplicate.clips[0]?.events);
     expect(() => resizeProjectClip(duplicate, 'missing', 2)).toThrow(/unknown clip/i);
     expect(() => duplicateProjectClip(duplicate, 'original', 'duplicate')).toThrow(/unique/i);
+  });
+
+  it('preserves empty zero-length recording clips', () => {
+    const project = createDefaultProject('synth-main');
+    const recorder = new EventRecorder();
+    recorder.start(1);
+    const emptyRecording = recorder.stop(1, 'empty-recording')!;
+    const updated = addRecordingToProject(project, project.activeTrackId, emptyRecording);
+    expect(updated.clips[0]).toMatchObject({ lengthBeats: 0, events: [] });
+    expect(validateProjectSnapshot(updated)).toEqual(updated);
   });
 
   it('updates a loop region and rejects zero-length loop ranges', () => {

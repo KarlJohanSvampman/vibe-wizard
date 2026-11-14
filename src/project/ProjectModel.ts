@@ -507,7 +507,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       typeof item.createdAt !== 'string' ||
       !finiteNumber(durationSeconds) || durationSeconds < 0 ||
       !finiteNumber(item.startBeats) || item.startBeats < 0 ||
-      !finiteNumber(item.lengthBeats) || item.lengthBeats <= 0 ||
+      !finiteNumber(item.lengthBeats) || item.lengthBeats < 0 ||
       !finiteNumber(item.recordedAtTempoBpm) ||
       item.recordedAtTempoBpm < 20 || item.recordedAtTempoBpm > 300 ||
       !Array.isArray(item.events)

@@ -638,7 +638,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     [...trackResources.values()].some(resources => resources.transport.currentState === 'playing');
 
   const updateClipUi = (): void => {
-    const hasClip = Boolean(selectedClip && selectedClip.events.length > 0);
+    const auditionClip = selectedClip
+      ? projectClipToRecordingClip(selectedClip, project.tempoBpm)
+      : undefined;
+    const hasClip = Boolean(auditionClip && auditionClip.events.length > 0);
     clipPlayButton.disabled = !hasClip || !audioReady || recorder.isRecording || anyTransportPlaying();
     clipDuplicateButton.disabled = !selectedClip || recorder.isRecording || anyTransportPlaying();
     clipStopButton.disabled = !anyTransportPlaying();
@@ -651,9 +654,6 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     loopEnabledInput.disabled = timingControlsDisabled;
     loopStartBarInput.disabled = timingControlsDisabled;
     loopEndBarInput.disabled = timingControlsDisabled;
-    const auditionClip = selectedClip
-      ? projectClipToRecordingClip(selectedClip, project.tempoBpm)
-      : undefined;
     clipSummary.textContent = selectedClip
       ? selectedClip.name.toUpperCase() + ' · ' + getClipDurationBeats(selectedClip).toFixed(1) + ' BEATS'
       : 'NO CLIP';

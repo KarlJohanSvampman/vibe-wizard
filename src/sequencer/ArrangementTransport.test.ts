@@ -208,6 +208,47 @@ describe('ArrangementTransport', () => {
     transport.dispose();
   });
 
+  it('skips events beyond a shortened clip edge and releases a held voice at its new end', () => {
+    vi.useFakeTimers();
+    const base = createDefaultProject('synth-one');
+    const track = base.tracks[0]!;
+    const project: ProjectSnapshot = {
+      ...base,
+      clips: [{
+        id: 'trimmed',
+        name: 'Trimmed clip',
+        trackId: track.id,
+        startBeats: 0,
+        lengthBeats: 0.5,
+        recordedAtTempoBpm: 120,
+        createdAt: new Date().toISOString(),
+        durationSeconds: 1,
+        events: [
+          event(0, {
+            kind: 'note-on', sourceId: 'theremin', noteId: 'held',
+            pitch: 60, velocity: 0.8, timestamp: 1,
+          }),
+          event(0.5, {
+            kind: 'note-off', sourceId: 'theremin', noteId: 'held', timestamp: 1.5,
+          }),
+        ],
+      }],
+    };
+    const clock = new FakeClock();
+    const instrument = new FakeInstrument();
+    const transport = new ArrangementTransport(clock, new ParameterBus());
+    transport.play(project, new Map([[track.id, instrument]]));
+    expect(instrument.notesOn).toHaveLength(1);
+    expect(instrument.notesOff).toHaveLength(0);
+
+    clock.time = 0.4;
+    vi.advanceTimersByTime(25);
+    expect(transport.currentState).toBe('completed');
+    expect(instrument.notesOff).toHaveLength(1);
+    expect(instrument.notesOff[0]?.timestamp).toBeCloseTo(100.4, 5);
+    transport.dispose();
+  });
+
   it('loops between beat boundaries, releases held notes, and exposes a wrapped playhead', () => {
     vi.useFakeTimers();
     const base = createDefaultProject('synth-one');
