@@ -10,17 +10,23 @@ import { ThereminSpatialAdapter } from '../controllers/theremin/ThereminSpatialA
 import { EventRecorder, type RecordingClip } from '../sequencer/Recorder.js';
 import { ArrangementTransport } from '../sequencer/ArrangementTransport.js';
 import { createSequencerTransport, type TransportState } from '../sequencer/SequencerTransport.js';
+import { ProjectHistory } from '../project/ProjectHistory.js';
 import {
   addInstrumentTrack,
   addRecordingToProject,
+  addProjectClipNote,
   createDefaultProject,
+  deleteProjectClipNote,
   duplicateProjectClip,
   getArrangementDurationBeats,
   getClipDurationBeats,
+  getProjectClipNotes,
   moveProjectClip,
   projectClipToRecordingClip,
   resizeProjectClip,
   setActiveProjectTrack,
+  updateProjectClipNote,
+  type ProjectClipNote,
   updateProjectTrack,
   updateProjectTiming,
   updateProjectLoopRegion,
@@ -49,8 +55,18 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   }>();
   const noteOwners = new Map<string, AudioEngine>();
   let project: ProjectSnapshot = createDefaultProject('synth-main');
+  const projectHistory = new ProjectHistory();
   let selectedClipId: string | undefined;
   let selectedClip: ProjectClip | undefined;
+  let selectedPianoNote: Pick<ProjectClipNote, 'sourceId' | 'noteId'> | undefined;
+  let pianoDrag: {
+    readonly pointerId: number;
+    readonly pointerStartX: number;
+    readonly pointerStartY: number;
+    readonly mode: 'move' | 'resize';
+    readonly original: ProjectClipNote;
+    preview: ProjectClipNote;
+  } | undefined;
   let repository: ProjectRepository = createProjectRepository();
   let persistenceReady = false;
   let audioReady = false;
@@ -276,6 +292,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '    </div>',
     '    <div class="timeline-wrap"><canvas id="clip-timeline" width="1000" height="210" aria-label="Recorded notes and theremin automation timeline"></canvas></div>',
     '    <p class="timeline-legend"><span class="legend-x">X · Pitch movement</span><span class="legend-y">Y · Volume movement</span><span class="legend-note">Notes · Held duration</span></p>',
+    '    <div class="piano-roll-heading">',
+    '      <div><p class="eyebrow">NOTE EDITOR</p><h3 id="piano-note-label">PIANO ROLL · SELECT A CLIP</h3></div>',
+    '      <div class="piano-roll-actions">',
+    '        <button class="transport-button" id="piano-undo" type="button" disabled>↶ Undo</button>',
+    '        <button class="transport-button" id="piano-redo" type="button" disabled>↷ Redo</button>',
+    '        <button class="transport-button" id="piano-delete" type="button" disabled>Delete note</button>',
+    '      </div>',
+    '    </div>',
+    '    <div class="piano-roll-toolbar">',
+    '      <label for="piano-velocity"><span>SELECTED NOTE VELOCITY</span><input id="piano-velocity" type="range" min="0.01" max="1" step="0.01" value="0.8" disabled /></label>',
+    '      <span class="piano-roll-hint">Click an empty cell to add a note. Drag a note to move it; drag its right edge to resize. Delete removes the selected note.</span>',
+    '    </div>',
+    '    <div class="piano-roll-wrap" id="piano-roll-wrap"><canvas id="piano-roll" width="1000" height="420" tabindex="0" aria-label="Piano roll editor. Click to add notes and drag notes to edit pitch, timing, and duration."></canvas></div>',
     '    <p class="capture-hint" id="capture-status">Perform with the sliders, desktop button, or VR hand tracking. Recordings are saved to this device.</p>',
     '  </div>',
     '  <footer class="workbench-footer"><span>GLOBAL RACK</span><span>TRACK → CLIPS → TRANSPORT</span><span>LOCAL AUDIO</span></footer>',
@@ -312,6 +341,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const clipStopButton = get<HTMLButtonElement>('#clip-stop');
   const clipDuplicateButton = get<HTMLButtonElement>('#clip-duplicate');
   const clipSummary = get<HTMLElement>('#clip-summary');
+  const pianoRollWrap = get<HTMLElement>('#piano-roll-wrap');
+  const pianoRoll = get<HTMLCanvasElement>('#piano-roll');
+  const pianoNoteLabel = get<HTMLElement>('#piano-note-label');
+  const pianoVelocityInput = get<HTMLInputElement>('#piano-velocity');
+  const pianoUndoButton = get<HTMLButtonElement>('#piano-undo');
+  const pianoRedoButton = get<HTMLButtonElement>('#piano-redo');
+  const pianoDeleteButton = get<HTMLButtonElement>('#piano-delete');
   const arrangementPlayButton = get<HTMLButtonElement>('#arrangement-play');
   const arrangementStopButton = get<HTMLButtonElement>('#arrangement-stop');
   const tempoInput = get<HTMLInputElement>('#tempo-bpm');
@@ -332,6 +368,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
     !clipStopButton || !clipDuplicateButton || !clipSummary || !arrangementPlayButton ||
+    !pianoRollWrap || !pianoRoll || !pianoNoteLabel || !pianoVelocityInput ||
+    !pianoUndoButton || !pianoRedoButton || !pianoDeleteButton ||
     !arrangementStopButton || !tempoInput || !timeSignatureSelect || !gridSnapSelect ||
     !loopEnabledInput || !loopStartBarInput || !loopEndBarInput ||
     !arrangementTimeline || !captureStatus || !timeline
@@ -364,6 +402,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     readonly pointerId: number;
     readonly pointerStartX: number;
     readonly mode: ArrangementDragMode;
+    readonly originalProject: ProjectSnapshot;
     readonly originalStartBeats: number;
     readonly originalLengthBeats: number;
     readonly originalTrackId: string;
@@ -633,6 +672,173 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
   };
 
+  type PianoRollPreview = {
+    readonly sourceId: string;
+    readonly noteId: string;
+    readonly pitch: number;
+    readonly startBeat: number;
+    readonly durationBeats: number;
+  };
+  type PianoRollHitRegion = {
+    readonly sourceId: string;
+    readonly noteId: string;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  let pianoRollHitRegions: PianoRollHitRegion[] = [];
+  let pianoRollMetrics = {
+    left: 48,
+    top: 28,
+    rowHeight: 8,
+    pixelsPerBeat: 56,
+    pitchLow: 36,
+    pitchHigh: 83,
+    durationBeats: 4,
+  };
+
+  const midiNoteName = (pitch: number): string => {
+    const names = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+    return names[pitch % 12]! + (Math.floor(pitch / 12) - 1);
+  };
+
+  const drawPianoRoll = (preview?: PianoRollPreview): void => {
+    const context = pianoRoll.getContext('2d');
+    if (!context) return;
+
+    const clip = selectedClip;
+    const notes = clip ? getProjectClipNotes(clip) : [];
+    const displayedPitches = notes.map(note => note.pitch);
+    if (preview) displayedPitches.push(preview.pitch);
+    const lowest = displayedPitches.length > 0 ? Math.min(...displayedPitches) : 60;
+    const highest = displayedPitches.length > 0 ? Math.max(...displayedPitches) : 72;
+    const rowCount = Math.min(128, Math.max(48, Math.ceil((highest - lowest + 13) / 12) * 12));
+    const pitchLow = Math.max(0, Math.min(128 - rowCount, Math.floor((lowest - 6) / 12) * 12));
+    const pitchHigh = Math.min(127, pitchLow + rowCount - 1);
+    const left = 48;
+    const top = 28;
+    const rowHeight = 8;
+    const right = 16;
+    const durationBeats = Math.max(4, clip?.lengthBeats ?? 4);
+    const pixelsPerBeat = 56;
+    const viewportWidth = Math.max(320, pianoRollWrap.clientWidth || 900);
+    const width = Math.max(viewportWidth, left + durationBeats * pixelsPerBeat + right);
+    const height = top + rowCount * rowHeight + 10;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+
+    pianoRoll.style.width = width + 'px';
+    pianoRoll.style.height = height + 'px';
+    pianoRoll.width = Math.round(width * dpr);
+    pianoRoll.height = Math.round(height * dpr);
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = '#100f18';
+    context.fillRect(0, 0, width, height);
+
+    pianoRollMetrics = { left, top, rowHeight, pixelsPerBeat, pitchLow, pitchHigh, durationBeats };
+    pianoRollHitRegions = [];
+
+    context.font = '9px Inter, system-ui, sans-serif';
+    context.fillStyle = '#b9aecb';
+    context.fillText('BAR', 8, 17);
+    const beatsPerBar = project.timeSignature.numerator * 4 / project.timeSignature.denominator;
+    const snap = Number(gridSnapSelect.value);
+    const gridStep = snap > 0 ? Math.min(snap, 1) : 0.5;
+    context.textAlign = 'left';
+    context.strokeStyle = 'rgba(190, 171, 226, .13)';
+    context.fillStyle = '#92899f';
+    for (let beat = 0; beat <= durationBeats + 0.0001; beat += gridStep) {
+      const x = left + beat * pixelsPerBeat;
+      const isBar = Math.abs(beat / beatsPerBar - Math.round(beat / beatsPerBar)) < 0.0001;
+      context.strokeStyle = isBar
+        ? 'rgba(190, 171, 226, .42)'
+        : Math.abs(beat - Math.round(beat)) < 0.0001
+          ? 'rgba(190, 171, 226, .22)'
+          : 'rgba(190, 171, 226, .09)';
+      context.beginPath();
+      context.moveTo(x, top);
+      context.lineTo(x, height - 8);
+      context.stroke();
+      if (isBar) context.fillText(String(Math.round(beat / beatsPerBar) + 1), x + 3, 17);
+    }
+
+    const blackPitchClasses = new Set([1, 3, 6, 8, 10]);
+    for (let pitch = pitchLow; pitch <= pitchHigh; pitch++) {
+      const y = top + (pitchHigh - pitch) * rowHeight;
+      const isBlack = blackPitchClasses.has(pitch % 12);
+      context.fillStyle = isBlack ? '#181622' : '#211e2b';
+      context.fillRect(0, y, left - 1, rowHeight);
+      context.fillStyle = isBlack ? '#181521' : '#14121c';
+      context.fillRect(left, y, width - left, rowHeight);
+      context.strokeStyle = 'rgba(190, 171, 226, .07)';
+      context.beginPath();
+      context.moveTo(left, y + rowHeight);
+      context.lineTo(width, y + rowHeight);
+      context.stroke();
+      if (pitch % 12 === 0) {
+        context.fillStyle = '#c4b8d8';
+        context.fillText(midiNoteName(pitch), 5, y + rowHeight - 1);
+      }
+    }
+
+    if (!clip) {
+      context.fillStyle = '#777184';
+      context.font = '11px Inter, system-ui, sans-serif';
+      context.fillText('Select a saved clip or record a performance to edit its notes.', left + 12, top + 25);
+      return;
+    }
+
+    const selectedKey = selectedPianoNote
+      ? selectedPianoNote.sourceId + ':' + selectedPianoNote.noteId
+      : undefined;
+    for (const note of notes) {
+      const isPreview = preview?.sourceId === note.sourceId && preview.noteId === note.noteId;
+      const pitch = isPreview ? preview!.pitch : note.pitch;
+      const startBeat = isPreview ? preview!.startBeat : note.startBeat;
+      const duration = isPreview ? preview!.durationBeats : note.durationBeats;
+      if (pitch < pitchLow || pitch > pitchHigh) continue;
+      const visibleDuration = Math.min(
+        duration,
+        Math.max(0, clip.lengthBeats - startBeat),
+      );
+      if (visibleDuration <= 0) continue;
+      const x = left + startBeat * pixelsPerBeat + 1;
+      const y = top + (pitchHigh - pitch) * rowHeight + 1;
+      const w = Math.max(12, visibleDuration * pixelsPerBeat - 2);
+      const h = rowHeight - 2;
+      const selected = note.sourceId + ':' + note.noteId === selectedKey;
+      const alpha = 0.4 + note.velocity * 0.5;
+      context.fillStyle = isPreview
+        ? 'rgba(207, 181, 255, .95)'
+        : selected
+          ? 'rgba(218, 184, 255, .98)'
+          : 'rgba(92, 177, 194, ' + alpha.toFixed(2) + ')';
+      context.fillRect(x, y, w, h);
+      context.strokeStyle = selected ? '#f0dcff' : 'rgba(220, 245, 250, .42)';
+      context.strokeRect(x + 0.5, y + 0.5, Math.max(1, w - 1), h - 1);
+      context.fillStyle = selected ? '#251a36' : '#102128';
+      if (w > 28) context.fillText(midiNoteName(pitch), x + 4, y + h - 2);
+      context.fillStyle = selected ? '#fff1ff' : 'rgba(255,255,255,.7)';
+      context.fillRect(x + Math.max(0, w - 5), y + 1, 3, h - 2);
+      if (!isPreview) {
+        pianoRollHitRegions.push({
+          sourceId: note.sourceId,
+          noteId: note.noteId,
+          x,
+          y,
+          width: w,
+          height: h,
+        });
+      }
+    }
+
+    if (clip.lengthBeats <= 0) {
+      context.fillStyle = '#777184';
+      context.fillText('Extend this clip in the arrangement before adding notes.', left + 10, top + 18);
+    }
+  };
+
   const anyTransportPlaying = (): boolean =>
     arrangementTransport.currentState === 'playing' ||
     [...trackResources.values()].some(resources => resources.transport.currentState === 'playing');
@@ -657,7 +863,25 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     clipSummary.textContent = selectedClip
       ? selectedClip.name.toUpperCase() + ' · ' + getClipDurationBeats(selectedClip).toFixed(1) + ' BEATS'
       : 'NO CLIP';
+    const selectedNote = selectedClip && selectedPianoNote
+      ? getProjectClipNotes(selectedClip).find(note =>
+        note.sourceId === selectedPianoNote!.sourceId &&
+        note.noteId === selectedPianoNote!.noteId &&
+        note.startBeat < selectedClip.lengthBeats,
+      )
+      : undefined;
+    if (!selectedNote) selectedPianoNote = undefined;
+    pianoNoteLabel.textContent = selectedNote
+      ? midiNoteName(selectedNote.pitch) + ' · BEAT ' + (selectedNote.startBeat + 1).toFixed(2) +
+        ' · ' + selectedNote.durationBeats.toFixed(2) + ' BEATS'
+      : selectedClip ? 'PIANO ROLL · CLICK TO ADD A NOTE' : 'PIANO ROLL · SELECT A CLIP';
+    pianoVelocityInput.disabled = !selectedNote || recorder.isRecording || anyTransportPlaying();
+    if (selectedNote) pianoVelocityInput.value = String(selectedNote.velocity);
+    pianoDeleteButton.disabled = !selectedNote || recorder.isRecording || anyTransportPlaying();
+    pianoUndoButton.disabled = !projectHistory.canUndo || recorder.isRecording || anyTransportPlaying();
+    pianoRedoButton.disabled = !projectHistory.canRedo || recorder.isRecording || anyTransportPlaying();
     drawTimeline(auditionClip);
+    drawPianoRoll();
   };
 
   const refreshClipList = (): void => {
@@ -754,15 +978,74 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const persistProject = (): Promise<void> => {
     const name = projectNameInput.value.trim();
+    const nextName = name || 'Untitled Session';
+    if (nextName !== project.name) {
+      projectHistory.clear();
+      pianoUndoButton.disabled = true;
+      pianoRedoButton.disabled = true;
+    }
     project = {
       ...project,
-      name: name || 'Untitled Session',
+      name: nextName,
       updatedAt: new Date().toISOString(),
     };
     const snapshot = project;
     const operation = saveQueue.then(() => repository.save(snapshot));
     saveQueue = operation.catch(() => undefined);
     return operation;
+  };
+
+  const commitPianoEdit = (
+    nextProject: ProjectSnapshot,
+    selected?: Pick<ProjectClipNote, 'sourceId' | 'noteId'>,
+  ): void => {
+    if (nextProject === project) return;
+    projectHistory.commit(project, nextProject);
+    project = nextProject;
+    selectedPianoNote = selected;
+    updateProjectUi();
+    void persistProject().catch((error: unknown) => {
+      projectStatus.textContent = error instanceof Error
+        ? error.message
+        : 'Could not save the piano-roll edit.';
+    });
+  };
+
+  const undoProjectEdit = (): void => {
+    if (recorder.isRecording || anyTransportPlaying()) return;
+    const previous = projectHistory.undo(project);
+    if (!previous) return;
+    project = previous;
+    updateProjectUi();
+    void persistProject().catch((error: unknown) => {
+      projectStatus.textContent = error instanceof Error ? error.message : 'Could not save undo.';
+    });
+  };
+
+  const redoProjectEdit = (): void => {
+    if (recorder.isRecording || anyTransportPlaying()) return;
+    const next = projectHistory.redo(project);
+    if (!next) return;
+    project = next;
+    updateProjectUi();
+    void persistProject().catch((error: unknown) => {
+      projectStatus.textContent = error instanceof Error ? error.message : 'Could not save redo.';
+    });
+  };
+
+  const deleteSelectedPianoNote = (): void => {
+    if (!selectedClip || !selectedPianoNote || recorder.isRecording || anyTransportPlaying()) return;
+    try {
+      const next = deleteProjectClipNote(
+        project,
+        selectedClip.id,
+        selectedPianoNote.sourceId,
+        selectedPianoNote.noteId,
+      );
+      commitPianoEdit(next);
+    } catch (error) {
+      captureStatus.textContent = error instanceof Error ? error.message : 'Could not delete note.';
+    }
   };
 
   const enableAudio = async (): Promise<void> => {
@@ -813,6 +1096,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
     selectedClipId = undefined;
     selectedClip = undefined;
+    selectedPianoNote = undefined;
     const track = activeTrack();
     if (!track.armed) {
       captureStatus.textContent = 'Arm this track before recording.';
@@ -836,6 +1120,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const stopRecording = (): void => {
     if (!recorder.isRecording) return;
     const recording = recorder.stop(performance.now() / 1000);
+    const beforeEdit = project;
     const destinationTrackId = recordingTrackId ?? project.activeTrackId;
     recordStartButton.disabled = !persistenceReady;
     recordStopButton.disabled = true;
@@ -851,6 +1136,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       name: projectNameInput.value.trim() || project.name,
     };
     project = addRecordingToProject(project, destinationTrackId, recording);
+    projectHistory.commit(beforeEdit, project);
     selectedClipId = recording.id;
     captureStatus.textContent = 'Captured ' + recording.events.length + ' events over ' +
       recording.durationSeconds.toFixed(2) + ' seconds. Saving to this device…';
@@ -872,7 +1158,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     try {
       const saved = await repository.loadLatest();
       if (saved) project = saved;
-      else await repository.save(project);
+      projectHistory.clear();
+      if (!saved) await repository.save(project);
     } catch (error) {
       repository = new MemoryProjectRepository();
       project = createDefaultProject('synth-main');
@@ -910,6 +1197,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
     const clip = project.clips.find(item => item.id === hit.clipId);
     if (!clip) return;
+    const originalProject = project;
     const originalActiveTrackId = project.activeTrackId;
     project = setActiveProjectTrack(project, hit.trackId);
     selectedClipId = clip.id;
@@ -920,6 +1208,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       pointerId: event.pointerId,
       pointerStartX: event.clientX,
       mode: isResizeHandle ? 'resize' : 'move',
+      originalProject,
       originalStartBeats: clip.startBeats,
       originalLengthBeats: getClipDurationBeats(clip),
       originalTrackId: clip.trackId,
@@ -989,6 +1278,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       );
       project = setActiveProjectTrack(project, drag.previewTrackId);
     }
+    if (clipMoved || clipResized || activeTrackChanged) {
+      projectHistory.commit(drag.originalProject, project);
+    }
     selectedClipId = drag.clipId;
     selectedClip = project.clips.find(clip => clip.id === selectedClipId);
     updateProjectUi();
@@ -1014,7 +1306,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const commitTimingChange = (patch: { tempoBpm?: number; timeSignature?: { numerator: number; denominator: number } }): void => {
     try {
+      const beforeEdit = project;
       project = updateProjectTiming(project, patch);
+      projectHistory.commit(beforeEdit, project);
       updateProjectUi();
       void persistProject().catch((error: unknown) => {
         projectStatus.textContent = error instanceof Error ? error.message : 'Could not save project timing.';
@@ -1054,12 +1348,14 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       updateProjectUi();
       return;
     }
+    const beforeEdit = project;
     const beatsPerBar = project.timeSignature.numerator * 4 / project.timeSignature.denominator;
     project = updateProjectLoopRegion(project, {
       enabled: loopEnabledInput.checked,
       startBeat: (startBar - 1) * beatsPerBar,
       endBeat: (endBar - 1) * beatsPerBar,
     });
+    projectHistory.commit(beforeEdit, project);
     updateProjectUi();
     void persistProject().catch((error: unknown) => {
       projectStatus.textContent = error instanceof Error ? error.message : 'Could not save loop region.';
@@ -1071,9 +1367,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   trackSelect.addEventListener('change', () => {
     if (recorder.isRecording) return;
+    const beforeEdit = project;
     project = setActiveProjectTrack(project, trackSelect.value);
+    projectHistory.commit(beforeEdit, project);
     selectedClipId = undefined;
     selectedClip = undefined;
+    selectedPianoNote = undefined;
     updateProjectUi();
     void persistProject().catch((error: unknown) => {
       projectStatus.textContent = error instanceof Error ? error.message : 'Could not save active track';
@@ -1084,7 +1383,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (recorder.isRecording) return;
     const count = project.tracks.length + 1;
     const moduleId = 'synth-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+    const beforeEdit = project;
     project = addInstrumentTrack(project, 'Instrument Track ' + String(count).padStart(2, '0'), moduleId);
+    projectHistory.commit(beforeEdit, project);
     const track = activeTrack();
     ensureTrackRuntime(track);
     selectedClipId = undefined;
@@ -1097,36 +1398,48 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   armTrackButton.addEventListener('click', () => {
     if (recorder.isRecording) return;
+    const beforeEdit = project;
     const trackId = project.activeTrackId;
     const shouldArm = !activeTrack().armed;
     for (const track of project.tracks) {
       project = updateProjectTrack(project, track.id, { armed: track.id === trackId && shouldArm });
     }
+    projectHistory.commit(beforeEdit, project);
     updateProjectUi();
     void persistProject();
   });
 
   muteTrackButton.addEventListener('click', () => {
     if (recorder.isRecording) return;
+    const beforeEdit = project;
     project = updateProjectTrack(project, project.activeTrackId, { muted: !activeTrack().muted });
+    projectHistory.commit(beforeEdit, project);
     updateProjectUi();
     void persistProject();
   });
 
   soloTrackButton.addEventListener('click', () => {
     if (recorder.isRecording) return;
+    const beforeEdit = project;
     project = updateProjectTrack(project, project.activeTrackId, { solo: !activeTrack().solo });
+    projectHistory.commit(beforeEdit, project);
     updateProjectUi();
     void persistProject();
   });
 
   trackVolumeInput.addEventListener('input', () => {
+    projectHistory.clear();
+    pianoUndoButton.disabled = true;
+    pianoRedoButton.disabled = true;
     project = updateProjectTrack(project, project.activeTrackId, { volume: Number(trackVolumeInput.value) });
     applyTrackMix();
   });
   trackVolumeInput.addEventListener('change', () => { void persistProject(); });
 
   trackPanInput.addEventListener('input', () => {
+    projectHistory.clear();
+    pianoUndoButton.disabled = true;
+    pianoRedoButton.disabled = true;
     project = updateProjectTrack(project, project.activeTrackId, { pan: Number(trackPanInput.value) });
     applyTrackMix();
   });
@@ -1138,8 +1451,197 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   clipSelect.addEventListener('change', () => {
     selectedClipId = clipSelect.value || undefined;
     selectedClip = project.clips.find(clip => clip.id === selectedClipId);
+    selectedPianoNote = undefined;
     updateClipUi();
   });
+
+  pianoRoll.addEventListener('pointerdown', (event) => {
+    if (!selectedClip || recorder.isRecording || anyTransportPlaying()) return;
+    const rect = pianoRoll.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const metrics = pianoRollMetrics;
+    const hit = [...pianoRollHitRegions].reverse().find(region =>
+      x >= region.x && x <= region.x + region.width &&
+      y >= region.y && y <= region.y + region.height,
+    );
+
+    if (hit) {
+      const note = getProjectClipNotes(selectedClip).find(item =>
+        item.sourceId === hit.sourceId && item.noteId === hit.noteId,
+      );
+      if (!note) return;
+      selectedPianoNote = { sourceId: note.sourceId, noteId: note.noteId };
+      pianoDrag = {
+        pointerId: event.pointerId,
+        pointerStartX: event.clientX,
+        pointerStartY: event.clientY,
+        mode: hit.x + hit.width - x <= 6 ? 'resize' : 'move',
+        original: note,
+        preview: note,
+      };
+      pianoRoll.setPointerCapture(event.pointerId);
+      updateClipUi();
+      event.preventDefault();
+      return;
+    }
+
+    if (x < metrics.left || y < metrics.top) return;
+    const pitch = metrics.pitchHigh - Math.floor((y - metrics.top) / metrics.rowHeight);
+    if (pitch < metrics.pitchLow || pitch > metrics.pitchHigh) return;
+    const snap = Number(gridSnapSelect.value);
+    const rawBeat = Math.max(0, (x - metrics.left) / metrics.pixelsPerBeat);
+    if (rawBeat > selectedClip.lengthBeats + 0.0001) return;
+    const snappedBeat = snap > 0 ? Math.round(rawBeat / snap) * snap : rawBeat;
+    const startBeat = Math.max(
+      0,
+      Math.min(selectedClip.lengthBeats - 0.0625, snappedBeat),
+    );
+    const safeDuration = Math.min(1, selectedClip.lengthBeats - startBeat);
+    if (safeDuration <= 0) return;
+
+    const noteId = 'piano-' + (
+      globalThis.crypto?.randomUUID?.() ??
+      Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)
+    );
+    try {
+      const next = addProjectClipNote(project, selectedClip.id, {
+        sourceId: 'piano-roll',
+        noteId,
+        pitch,
+        velocity: 0.8,
+        startBeat,
+        durationBeats: safeDuration,
+      });
+      pianoRoll.focus();
+      commitPianoEdit(next, { sourceId: 'piano-roll', noteId });
+    } catch (error) {
+      captureStatus.textContent = error instanceof Error ? error.message : 'Could not add note.';
+    }
+    event.preventDefault();
+  });
+
+  pianoRoll.addEventListener('pointermove', (event) => {
+    if (!pianoDrag || pianoDrag.pointerId !== event.pointerId || !selectedClip) return;
+    const metrics = pianoRollMetrics;
+    const deltaBeats = (event.clientX - pianoDrag.pointerStartX) / metrics.pixelsPerBeat;
+    const snap = Number(gridSnapSelect.value);
+    let preview: ProjectClipNote;
+
+    if (pianoDrag.mode === 'resize') {
+      const maxDuration = selectedClip.lengthBeats - pianoDrag.original.startBeat;
+      const minimumDuration = Math.min(0.0625, maxDuration);
+      const rawDuration = Math.max(minimumDuration, pianoDrag.original.durationBeats + deltaBeats);
+      const snappedDuration = snap > 0 ? Math.round(rawDuration / snap) * snap : rawDuration;
+      preview = {
+        ...pianoDrag.original,
+        durationBeats: Math.max(minimumDuration, Math.min(maxDuration, snappedDuration)),
+      };
+    } else {
+      const rawStart = pianoDrag.original.startBeat + deltaBeats;
+      const snappedStart = snap > 0 ? Math.round(rawStart / snap) * snap : rawStart;
+      const startBeat = Math.max(
+        0,
+        Math.min(selectedClip.lengthBeats - pianoDrag.original.durationBeats, snappedStart),
+      );
+      const deltaPitch = Math.round((pianoDrag.pointerStartY - event.clientY) / metrics.rowHeight);
+      preview = {
+        ...pianoDrag.original,
+        startBeat,
+        pitch: Math.max(0, Math.min(127, pianoDrag.original.pitch + deltaPitch)),
+      };
+    }
+
+    pianoDrag.preview = preview;
+    drawPianoRoll({
+      sourceId: preview.sourceId,
+      noteId: preview.noteId,
+      pitch: preview.pitch,
+      startBeat: preview.startBeat,
+      durationBeats: preview.durationBeats,
+    });
+    event.preventDefault();
+  });
+
+  const finishPianoDrag = (event: PointerEvent): void => {
+    if (!pianoDrag || pianoDrag.pointerId !== event.pointerId || !selectedClip) return;
+    const drag = pianoDrag;
+    pianoDrag = undefined;
+    const changed = drag.preview.pitch !== drag.original.pitch ||
+      drag.preview.startBeat !== drag.original.startBeat ||
+      drag.preview.durationBeats !== drag.original.durationBeats;
+    if (changed) {
+      try {
+        const next = updateProjectClipNote(
+          project,
+          selectedClip.id,
+          drag.original.sourceId,
+          drag.original.noteId,
+          {
+            pitch: drag.preview.pitch,
+            startBeat: drag.preview.startBeat,
+            durationBeats: drag.preview.durationBeats,
+          },
+        );
+        commitPianoEdit(next, {
+          sourceId: drag.original.sourceId,
+          noteId: drag.original.noteId,
+        });
+      } catch (error) {
+        captureStatus.textContent = error instanceof Error ? error.message : 'Could not edit note.';
+        drawPianoRoll();
+      }
+    } else {
+      drawPianoRoll();
+    }
+    event.preventDefault();
+  };
+  pianoRoll.addEventListener('pointerup', finishPianoDrag);
+  pianoRoll.addEventListener('pointercancel', (event) => {
+    if (!pianoDrag || pianoDrag.pointerId !== event.pointerId) return;
+    pianoDrag = undefined;
+    drawPianoRoll();
+  });
+
+  pianoVelocityInput.addEventListener('change', () => {
+    if (!selectedClip || !selectedPianoNote || recorder.isRecording || anyTransportPlaying()) return;
+    try {
+      const next = updateProjectClipNote(
+        project,
+        selectedClip.id,
+        selectedPianoNote.sourceId,
+        selectedPianoNote.noteId,
+        { velocity: Number(pianoVelocityInput.value) },
+      );
+      commitPianoEdit(next, selectedPianoNote);
+    } catch (error) {
+      captureStatus.textContent = error instanceof Error ? error.message : 'Could not change velocity.';
+    }
+  });
+  pianoDeleteButton.addEventListener('click', deleteSelectedPianoNote);
+  pianoUndoButton.addEventListener('click', undoProjectEdit);
+  pianoRedoButton.addEventListener('click', redoProjectEdit);
+  pianoRoll.addEventListener('keydown', (event) => {
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      deleteSelectedPianoNote();
+    }
+  });
+  window.addEventListener('keydown', (event) => {
+    const target = event.target;
+    const isEditable = target instanceof HTMLElement &&
+      (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+    if (isEditable || !(event.ctrlKey || event.metaKey)) return;
+    if (event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) redoProjectEdit();
+      else undoProjectEdit();
+    } else if (event.key.toLowerCase() === 'y') {
+      event.preventDefault();
+      redoProjectEdit();
+    }
+  });
+  gridSnapSelect.addEventListener('change', () => drawPianoRoll());
 
   clipPlayButton.addEventListener('click', () => {
     if (!selectedClip || !audioReady) return;
@@ -1156,7 +1658,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   clipDuplicateButton.addEventListener('click', () => {
     if (!selectedClip || recorder.isRecording || anyTransportPlaying()) return;
     try {
+      const beforeEdit = project;
       project = duplicateProjectClip(project, selectedClip.id);
+      projectHistory.commit(beforeEdit, project);
       selectedClipId = project.clips[project.clips.length - 1]?.id;
       selectedClip = project.clips.find(clip => clip.id === selectedClipId);
       updateProjectUi();
@@ -1264,6 +1768,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const resizeHandler = (): void => {
     drawTimeline(selectedClip);
     drawArrangement();
+    drawPianoRoll();
   };
   window.addEventListener('resize', resizeHandler);
 
@@ -1326,5 +1831,6 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   updateController();
   drawTimeline(undefined);
   drawArrangement();
+  drawPianoRoll();
   void initializeProject();
 }

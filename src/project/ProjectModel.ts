@@ -23,6 +23,22 @@ export interface ProjectTrack {
   readonly pan: number;
 }
 
+export interface ProjectClipNote {
+  readonly sourceId: string;
+  readonly noteId: string;
+  readonly pitch: number;
+  readonly velocity: number;
+  readonly startBeat: number;
+  readonly durationBeats: number;
+}
+
+export interface ProjectClipNotePatch {
+  readonly pitch?: number;
+  readonly velocity?: number;
+  readonly startBeat?: number;
+  readonly durationBeats?: number;
+}
+
 export interface ProjectClip extends RecordingClip {
   readonly name: string;
   readonly trackId: string;
@@ -214,6 +230,208 @@ export function moveProjectClip(
 
 export function getClipDurationBeats(clip: ProjectClip): number {
   return clip.lengthBeats;
+}
+
+/** Pair recorded note-on/off events and expose their musical beat positions. */
+export function getProjectClipNotes(clip: ProjectClip): ProjectClipNote[] {
+  const starts = new Map<string, RecordedEvent>();
+  const notes: ProjectClipNote[] = [];
+  for (const recorded of [...clip.events].sort((a, b) => a.offsetSeconds - b.offsetSeconds)) {
+    const event = recorded.event;
+    if (event.kind === 'note-on') {
+      starts.set(event.sourceId + ':' + event.noteId, recorded);
+    } else if (event.kind === 'note-off') {
+      const key = event.sourceId + ':' + event.noteId;
+      const start = starts.get(key);
+      if (!start || start.event.kind !== 'note-on') continue;
+      starts.delete(key);
+      notes.push({
+        sourceId: event.sourceId,
+        noteId: event.noteId,
+        pitch: start.event.pitch,
+        velocity: start.event.velocity,
+        startBeat: start.offsetSeconds * clip.recordedAtTempoBpm / 60,
+        durationBeats: Math.max(
+          0.0001,
+          (recorded.offsetSeconds - start.offsetSeconds) * clip.recordedAtTempoBpm / 60,
+        ),
+      });
+    }
+  }
+  return notes.sort((a, b) => a.startBeat - b.startBeat || a.pitch - b.pitch);
+}
+
+function findClipNote(
+  clip: ProjectClip,
+  sourceId: string,
+  noteId: string,
+): ProjectClipNote {
+  const note = getProjectClipNotes(clip).find(item =>
+    item.sourceId === sourceId && item.noteId === noteId,
+  );
+  if (!note) throw new Error('Cannot find note in clip: ' + sourceId + ':' + noteId);
+  return note;
+}
+
+function validateClipNoteValues(
+  clip: ProjectClip,
+  patch: ProjectClipNotePatch,
+  current?: ProjectClipNote,
+): ProjectClipNote {
+  const note: ProjectClipNote = {
+    sourceId: current?.sourceId ?? 'piano-roll',
+    noteId: current?.noteId ?? '',
+    pitch: patch.pitch ?? current?.pitch ?? 60,
+    velocity: patch.velocity ?? current?.velocity ?? 0.8,
+    startBeat: patch.startBeat ?? current?.startBeat ?? 0,
+    durationBeats: patch.durationBeats ?? current?.durationBeats ?? 1,
+  };
+  if (
+    !Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 ||
+    !finiteNumber(note.velocity) || note.velocity < 0 || note.velocity > 1 ||
+    !finiteNumber(note.startBeat) || note.startBeat < 0 ||
+    !finiteNumber(note.durationBeats) || note.durationBeats <= 0 ||
+    note.startBeat + note.durationBeats > clip.lengthBeats + 0.0001
+  ) {
+    throw new Error('Piano-roll note values are outside the clip or MIDI range.');
+  }
+  return note;
+}
+
+export function updateProjectClipNote(
+  snapshot: ProjectSnapshot,
+  clipId: string,
+  sourceId: string,
+  noteId: string,
+  patch: ProjectClipNotePatch,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  const clip = project.clips.find(item => item.id === clipId);
+  if (!clip) throw new Error('Cannot edit unknown clip: ' + clipId);
+  const current = findClipNote(clip, sourceId, noteId);
+  const next = validateClipNoteValues(clip, patch, current);
+  const startSeconds = next.startBeat * 60 / clip.recordedAtTempoBpm;
+  const endSeconds = (next.startBeat + next.durationBeats) * 60 / clip.recordedAtTempoBpm;
+  let foundOn = false;
+  let foundOff = false;
+  const events = clip.events.map(recorded => {
+    const event = recorded.event;
+    if (event.kind === 'note-on' && event.sourceId === sourceId && event.noteId === noteId) {
+      foundOn = true;
+      return {
+        offsetSeconds: startSeconds,
+        event: {
+          ...event,
+          pitch: next.pitch,
+          velocity: next.velocity,
+          timestamp: event.timestamp + startSeconds - recorded.offsetSeconds,
+        },
+      };
+    }
+    if (event.kind === 'note-off' && event.sourceId === sourceId && event.noteId === noteId) {
+      foundOff = true;
+      return {
+        offsetSeconds: endSeconds,
+        event: {
+          ...event,
+          timestamp: event.timestamp + endSeconds - recorded.offsetSeconds,
+        },
+      };
+    }
+    return recorded;
+  });
+  if (!foundOn || !foundOff) throw new Error('Piano-roll note is missing a matching note-on or note-off.');
+  events.sort((a, b) => a.offsetSeconds - b.offsetSeconds);
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    clips: project.clips.map(item => item.id === clipId
+      ? { ...item, durationSeconds: Math.max(item.durationSeconds, endSeconds), events }
+      : item),
+  });
+}
+
+export function addProjectClipNote(
+  snapshot: ProjectSnapshot,
+  clipId: string,
+  note: Omit<ProjectClipNote, 'sourceId'> & { readonly sourceId?: string },
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  const clip = project.clips.find(item => item.id === clipId);
+  if (!clip) throw new Error('Cannot add a note to unknown clip: ' + clipId);
+  const normalized = validateClipNoteValues(clip, {
+    pitch: note.pitch,
+    velocity: note.velocity,
+    startBeat: note.startBeat,
+    durationBeats: note.durationBeats,
+  });
+  const sourceId = note.sourceId ?? 'piano-roll';
+  if (!sourceId || !note.noteId ||
+      clip.events.some(item =>
+        item.event.kind === 'note-on' &&
+        item.event.sourceId === sourceId &&
+        item.event.noteId === note.noteId,
+      )) {
+    throw new Error('A piano-roll note requires a unique source and note ID.');
+  }
+  const startSeconds = normalized.startBeat * 60 / clip.recordedAtTempoBpm;
+  const endSeconds = (normalized.startBeat + normalized.durationBeats) * 60 / clip.recordedAtTempoBpm;
+  const events: RecordedEvent[] = [
+    ...clip.events,
+    {
+      offsetSeconds: startSeconds,
+      event: {
+        kind: 'note-on',
+        sourceId,
+        noteId: note.noteId,
+        pitch: normalized.pitch,
+        velocity: normalized.velocity,
+        timestamp: startSeconds,
+      },
+    },
+    {
+      offsetSeconds: endSeconds,
+      event: {
+        kind: 'note-off',
+        sourceId,
+        noteId: note.noteId,
+        timestamp: endSeconds,
+      },
+    },
+  ];
+  events.sort((a, b) => a.offsetSeconds - b.offsetSeconds);
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    clips: project.clips.map(item => item.id === clipId
+      ? { ...item, durationSeconds: Math.max(item.durationSeconds, endSeconds), events }
+      : item),
+  });
+}
+
+export function deleteProjectClipNote(
+  snapshot: ProjectSnapshot,
+  clipId: string,
+  sourceId: string,
+  noteId: string,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  const clip = project.clips.find(item => item.id === clipId);
+  if (!clip) throw new Error('Cannot edit unknown clip: ' + clipId);
+  findClipNote(clip, sourceId, noteId);
+  const events = clip.events.filter(recorded => !(
+    (recorded.event.kind === 'note-on' || recorded.event.kind === 'note-off') &&
+    recorded.event.sourceId === sourceId &&
+    recorded.event.noteId === noteId
+  ));
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    clips: project.clips.map(item => item.id === clipId ? { ...item, events } : item),
+  });
 }
 
 export function resizeProjectClip(

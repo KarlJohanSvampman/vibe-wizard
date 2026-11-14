@@ -51,7 +51,7 @@ The render loop is not used as the audio clock. XR frames update tracked input; 
 
 The workbench exposes track selection, add instrument, arm, mute, solo, track level, stereo pan, Record, Stop recording, a saved-clip selector, Play clip, Duplicate clip, and Stop playback. The arrangement view displays one lane per instrument track, a musical playhead, and loop range. Clips can be dragged horizontally to move them, vertically to move them between tracks, or by the right-edge handle to resize their beat length. Play arrangement schedules clips from all tracks in sync; enabled loop regions repeat and release held notes at each boundary.
 
-The selected-clip canvas below the arrangement still displays X-axis automation, Y-axis automation, and note blocks showing pitch and held duration.
+The selected-clip timeline displays X-axis automation, Y-axis automation, and a compact note overview. The piano roll below it provides editable note blocks on a beat/pitch grid. Click empty cells to add notes; drag note bodies to change pitch and start time; drag right edges to adjust duration; use the velocity slider to alter the selected note; and Delete/Backspace to remove it. The editor works on paired note-on/off events, retaining source/note IDs and unrelated controller events.
 
 ## Automation
 
@@ -59,6 +59,14 @@ The first implementation records source controller output values and replays the
 
 A future bake-automation operation can store resolved target parameter values when decoupling is desired.
 
+## Piano-roll note editing and history
+
+Notes are derived by pairing note-on and note-off events with the same `sourceId` and `noteId`. Piano-roll positions are expressed in quarter-note beats using each clip's `recordedAtTempoBpm`; event offsets are converted back to seconds when a note is moved or resized. Pitch is a MIDI integer from 0 to 127, velocity is normalized from 0 to 1, and note duration must remain positive and within the clip's current `lengthBeats`.
+
+Note creation inserts a new note-on/off pair with a unique note ID. Note movement and resize update both paired event offsets; pitch and velocity changes update the note-on event. Deletion removes only that pair. All other recorded events, including controller automation, remain untouched.
+
+`ProjectHistory` keeps up to 100 prior immutable project snapshots. Committing a new edit clears the redo branch. Undo and redo restore the complete project snapshot and persist it through the same IndexedDB repository.
+
 ## Deferred sequencer features
 
-Arrangement placement and shared playback use musical beats and the project's BPM/time signature. The recording path retains source timestamps in seconds; each clip stores its capture tempo so events can be interpreted musically when the project tempo changes. The current loop model stores one fixed bar-aligned region; tempo maps, multiple loop regions, multi-select, undo/redo, piano-roll note editing, and rendered audio recording remain future work.
+Arrangement placement and shared playback use musical beats and the project's BPM/time signature. The recording path retains source timestamps in seconds; each clip stores its capture tempo so events can be interpreted musically when the project tempo changes. The current loop model stores one fixed bar-aligned region; tempo maps, multiple loop regions, multi-select, piano-roll zoom, multiple velocity lanes, and rendered audio recording remain future work.

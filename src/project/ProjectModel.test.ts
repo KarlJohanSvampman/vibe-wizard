@@ -6,6 +6,10 @@ import {
   createDefaultProject,
   getArrangementDurationBeats,
   projectClipToRecordingClip,
+  getProjectClipNotes,
+  addProjectClipNote,
+  updateProjectClipNote,
+  deleteProjectClipNote,
   updateProjectTiming,
   updateProjectLoopRegion,
   resizeProjectClip,
@@ -236,6 +240,74 @@ describe('project model', () => {
     expect(duplicate.clips[1]?.events).toEqual(duplicate.clips[0]?.events);
     expect(() => resizeProjectClip(duplicate, 'missing', 2)).toThrow(/unknown clip/i);
     expect(() => duplicateProjectClip(duplicate, 'original', 'duplicate')).toThrow(/unique/i);
+  });
+
+  it('adds, edits, pairs, and deletes piano-roll notes in musical beats', () => {
+    const base = createDefaultProject('synth-main');
+    const recorder = new EventRecorder();
+    recorder.start(10);
+    recorder.record({
+      kind: 'note-on', sourceId: 'live', noteId: 'held', pitch: 60, velocity: 0.7, timestamp: 10.25,
+    });
+    recorder.record({
+      kind: 'note-off', sourceId: 'live', noteId: 'held', timestamp: 10.75,
+    });
+    recorder.record({
+      kind: 'control', sourceId: 'live', portId: 'x', value: 0.42, min: 0, max: 1,
+      timestamp: 10.9,
+    });
+    const recorded = recorder.stop(12, 'piano-clip')!;
+    const withClip = addRecordingToProject(base, base.activeTrackId, recorded);
+    const added = addProjectClipNote(withClip, 'piano-clip', {
+      sourceId: 'piano-roll', noteId: 'new-note', pitch: 67, velocity: 0.9,
+      startBeat: 1, durationBeats: 0.5,
+    });
+    expect(getProjectClipNotes(added.clips[0]!)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceId: 'live', noteId: 'held', pitch: 60, startBeat: 0.5, durationBeats: 1,
+      }),
+      expect.objectContaining({
+        sourceId: 'piano-roll', noteId: 'new-note', pitch: 67,
+        velocity: 0.9, startBeat: 1, durationBeats: 0.5,
+      }),
+    ]));
+
+    const edited = updateProjectClipNote(added, 'piano-clip', 'piano-roll', 'new-note', {
+      pitch: 72, velocity: 0.55, startBeat: 2, durationBeats: 1,
+    });
+    expect(getProjectClipNotes(edited.clips[0]!).find(note => note.noteId === 'new-note'))
+      .toMatchObject({ pitch: 72, velocity: 0.55, startBeat: 2, durationBeats: 1 });
+    expect(edited.clips[0]?.events.find(item => item.event.kind === 'control'))
+      .toMatchObject({
+        offsetSeconds: 0.9,
+        event: { kind: 'control', sourceId: 'live', portId: 'x', value: 0.42 },
+      });
+    const deleted = deleteProjectClipNote(edited, 'piano-clip', 'piano-roll', 'new-note');
+    expect(getProjectClipNotes(deleted.clips[0]!).map(note => note.noteId)).toEqual(['held']);
+    expect(deleted.clips[0]?.events.some(item =>
+      item.event.kind === 'note-on' && item.event.noteId === 'new-note',
+    )).toBe(false);
+    expect(deleted.clips[0]?.events.some(item => item.event.kind === 'control')).toBe(true);
+  });
+
+  it('rejects piano-roll notes outside the clip, invalid MIDI values, and unknown note IDs', () => {
+    const base = createDefaultProject('synth-main');
+    const recorder = new EventRecorder();
+    recorder.start(0);
+    recorder.record({
+      kind: 'note-on', sourceId: 'live', noteId: 'held', pitch: 60, velocity: 0.7, timestamp: 0.1,
+    });
+    recorder.record({ kind: 'note-off', sourceId: 'live', noteId: 'held', timestamp: 0.6 });
+    const clip = recorder.stop(1, 'bounded')!;
+    const project = addRecordingToProject(base, base.activeTrackId, clip);
+    expect(() => addProjectClipNote(project, 'bounded', {
+      noteId: 'outside', pitch: 60, velocity: 0.8, startBeat: 1, durationBeats: 2,
+    })).toThrow(/outside the clip/i);
+    expect(() => addProjectClipNote(project, 'bounded', {
+      noteId: 'bad-pitch', pitch: 140, velocity: 0.8, startBeat: 0, durationBeats: 0.5,
+    })).toThrow(/MIDI range/i);
+    expect(() => updateProjectClipNote(project, 'bounded', 'live', 'missing', { pitch: 61 }))
+      .toThrow(/find note/i);
   });
 
   it('preserves empty zero-length recording clips', () => {

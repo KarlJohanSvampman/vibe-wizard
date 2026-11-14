@@ -35,7 +35,7 @@ The arrangement transport uses look-ahead scheduling and a single scheduler cloc
 
 ## Tempo and time
 
-Project tempo converts quarter-note beat positions to AudioContext seconds. Each clip's captured tempo converts its relative event seconds into musical duration and event timing. Changing BPM therefore preserves the arrangement's beat positions and note relationships while changing playback speed. Time signature determines bar length and the displayed ruler; BPM is expressed as quarter-note beats per minute. Loop regions are stored in beats and edited using bar numbers. Resizing changes `lengthBeats` only; playback ignores events beyond that edge without deleting them. Tempo maps, multi-select, undo/redo, and piano-roll editing remain future work.
+Project tempo converts quarter-note beat positions to AudioContext seconds. Each clip's captured tempo converts its relative event seconds into musical duration and event timing. Changing BPM therefore preserves the arrangement's beat positions and note relationships while changing playback speed. Time signature determines bar length and the displayed ruler; BPM is expressed as quarter-note beats per minute. Loop regions are stored in beats and edited using bar numbers. Resizing changes `lengthBeats` only; playback ignores events beyond that edge without deleting them. Piano-roll edits modify paired note-on/off events in musical beats while preserving unrelated automation. Snapshot undo/redo covers the main editing operations. Tempo maps, multi-select, piano-roll zoom, and multiple velocity lanes remain future work.
 
 ## Persistence and migration
 
@@ -55,6 +55,7 @@ The project document stores only JSON-compatible domain data. AudioContext, Audi
 
 - Multiple tracks currently instantiate the same prototype oscillator synth; an instrument type chooser and actual piano/sampler modules are future work.
 - The arrangement UI displays bars/beats with configurable musical snap; BPM changes affect playback speed while preserving beat placement.
-- The prototype moves clips by dragging; it does not yet support resizing, trimming, duplication, or multi-select.
+- Clip resizing, duplication, and piano-roll note editing are supported. Multi-select, clip groups, and advanced MIDI editing remain future work.
 - Parameter mappings and custom rack configuration are initialized by application code rather than persisted as editable rack state.
-- There is no cloud sync, cross-device collaboration, undo history, or audio-asset library yet.
+- Undo/redo currently covers piano-roll note edits, clip moves/resizes, and clip duplication. It does not yet cover every project setting or track-mixer change.
+- There is no cloud sync, cross-device collaboration, or audio-asset library yet.

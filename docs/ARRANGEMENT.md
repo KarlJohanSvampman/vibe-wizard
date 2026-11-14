@@ -41,9 +41,21 @@ The global live theremin still fans out to its registered instrument mappings. A
 
 The selected-clip Play clip control remains a single-track audition path. Starting arrangement playback or clip audition stops the other mode so overlapping duplicate playback is not accidental.
 
+## Piano-roll editing
+
+The selected clip's piano roll pairs each note-on with its matching note-off using the event's `sourceId` and `noteId`. Note start and duration are displayed in quarter-note beats using the clip's recorded tempo, so changing project BPM does not rewrite the captured musical positions.
+
+- Click an empty pitch/time cell to add a note on the current grid snap; new notes default to one beat or the remaining clip length.
+- Drag a note body to move it in time and pitch. Drag the right edge to change its duration.
+- Select a note and use the velocity slider to edit its normalized velocity; Delete or Backspace removes it.
+- Edits update both paired note events, preserve unrelated controller automation, and save the project.
+- The editor shows the full MIDI pitch range needed by the clip; longer note ranges use vertical scrolling.
+
+Undo/Redo uses bounded immutable project snapshots (up to 100 commits). It covers piano-roll note edits, clip moves/resizes, and clip duplication. The toolbar buttons and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl/Cmd+Y shortcuts are supported.
+
 ## Timing limitations
 
-The project stores clip start positions and lengths in quarter-note beats. A bar contains `numerator × 4 / denominator` quarter-note beats, allowing signatures such as 3/4 and 6/8 to share one timeline representation. Project tempo converts beat positions to AudioContext seconds; each clip's captured tempo converts its relative event seconds to musical time. Tempo changes therefore preserve clip placement and note relationships while changing playback duration. Loop In/Out are stored as beat positions and expressed in bars in the UI. Clip resizing changes only `lengthBeats`; event data remains intact. Tempo maps, selection groups, undo/redo, and piano-roll editing remain future work.
+The project stores clip start positions and lengths in quarter-note beats. A bar contains `numerator × 4 / denominator` quarter-note beats, allowing signatures such as 3/4 and 6/8 to share one timeline representation. Project tempo converts beat positions to AudioContext seconds; each clip's captured tempo converts its relative event seconds to musical time. Tempo changes therefore preserve clip placement and note relationships while changing playback duration. Loop In/Out are stored as beat positions and expressed in bars in the UI. Clip resizing changes only `lengthBeats`; event data remains intact. Tempo maps, selection groups, piano-roll zoom, multiple velocity lanes, and a full MIDI workflow remain future work.
 
 ## Manual acceptance checks
 
@@ -56,3 +68,5 @@ The project stores clip start positions and lengths in quarter-note beats. A bar
 7. Enable a loop spanning two or more bars, play across the loop out point, and confirm that the playhead wraps and held notes release cleanly.
 8. Shorten a clip with its right-edge handle, play it, then extend it again and confirm the previously hidden events are still present.
 9. Duplicate a clip and verify the copy retains its events and starts immediately after the source clip.
+10. Add a note in the piano roll, move it, resize it, change velocity, and delete it; verify each edit persists after reload.
+11. Undo and redo multiple note edits and confirm the paired note-on/note-off events and unaffected automation are restored exactly.

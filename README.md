@@ -17,12 +17,14 @@ The prototype includes:
 - A tempo-aware beat/bar grid, BPM and time-signature controls, and configurable clip snap.
 - An animated arrangement playhead and bar-based loop regions with automatic note release at loop boundaries.
 - Non-destructive clip resizing and duplication on the beat grid.
+- A MIDI-style piano roll for adding, selecting, moving, resizing, deleting, and setting the velocity of notes.
+- Snapshot-based undo/redo for note, clip-position, clip-size, and duplication edits.
 - Synchronized playback of clips across tracks using one AudioContext start clock.
 - Track-scoped playback of each clip's recorded controller automation.
 - A versioned project model, IndexedDB persistence, and migration from schema versions 1, 2, and 3.
 - Track selection/arming, saved-clip selection, and X/Y automation + note visualization.
 
-Multiple tracks currently use the same prototype oscillator synth. Independent routing and arrangement playback are in place; instrument variety and a full piano-roll editor remain future milestones.
+Multiple tracks currently use the same prototype oscillator synth. Independent routing, arrangement playback, and basic piano-roll note editing are in place; instrument variety, piano-roll zoom, velocity lanes, and a full MIDI workflow remain future milestones.
 
 ## Run locally
 
@@ -67,7 +69,7 @@ All instrument instances share one AudioContext but have independent voices and 
 7. Drag a clip's right-edge handle to resize its musical length without deleting captured event data. Use Duplicate clip to create a copy placed immediately after the selected clip.
 8. Press Stop arrangement to release any notes still held by the arrangement transport.
 
-The separate Play clip button remains available for auditioning just the selected clip. Resizing is non-destructive: events beyond the visible clip length are skipped during playback and can be recovered by extending the clip again. Loop and clip edits are saved with the project.
+The separate Play clip button remains available for auditioning just the selected clip. Resizing is non-destructive: events beyond the visible clip length are skipped during playback and can be recovered by extending the clip again. Select a clip to open its piano roll; click empty cells to add notes, drag note bodies to change pitch/time, drag right edges to resize, adjust velocity with the slider, and use Delete to remove a note. Undo/Redo buttons and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl/Cmd+Y reverse note and arrangement edits. All changes are saved with the project.
 
 ## Architecture
 
@@ -76,7 +78,8 @@ The separate Play clip button remains available for auditioning just the selecte
 - src/controllers — platform-neutral theremin and XR hand adapter.
 - src/sequencer — event recording, clip audition transport, and shared arrangement transport.
 - src/project — versioned project/track model, migration, arrangement operations, and IndexedDB repository.
-- src/app — desktop controls, track mixer, arrangement editor, and clip timeline.
+- src/app — desktop controls, track mixer, arrangement editor, piano roll, and clip timeline.
+- src/project/ProjectHistory.ts — bounded snapshot history for undo/redo.
 
 ## Documentation
 
