@@ -7,6 +7,17 @@ import { ThereminController } from '../controllers/theremin/ThereminController.j
 import { ThereminSpatialAdapter } from '../controllers/theremin/ThereminSpatialAdapter.js';
 import { EventRecorder, type RecordingClip } from '../sequencer/Recorder.js';
 import { createSequencerTransport, type TransportState } from '../sequencer/SequencerTransport.js';
+import {
+  addRecordingToProject,
+  createDefaultProject,
+  type ProjectClip,
+  type ProjectSnapshot,
+} from '../project/ProjectModel.js';
+import {
+  createProjectRepository,
+  MemoryProjectRepository,
+  type ProjectRepository,
+} from '../project/ProjectRepository.js';
 
 export function mountWorkbench(root: HTMLElement, world: World): void {
   const rack = new Rack();
@@ -44,7 +55,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const recorder = new EventRecorder();
   const transport = createSequencerTransport(synth, parameterBus);
-  let latestClip: RecordingClip | undefined;
+  let project: ProjectSnapshot = createDefaultProject(synth.id);
+  let selectedClipId: string | undefined;
+  let selectedClip: ProjectClip | undefined;
+  let repository: ProjectRepository = createProjectRepository();
+  let persistenceReady = false;
+  let saveQueue: Promise<void> = Promise.resolve();
   let spatialNoteId: string | undefined;
   let spatialNoteCounter = 0;
 
@@ -100,7 +116,6 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     },
   });
 
-  // Capture controller output regardless of whether sliders or XR produced it.
   const unsubscribeController = theremin.subscribe(recordEvent);
 
   root.innerHTML = [
@@ -108,13 +123,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '  <header class="workbench-header">',
     '    <div><p class="eyebrow">IMMERSIVE MUSIC WORKSTATION</p><h1>Vibe-Wizard</h1>',
     '    <p class="subtitle">Create instruments. Shape sounds. Make music.</p></div>',
-    '    <span class="prototype-tag">PROTOTYPE 03</span>',
+    '    <span class="prototype-tag">PROTOTYPE 04</span>',
     '  </header>',
     '  <div class="signal-row">',
     '    <span class="signal-dot" id="audio-status-dot"></span>',
     '    <span id="audio-status" role="status">Audio is stopped</span>',
     '    <button class="action-button" id="enable-audio" type="button">Enable audio</button>',
     '    <button class="action-button enter-vr-button" id="enter-vr" type="button">Enter VR</button>',
+    '  </div>',
+    '  <div class="project-toolbar">',
+    '    <label class="project-name-field" for="project-name"><span>PROJECT</span>',
+    '      <input id="project-name" type="text" maxlength="80" value="Untitled Session" /></label>',
+    '    <button class="transport-button" id="project-save" type="button" disabled>Save project</button>',
+    '    <span class="project-status" id="project-status" role="status">Loading local project…</span>',
     '  </div>',
     '  <div class="controller-panel">',
     '    <div class="section-heading"><div><p class="eyebrow">LIVE CONTROLLER</p><h2>Virtual theremin</h2></div>',
@@ -130,23 +151,29 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '    <p class="spatial-hint">In VR, enter the session and move your right index fingertip into the floating field. Horizontal movement changes pitch; vertical movement changes volume.</p>',
     '  </div>',
     '  <div class="controller-panel sequencer-panel">',
-    '    <div class="section-heading"><div><p class="eyebrow">PERFORMANCE CAPTURE</p><h2>Record &amp; replay</h2></div>',
+    '    <div class="section-heading"><div><p class="eyebrow">ARRANGEMENT · TRACK 01</p><h2 id="active-track-name">Theremin Synth</h2></div>',
     '      <span class="module-chip" id="clip-summary">NO CLIP</span></div>',
+    '    <div class="clip-library-row">',
+    '      <label for="saved-clips"><span>SAVED PERFORMANCES</span>',
+    '        <select id="saved-clips" disabled><option value="">No saved clips</option></select></label>',
+    '      <span class="track-badge">INSTRUMENT TRACK · SYNTH-MAIN</span>',
+    '    </div>',
     '    <div class="transport-controls">',
-    '      <button class="transport-button record-control" id="record-start" type="button">● Record</button>',
+    '      <button class="transport-button record-control" id="record-start" type="button" disabled>● Record</button>',
     '      <button class="transport-button" id="record-stop" type="button" disabled>Stop recording</button>',
     '      <button class="transport-button" id="clip-play" type="button" disabled>▶ Play clip</button>',
     '      <button class="transport-button" id="clip-stop" type="button" disabled>■ Stop playback</button>',
     '    </div>',
     '    <div class="timeline-wrap"><canvas id="clip-timeline" width="1000" height="210" aria-label="Recorded notes and theremin automation timeline"></canvas></div>',
     '    <p class="timeline-legend"><span class="legend-x">X · Pitch movement</span><span class="legend-y">Y · Volume movement</span><span class="legend-note">Notes · Held duration</span></p>',
-    '    <p class="capture-hint" id="capture-status">Record a live performance using the sliders, desktop button, or VR hand tracking.</p>',
+    '    <p class="capture-hint" id="capture-status">Perform with the sliders, desktop button, or VR hand tracking. Recordings are saved to this device.</p>',
     '  </div>',
-    '  <footer class="workbench-footer"><span>GLOBAL RACK</span><span>INPUT → RECORDER → CLIP → TRANSPORT</span><span>LOCAL AUDIO</span></footer>',
+    '  <footer class="workbench-footer"><span>GLOBAL RACK</span><span>TRACK → CLIPS → TRANSPORT</span><span>LOCAL AUDIO</span></footer>',
     '</section>',
   ].join('');
 
-  const get = <T extends HTMLElement>(selector: string): T | null => root.querySelector<T>(selector);
+  const get = <T extends HTMLElement>(selector: string): T | null =>
+    root.querySelector<T>(selector);
   const enableButton = get<HTMLButtonElement>('#enable-audio');
   const enterVrButton = get<HTMLButtonElement>('#enter-vr');
   const playButton = get<HTMLButtonElement>('#play-theremin');
@@ -157,6 +184,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const xValue = get<HTMLElement>('#x-value');
   const yValue = get<HTMLElement>('#y-value');
   const pitchValue = get<HTMLElement>('#pitch-value');
+  const projectNameInput = get<HTMLInputElement>('#project-name');
+  const projectSaveButton = get<HTMLButtonElement>('#project-save');
+  const projectStatus = get<HTMLElement>('#project-status');
+  const trackName = get<HTMLElement>('#active-track-name');
+  const clipSelect = get<HTMLSelectElement>('#saved-clips');
   const recordStartButton = get<HTMLButtonElement>('#record-start');
   const recordStopButton = get<HTMLButtonElement>('#record-stop');
   const clipPlayButton = get<HTMLButtonElement>('#clip-play');
@@ -168,7 +200,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   if (
     !enableButton || !enterVrButton || !playButton || !xInput || !yInput ||
     !status || !statusDot || !xValue || !yValue || !pitchValue ||
-    !recordStartButton || !recordStopButton || !clipPlayButton ||
+    !projectNameInput || !projectSaveButton || !projectStatus || !trackName ||
+    !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
     !clipStopButton || !clipSummary || !captureStatus || !timeline
   ) {
     spatialAdapter.dispose();
@@ -232,7 +265,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
     if (!clip) {
       context.fillStyle = '#777184';
-      context.fillText('Your recorded performance will appear here.', left + 10, 111);
+      context.fillText('Select a saved clip or record a new performance.', left + 10, 111);
       return;
     }
 
@@ -289,13 +322,47 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   };
 
   const updateClipUi = (): void => {
-    const hasClip = Boolean(latestClip && latestClip.events.length > 0);
+    const hasClip = Boolean(selectedClip && selectedClip.events.length > 0);
     clipPlayButton.disabled = !hasClip || !audioReady || transport.currentState === 'playing';
     clipStopButton.disabled = transport.currentState !== 'playing';
-    clipSummary.textContent = latestClip
-      ? latestClip.durationSeconds.toFixed(1) + 's · ' + latestClip.events.length + ' EVENTS'
+    clipSummary.textContent = selectedClip
+      ? selectedClip.name.toUpperCase() + ' · ' + selectedClip.durationSeconds.toFixed(1) + 'S'
       : 'NO CLIP';
-    drawTimeline(latestClip);
+    drawTimeline(selectedClip);
+  };
+
+  const refreshClipList = (): void => {
+    clipSelect.replaceChildren();
+    if (project.clips.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No saved clips';
+      clipSelect.append(option);
+      clipSelect.disabled = true;
+      selectedClipId = undefined;
+      selectedClip = undefined;
+    } else {
+      for (const clip of project.clips) {
+        const option = document.createElement('option');
+        option.value = clip.id;
+        option.textContent = clip.name + ' · ' + clip.durationSeconds.toFixed(1) + 's';
+        clipSelect.append(option);
+      }
+      if (!project.clips.some(clip => clip.id === selectedClipId)) {
+        selectedClipId = project.clips[project.clips.length - 1]?.id;
+      }
+      clipSelect.value = selectedClipId ?? '';
+      clipSelect.disabled = false;
+      selectedClip = project.clips.find(clip => clip.id === selectedClipId);
+    }
+    updateClipUi();
+  };
+
+  const updateProjectUi = (): void => {
+    projectNameInput.value = project.name;
+    const activeTrack = project.tracks.find(track => track.id === project.activeTrackId);
+    trackName.textContent = activeTrack?.name ?? 'No active track';
+    refreshClipList();
   };
 
   const updateController = (): void => {
@@ -308,6 +375,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   };
 
   const updateStatus = (message: string): void => { status.textContent = message; };
+
+  const persistProject = (): Promise<void> => {
+    const name = projectNameInput.value.trim();
+    project = {
+      ...project,
+      name: name || 'Untitled Session',
+      updatedAt: new Date().toISOString(),
+    };
+    const snapshot = project;
+    const operation = saveQueue.then(() => repository.save(snapshot));
+    saveQueue = operation.catch(() => undefined);
+    return operation;
+  };
 
   const enableAudio = async (): Promise<void> => {
     try {
@@ -343,39 +423,97 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   };
 
   const startRecording = (): void => {
+    if (!persistenceReady || recorder.isRecording) return;
     if (transport.currentState === 'playing') transport.stop();
-    latestClip = undefined;
+    selectedClipId = undefined;
+    selectedClip = undefined;
     recorder.start(performance.now() / 1000);
     recordStartButton.disabled = true;
     recordStopButton.disabled = false;
     captureStatus.textContent = 'Recording notes and X/Y controller movement…';
-    clipPlayButton.disabled = true;
     updateClipUi();
   };
 
   const stopRecording = (): void => {
     if (!recorder.isRecording) return;
-    latestClip = recorder.stop(performance.now() / 1000);
-    recordStartButton.disabled = false;
+    const recording = recorder.stop(performance.now() / 1000);
+    recordStartButton.disabled = !persistenceReady;
     recordStopButton.disabled = true;
-    captureStatus.textContent = latestClip
-      ? 'Captured ' + latestClip.events.length + ' events over ' +
-        latestClip.durationSeconds.toFixed(2) + ' seconds.'
-      : 'No events were captured.';
-    updateClipUi();
+    if (!recording) return;
+
+    project = addRecordingToProject(project, project.activeTrackId, recording);
+    selectedClipId = recording.id;
+    captureStatus.textContent = 'Captured ' + recording.events.length + ' events over ' +
+      recording.durationSeconds.toFixed(2) + ' seconds. Saving to this device…';
+    updateProjectUi();
+    void persistProject().then(() => {
+      projectStatus.textContent = repository.durability === 'persistent'
+        ? 'Saved on this device'
+        : 'Session only · browser storage unavailable';
+      captureStatus.textContent = 'Recording saved to project "' + project.name + '".';
+    }).catch((error: unknown) => {
+      projectStatus.textContent = 'Save failed';
+      captureStatus.textContent = error instanceof Error
+        ? 'Recording is in memory, but could not be saved: ' + error.message
+        : 'Recording is in memory, but could not be saved.';
+    });
+  };
+
+  const initializeProject = async (): Promise<void> => {
+    try {
+      const saved = await repository.loadLatest();
+      if (saved) project = saved;
+      else await repository.save(project);
+    } catch (error) {
+      repository = new MemoryProjectRepository();
+      project = createDefaultProject(synth.id);
+      projectStatus.textContent = 'Session only · local storage unavailable';
+      captureStatus.textContent = error instanceof Error
+        ? 'Could not open saved projects: ' + error.message
+        : 'Could not open saved projects. This session will be temporary.';
+    }
+
+    persistenceReady = true;
+    recordStartButton.disabled = false;
+    projectSaveButton.disabled = false;
+    if (repository.durability === 'persistent') {
+      projectStatus.textContent = 'Local project storage ready';
+    } else if (!projectStatus.textContent.startsWith('Session only')) {
+      projectStatus.textContent = 'Session only · browser storage unavailable';
+    }
+    updateProjectUi();
   };
 
   recordStartButton.addEventListener('click', startRecording);
   recordStopButton.addEventListener('click', stopRecording);
 
+  clipSelect.addEventListener('change', () => {
+    selectedClipId = clipSelect.value || undefined;
+    selectedClip = project.clips.find(clip => clip.id === selectedClipId);
+    updateClipUi();
+  });
+
   clipPlayButton.addEventListener('click', () => {
-    if (!latestClip) return;
-    try { transport.play(latestClip); }
+    if (!selectedClip) return;
+    try { transport.play(selectedClip); }
     catch (error) {
       captureStatus.textContent = error instanceof Error ? error.message : 'Could not play clip';
     }
   });
   clipStopButton.addEventListener('click', () => transport.stop());
+
+  projectSaveButton.addEventListener('click', () => {
+    projectSaveButton.disabled = true;
+    void persistProject().then(() => {
+      projectStatus.textContent = repository.durability === 'persistent'
+        ? 'Project saved on this device'
+        : 'Session only · browser storage unavailable';
+    }).catch((error: unknown) => {
+      projectStatus.textContent = error instanceof Error ? error.message : 'Could not save project';
+    }).finally(() => {
+      projectSaveButton.disabled = false;
+    });
+  });
 
   const updateTransportUi = (state: TransportState): void => {
     updateClipUi();
@@ -429,11 +567,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   playButton.addEventListener('pointercancel', stopDesktopTone);
   playButton.addEventListener('lostpointercapture', stopDesktopTone);
   window.addEventListener('blur', stopDesktopTone);
-  const resizeHandler = (): void => drawTimeline(latestClip);
+  const resizeHandler = (): void => drawTimeline(selectedClip);
   window.addEventListener('resize', resizeHandler);
-
-  updateController();
-  drawTimeline(undefined);
 
   root.addEventListener('vibe-wizard-dispose', () => {
     stopDesktopTone();
@@ -445,4 +580,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     window.removeEventListener('resize', resizeHandler);
     void rack.dispose();
   }, { once: true });
+
+  updateController();
+  drawTimeline(undefined);
+  void initializeProject();
 }
