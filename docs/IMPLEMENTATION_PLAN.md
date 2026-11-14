@@ -2,7 +2,7 @@
 
 ## Guiding strategy
 
-Build a narrow vertical slice that validates the architecture before building a large DAW surface. The repository now has the IWSDK project foundation, a basic Web Audio synth, global rack, Parameter Bus, desktop and tracked-hand theremin, recording/playback, and local project persistence.
+Build a narrow vertical slice that validates the architecture before building a large DAW surface. The repository now has a shared Web Audio runtime, multiple independently routed instrument tracks, the global rack and Parameter Bus, desktop and tracked-hand theremin, recording/playback, and local project persistence.
 
 ## Phase 0 — Foundation
 
@@ -15,10 +15,11 @@ Build a narrow vertical slice that validates the architecture before building a 
 
 ## Phase 1 — Audio foundation
 
-- [x] Define deferred AudioContext initialization.
-- [x] Implement a basic Web Audio synthesizer with note-on/off.
-- [x] Translate shared event timestamps to AudioContext time.
+- [x] Define deferred shared AudioContext initialization.
+- [x] Implement a basic Web Audio synthesizer with independent instrument voices.
+- [x] Translate shared event timestamps to the shared AudioContext clock.
 - [x] Add look-ahead note and parameter scheduling for clip playback.
+- [x] Add independent track output gain and stereo pan buses.
 - [ ] Add explicit polyphony limits and voice-stealing policy.
 - [ ] Add panic/cleanup behavior tests and manual audio smoke tests.
 
@@ -26,8 +27,9 @@ Build a narrow vertical slice that validates the architecture before building a 
 
 - [x] Define global rack registry and module lifecycle.
 - [x] Implement Parameter Bus mappings with range conversion, curves, inversion, dead zone, quantization, smoothing, and fan-out.
+- [x] Add track-to-instrument assignment and separate track audio buses.
 - [ ] Add module port metadata and connection validation.
-- [ ] Add instrument-to-track assignment and effect-chain routing.
+- [ ] Add effect-chain routing, sends, and master bus.
 - [ ] Add mapping editor and preset serialization.
 
 ## Phase 3 — Input and theremin
@@ -47,9 +49,10 @@ Build a narrow vertical slice that validates the architecture before building a 
 - [x] Capture live theremin X/Y controller output from desktop and XR.
 - [x] Automatically close notes held when recording stops.
 - [x] Add AudioContext look-ahead clip playback through the rack.
+- [x] Add per-track clip ownership and playback.
 - [x] Add a simple automation/note timeline visualization.
 - [ ] Add tempo, musical grid, quantization, and loop sections.
-- [ ] Add clip editing and multiple tracks.
+- [ ] Add clip editing and simultaneous arrangement playback.
 - [ ] Add rendered audio recording as a separate mode.
 
 ## Phase 5 — Projects, tracks, and studio views
@@ -57,11 +60,12 @@ Build a narrow vertical slice that validates the architecture before building a 
 - [x] Add a versioned project snapshot and instrument-track model.
 - [x] Add IndexedDB persistence for project snapshots and recorded clips.
 - [x] Restore the latest project and select between saved performances.
-- [ ] Add multiple instrument tracks with independent audio routing.
-- [ ] Add arrangement view, track selection/arming, rack view, and mixer view.
+- [x] Add multiple instrument tracks with independent shared-context audio routing.
+- [x] Add track select/arm, mute/solo, level, and pan controls.
+- [ ] Add arrangement view, rack view, and mixer view.
 - [ ] Add persistent rack presets and parameter mapping state.
-- [ ] Add tempo-aware beat positions and project migration tests.
-- [ ] Add undo/redo for editing actions.
+- [x] Migrate schema version 1 projects to the version 2 track mix model.
+- [ ] Add tempo-aware beat positions and undo/redo.
 
 ## Phase 6 — Effects and richer instruments
 
@@ -80,4 +84,4 @@ Build a narrow vertical slice that validates the architecture before building a 
 
 ## Next recommended milestone
 
-Implement independent instrument buses and multiple instrument tracks, then build the arrangement view on top of the persisted project/clip model.
+Build the arrangement editor with independent lane/clip placement, then move to beat-based timing and concurrent transport playback across tracks.

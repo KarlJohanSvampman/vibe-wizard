@@ -1,6 +1,7 @@
 import { clamp, midiToFrequency } from './events.js';
 import type { NoteOffEvent, NoteOnEvent } from './events.js';
 import type { RackModule } from '../rack/types.js';
+import { AudioRuntime } from './AudioRuntime.js';
 
 interface SynthVoice {
   readonly oscillator: OscillatorNode;
@@ -12,49 +13,63 @@ interface SynthVoice {
 }
 
 /**
- * Prototype Web Audio instrument. Public event timestamps use performance.now()
- * seconds and are translated into AudioContext time for look-ahead scheduling.
+ * Prototype Web Audio instrument. Multiple engines can share one AudioRuntime
+ * while retaining independent voices and output connections.
  */
 export class AudioEngine implements RackModule {
   readonly kind = 'instrument' as const;
 
-  private context: AudioContext | undefined;
+  private readonly runtime: AudioRuntime;
+  private readonly ownsRuntime: boolean;
   private masterGain: GainNode | undefined;
+  private outputNode: AudioNode | undefined;
   private readonly voices = new Map<string, SynthVoice>();
   private masterVolume = 0.35;
   private disposed = false;
 
-  constructor(readonly id: string) {}
+  constructor(readonly id: string, runtime?: AudioRuntime) {
+    this.runtime = runtime ?? new AudioRuntime();
+    this.ownsRuntime = runtime === undefined;
+  }
 
   async start(): Promise<void> {
     if (this.disposed) throw new Error('Cannot start a disposed audio engine.');
+    const context = this.runtime.prepareContext();
 
-    if (!this.context) {
-      this.context = new AudioContext();
-      this.masterGain = this.context.createGain();
+    if (!this.masterGain) {
+      this.masterGain = context.createGain();
       this.masterGain.gain.value = this.masterVolume;
-      this.masterGain.connect(this.context.destination);
+      this.outputNode ??= context.destination;
+      this.masterGain.connect(this.outputNode);
     }
 
-    if (this.context.state !== 'running') await this.context.resume();
+    await this.runtime.start();
   }
 
   get isRunning(): boolean {
-    return this.context?.state === 'running';
+    return this.runtime.isRunning;
   }
 
   get currentTime(): number {
-    return this.context?.currentTime ?? 0;
+    return this.runtime.currentTime;
   }
 
   performanceTimeForAudioTime(audioTime: number): number {
-    const context = this.requireContext();
-    return performance.now() / 1000 + (audioTime - context.currentTime);
+    return this.runtime.performanceTimeForAudioTime(audioTime);
+  }
+
+  /** Route this instrument's output into its owning track bus. */
+  connectOutput(destination: AudioNode): void {
+    this.outputNode = destination;
+    if (!this.masterGain) return;
+    this.masterGain.disconnect();
+    this.masterGain.connect(destination);
   }
 
   noteOn(event: NoteOnEvent): void {
-    const context = this.requireContext();
-    const startTime = this.toAudioTime(event.timestamp);
+    const context = this.runtime.requireContext();
+    if (!this.masterGain) throw new Error('Start the instrument before sending note events.');
+    const startTime = this.runtime.toAudioTime(event.timestamp);
 
     this.noteOff({
       kind: 'note-off',
@@ -73,7 +88,7 @@ export class AudioEngine implements RackModule {
     envelope.gain.setValueAtTime(0.0001, startTime);
     envelope.gain.linearRampToValueAtTime(Math.max(0.0001, velocity), startTime + 0.015);
     oscillator.connect(envelope);
-    envelope.connect(this.masterGain!);
+    envelope.connect(this.masterGain);
     oscillator.start(startTime);
 
     const voice: SynthVoice = {
@@ -94,16 +109,14 @@ export class AudioEngine implements RackModule {
 
   noteOff(event: NoteOffEvent, releaseSeconds = 0.14): void {
     const voice = this.voices.get(event.noteId);
-    const context = this.context;
-    if (!voice || !context) return;
+    const context = this.runtime.context;
+    if (!voice || !context || context.state === 'closed') return;
 
-    const requestedTime = this.toAudioTime(event.timestamp);
+    const requestedTime = this.runtime.toAudioTime(event.timestamp);
     const releaseTime = Math.max(requestedTime, voice.startTime);
-
     if (voice.releaseTime !== undefined && releaseTime >= voice.releaseTime) return;
 
     if (requestedTime < voice.startTime) {
-      // Cancel a voice that has been queued by look-ahead but has not begun.
       voice.envelope.gain.cancelScheduledValues(voice.startTime);
       voice.oscillator.stop(Math.max(context.currentTime, requestedTime));
       voice.releaseTime = requestedTime;
@@ -134,20 +147,21 @@ export class AudioEngine implements RackModule {
     if (!Number.isFinite(value)) return;
 
     if (parameterId === 'volume') {
-      // Keep the most recent controller value even before AudioContext starts.
       this.masterVolume = clamp(value, 0, 1);
-      if (this.context && this.masterGain) {
-        const at = this.toAudioTime(timestamp);
-        this.masterGain.gain.setTargetAtTime(this.masterVolume, at, 0.012);
+      if (this.masterGain) {
+        this.masterGain.gain.setTargetAtTime(
+          this.masterVolume,
+          this.runtime.toAudioTime(timestamp),
+          0.012,
+        );
       }
       return;
     }
 
-    if (!this.context) return;
-    const at = this.toAudioTime(timestamp);
-
+    if (!this.masterGain) return;
     if (parameterId === 'pitch') {
       const frequency = midiToFrequency(clamp(value, 0, 127));
+      const at = this.runtime.toAudioTime(timestamp);
       for (const voice of this.voices.values()) {
         voice.oscillator.frequency.setTargetAtTime(
           frequency,
@@ -162,23 +176,10 @@ export class AudioEngine implements RackModule {
     if (this.disposed) return;
     this.allNotesOff();
     this.disposed = true;
-    const context = this.context;
     this.voices.clear();
-    this.context = undefined;
+    this.masterGain?.disconnect();
     this.masterGain = undefined;
-    if (context && context.state !== 'closed') await context.close();
-  }
-
-  private toAudioTime(performanceTimestamp: number): number {
-    const context = this.requireContext();
-    const offset = context.currentTime - performance.now() / 1000;
-    return Math.max(context.currentTime, performanceTimestamp + offset);
-  }
-
-  private requireContext(): AudioContext {
-    if (!this.context || !this.masterGain || this.context.state === 'closed') {
-      throw new Error('Audio is not ready. Call start() from a user gesture first.');
-    }
-    return this.context;
+    this.outputNode = undefined;
+    if (this.ownsRuntime) await this.runtime.dispose();
   }
 }

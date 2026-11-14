@@ -1,4 +1,5 @@
 import {
+  migrateProjectRecord,
   validateProjectSnapshot,
   type ProjectSnapshot,
 } from './ProjectModel.js';
@@ -10,7 +11,7 @@ export interface ProjectRepository {
 }
 
 const DATABASE_NAME = 'vibe-wizard-projects';
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const PROJECT_STORE = 'projects';
 
 function cloneSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
@@ -20,11 +21,32 @@ function cloneSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
 function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = factory.open(DATABASE_NAME, DATABASE_VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const database = request.result;
+      const transaction = request.transaction;
+      let store: IDBObjectStore;
+
       if (!database.objectStoreNames.contains(PROJECT_STORE)) {
-        const store = database.createObjectStore(PROJECT_STORE, { keyPath: 'id' });
+        store = database.createObjectStore(PROJECT_STORE, { keyPath: 'id' });
         store.createIndex('updatedAt', 'updatedAt', { unique: false });
+      } else {
+        store = transaction!.objectStore(PROJECT_STORE);
+      }
+
+      if (event.oldVersion > 0 && event.oldVersion < 2) {
+        const cursorRequest = store.openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          try {
+            cursor.update(migrateProjectRecord(cursor.value));
+          } catch (error) {
+            transaction!.abort();
+            reject(error);
+            return;
+          }
+          cursor.continue();
+        };
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -50,7 +72,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       request.onsuccess = () => {
         try {
           const projects = (request.result as unknown[])
-            .map(validateProjectSnapshot)
+            .map((item) => validateProjectSnapshot(migrateProjectRecord(item)))
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
           resolve(projects[0]);
         } catch (error) {
@@ -75,7 +97,6 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 }
 
-/** Used by tests and as a clearly marked session-only fallback. */
 export class MemoryProjectRepository implements ProjectRepository {
   readonly durability = 'ephemeral' as const;
   private readonly projects = new Map<string, ProjectSnapshot>();

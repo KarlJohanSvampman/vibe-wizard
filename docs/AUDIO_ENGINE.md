@@ -2,35 +2,36 @@
 
 ## Responsibilities
 
-The audio engine owns the AudioContext, graph construction, scheduling, voices, instruments, effects, track mixing, and master output. It does not know about Three.js, IWSDK entities, UI components, or hand tracking.
+A project owns one shared, lazily created AudioContext through AudioRuntime. Instruments own their voices and instrument-output gain stages; tracks own independent TrackAudioBus stages. This keeps audio modules separate from UI, XR, and controller implementations while allowing all tracks to mix in one browser audio graph.
 
 ## Lifecycle
 
-- Construct without starting audio.
-- Initialize/resume only in response to an explicit user gesture where browser autoplay policy requires it.
-- Expose running state and AudioContext time.
-- Support deterministic disposal.
-- Never create a new AudioContext per note or component.
+- Construct AudioRuntime, instruments, and track buses without starting audio.
+- Initialize/resume the shared AudioContext only in response to an explicit user gesture.
+- Every instrument in a project receives the same AudioRuntime.
+- A track bus creates its gain and stereo-panner nodes after the shared context starts.
+- Each instrument output connects to its owning track bus; each bus connects to the shared destination.
+- Dispose instruments and buses before closing the shared runtime.
+
+The project does not create a new AudioContext per instrument or note.
 
 ## Clock model
 
-Input adapters use performance-time seconds as a common monotonic event timestamp. AudioEngine translates that clock into AudioContext time when scheduling notes and parameter values.
+Input adapters use performance-time seconds as a common monotonic event timestamp. AudioRuntime translates that clock into the one shared AudioContext time domain. The sequencer schedules against AudioContext time with a short look-ahead window and converts clip-relative positions into future performance-time timestamps.
 
-The sequencer schedules against AudioContext time with a short look-ahead window. It converts clip-relative event positions into future performance-time timestamps, which the audio engine maps to its clock. Animation frames are for visuals and tracking, not note scheduling.
+Animation frames are for visuals and tracking, not note scheduling.
 
-## Instrument contract
+## Instrument and track contracts
 
-An instrument receives typed musical events and produces audio. It exposes parameter descriptors and serializable configuration. The first synth uses OscillatorNode and GainNode per voice.
+An instrument receives typed musical events and produces audio. It owns its voices and instrument-level parameters, including the theremin expression-volume mapping.
 
-Required event handling includes note-on, note-off, pitch bend/expression where supported, and all-notes-off.
-
-Velocity affects amplitude. Release is envelope-based rather than abrupt.
+A track bus owns independent output level and stereo pan for its track. Mute and solo are resolved by the project mixer before volume is applied. This separates instrument expression from the track fader.
 
 ## Voices
 
 - Explicit maximum polyphony is still planned.
-- A note instance is identified by source and unique note ID.
-- Prevent stuck notes with all-notes-off and input-source lifecycle cleanup.
+- A note instance is identified by source and unique note ID within its instrument instance.
+- Stopping playback or disposing an input source must release its owned notes.
 - A scheduled note-off can move an existing release earlier when playback is stopped.
 
 ## Resource rules
@@ -42,4 +43,4 @@ Velocity affects amplitude. Release is envelope-based rather than abrupt.
 
 ## Testing
 
-Unit tests cover scheduling, event normalization, mappings, and recorder behavior. Manual tests cover actual output, latency, clipping, suspension, and long sessions.
+Unit tests cover project mix metadata, migration, scheduling, event normalization, mappings, and recorder behavior. Manual tests must cover simultaneous instruments, track mute/solo/volume/pan, actual output, latency, clipping, suspension, and long sessions.

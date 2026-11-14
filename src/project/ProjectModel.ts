@@ -1,7 +1,7 @@
 import type { MusicalEvent } from '../audio/events.js';
 import type { RecordedEvent, RecordingClip } from '../sequencer/Recorder.js';
 
-export const PROJECT_SCHEMA_VERSION = 1 as const;
+export const PROJECT_SCHEMA_VERSION = 2 as const;
 
 export interface ProjectTimeSignature {
   readonly numerator: number;
@@ -17,12 +17,15 @@ export interface ProjectTrack {
   readonly muted: boolean;
   readonly solo: boolean;
   readonly armed: boolean;
+  /** Linear track fader value, independent of instrument/controller volume. */
+  readonly volume: number;
+  /** Stereo position in the range -1 (left) to +1 (right). */
+  readonly pan: number;
 }
 
 export interface ProjectClip extends RecordingClip {
   readonly name: string;
   readonly trackId: string;
-  /** Position on the arrangement timeline. The prototype uses seconds. */
   readonly startSeconds: number;
   readonly createdAt: string;
 }
@@ -39,6 +42,10 @@ export interface ProjectSnapshot {
   readonly tracks: readonly ProjectTrack[];
   readonly clips: readonly ProjectClip[];
 }
+
+export type ProjectTrackPatch = Partial<
+  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan'>
+>;
 
 function makeId(prefix: string): string {
   return globalThis.crypto?.randomUUID?.() ??
@@ -70,9 +77,75 @@ export function createDefaultProject(
       muted: false,
       solo: false,
       armed: true,
+      volume: 0.8,
+      pan: 0,
     }],
     clips: [],
   };
+}
+
+export function addInstrumentTrack(
+  snapshot: ProjectSnapshot,
+  name: string,
+  instrumentModuleId: string,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (project.tracks.some(track => track.instrumentModuleId === instrumentModuleId)) {
+    throw new Error('Instrument module is already assigned to a project track.');
+  }
+  const id = makeId('track');
+  const track: ProjectTrack = {
+    id,
+    name: name.trim() || 'Instrument Track ' + (project.tracks.length + 1),
+    kind: 'instrument',
+    instrumentModuleId,
+    order: project.tracks.reduce((highest, item) => Math.max(highest, item.order), -1) + 1,
+    muted: false,
+    solo: false,
+    armed: true,
+    volume: 0.8,
+    pan: 0,
+  };
+
+  return {
+    ...project,
+    updatedAt: now.toISOString(),
+    activeTrackId: id,
+    tracks: project.tracks.map(item => ({ ...item, armed: false })).concat(track),
+  };
+}
+
+export function updateProjectTrack(
+  snapshot: ProjectSnapshot,
+  trackId: string,
+  patch: ProjectTrackPatch,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (!project.tracks.some(track => track.id === trackId)) {
+    throw new Error('Cannot update unknown track: ' + trackId);
+  }
+  const tracks = project.tracks.map((track) =>
+    track.id === trackId ? { ...track, ...patch } : track,
+  );
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    tracks,
+  });
+}
+
+export function setActiveProjectTrack(
+  snapshot: ProjectSnapshot,
+  trackId: string,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (!project.tracks.some(track => track.id === trackId)) {
+    throw new Error('Cannot select unknown track: ' + trackId);
+  }
+  return { ...project, activeTrackId: trackId, updatedAt: now.toISOString() };
 }
 
 export function addRecordingToProject(
@@ -123,6 +196,27 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+/** Upgrade an older stored project without discarding its clips or IDs. */
+export function migrateProjectRecord(value: unknown): unknown {
+  if (!isRecord(value)) throw new Error('Project data must be an object.');
+  if (value.schemaVersion === PROJECT_SCHEMA_VERSION) return value;
+  if (value.schemaVersion !== 1 || !Array.isArray(value.tracks)) {
+    throw new Error('Unsupported project schema version: ' + String(value.schemaVersion) + '.');
+  }
+  return {
+    ...value,
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    tracks: value.tracks.map((track) => {
+      if (!isRecord(track)) return track;
+      return {
+        ...track,
+        volume: finiteNumber(track.volume) ? track.volume : 0.8,
+        pan: finiteNumber(track.pan) ? track.pan : 0,
+      };
+    }),
+  };
+}
+
 function validateMusicalEvent(value: unknown): value is MusicalEvent {
   if (!isRecord(value) || typeof value.kind !== 'string' ||
       typeof value.sourceId !== 'string' || !finiteNumber(value.timestamp)) {
@@ -145,7 +239,6 @@ function validateMusicalEvent(value: unknown): value is MusicalEvent {
   }
 }
 
-/** Validate persisted data before it is allowed into live project state. */
 export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
   if (!isRecord(value)) throw new Error('Project data must be an object.');
   if (value.schemaVersion !== PROJECT_SCHEMA_VERSION) {
@@ -167,6 +260,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
   }
 
   const trackIds = new Set<string>();
+  const moduleIds = new Set<string>();
   const tracks: ProjectTrack[] = value.tracks.map((item) => {
     if (
       !isRecord(item) || typeof item.id !== 'string' ||
@@ -174,12 +268,18 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       typeof item.instrumentModuleId !== 'string' ||
       !finiteNumber(item.order) ||
       typeof item.muted !== 'boolean' || typeof item.solo !== 'boolean' ||
-      typeof item.armed !== 'boolean'
+      typeof item.armed !== 'boolean' ||
+      !finiteNumber(item.volume) || item.volume < 0 || item.volume > 1 ||
+      !finiteNumber(item.pan) || item.pan < -1 || item.pan > 1
     ) {
       throw new Error('Project contains an invalid track.');
     }
     if (trackIds.has(item.id)) throw new Error('Project contains duplicate track IDs.');
+    if (moduleIds.has(item.instrumentModuleId)) {
+      throw new Error('A single instrument module cannot be assigned to more than one track.');
+    }
     trackIds.add(item.id);
+    moduleIds.add(item.instrumentModuleId);
     return item as unknown as ProjectTrack;
   });
 

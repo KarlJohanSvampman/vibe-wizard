@@ -8,14 +8,15 @@ Vibe-Wizard is a browser-first digital audio workstation for immersive music cre
 
 The prototype includes:
 - Meta IWSDK project setup and desktop development runtime.
-- A local Web Audio synthesizer, global rack, and reusable Parameter Bus.
+- A shared local Web Audio runtime and global rack.
+- Multiple instrument tracks with independent output buses, track level, pan, mute, and solo.
 - Desktop slider input and tracked right-index-finger spatial theremin control.
 - Typed recording of notes and continuous controller movement.
-- Look-ahead clip playback through the same rack and mappings.
-- A versioned project/track model and IndexedDB persistence for performances.
-- Automatic startup loading, a saved-clip selector, and a simple X/Y automation + note timeline.
+- Per-track clip playback through the shared audio graph and Parameter Bus.
+- A versioned project model, IndexedDB persistence, and migration from schema version 1.
+- Track selection/arming, saved-clip selection, and a simple X/Y automation + note timeline.
 
-The current runtime has one theremin-driven synth instrument track. The project model supports multiple instrument tracks, but independent multi-track audio routing and arrangement editing are future milestones.
+Multiple tracks currently use the same prototype oscillator synth; independent audio routing is in place, while instrument variety and the full arrangement editor are future milestones.
 
 ## Run locally
 
@@ -26,7 +27,7 @@ npm install
 npm run dev
 ```
 
-Use the desktop IWER emulator first. Press Enable audio to initialize local audio; use Enter VR to request the immersive session and start audio from the same user gesture. On Quest, open the HTTPS development URL in Meta Quest Browser with hand tracking enabled.
+Use the desktop IWER emulator first. Press Enable audio to initialize the shared local AudioContext; use Enter VR to request the immersive session and start audio from the same user gesture. On Quest, open the HTTPS development URL in Meta Quest Browser with hand tracking enabled.
 
 Quality checks:
 
@@ -36,25 +37,25 @@ npm test
 npm run build
 ```
 
-## Record, save, and replay
+## Multiple instrument tracks
 
-1. Wait for the project status to report that local project storage is ready.
+1. Wait for the local project status to report that storage is ready.
 2. Enable audio.
-3. Press Record and perform with the desktop controls or tracked VR hand.
-4. Press Stop recording. The clip is attached to the active instrument track and saved automatically.
-5. Choose any saved performance from the selector and press Play clip.
-6. Rename the project and press Save project to persist the new name.
+3. Use + Add instrument to create another synth track.
+4. Select a track, arm it, then record a performance. Clips are saved to the selected track.
+5. Adjust its independent Track Level and Stereo Pan. Mute and Solo operate across the project mix.
+6. Choose one of that track's saved clips and press Play clip.
 
-Projects are stored in this browser's IndexedDB and are available after reload in the same browser profile. Clearing site data removes them. When IndexedDB is unavailable, the UI explicitly reports session-only storage.
+All instrument instances share one AudioContext but have independent voices and track-output buses. This avoids spawning an AudioContext for every instrument and enables the tracks to mix together.
 
 ## Architecture
 
-- src/audio — Web Audio engine and typed events.
-- src/rack — global module registry and Parameter Bus.
+- src/audio — shared AudioRuntime, Web Audio instruments, and typed events.
+- src/rack — global module registry, Parameter Bus, and track audio buses.
 - src/controllers — platform-neutral theremin and XR hand adapter.
 - src/sequencer — event recording and look-ahead clip transport.
-- src/project — versioned project model and IndexedDB repository.
-- src/app — desktop controls and timeline visualization.
+- src/project — versioned project/track model, migration, and IndexedDB repository.
+- src/app — desktop controls, track mixer, and clip timeline.
 
 ## Documentation
 

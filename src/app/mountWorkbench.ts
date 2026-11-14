@@ -1,17 +1,23 @@
 import { VisibilityState, type World } from '@iwsdk/core';
 import type { MusicalEvent, NoteOffEvent, NoteOnEvent } from '../audio/events.js';
+import { AudioRuntime } from '../audio/AudioRuntime.js';
 import { AudioEngine } from '../audio/AudioEngine.js';
 import { Rack } from '../rack/Rack.js';
 import { ParameterBus } from '../rack/ParameterBus.js';
+import { TrackAudioBus } from '../rack/TrackAudioBus.js';
 import { ThereminController } from '../controllers/theremin/ThereminController.js';
 import { ThereminSpatialAdapter } from '../controllers/theremin/ThereminSpatialAdapter.js';
 import { EventRecorder, type RecordingClip } from '../sequencer/Recorder.js';
 import { createSequencerTransport, type TransportState } from '../sequencer/SequencerTransport.js';
 import {
+  addInstrumentTrack,
   addRecordingToProject,
   createDefaultProject,
+  setActiveProjectTrack,
+  updateProjectTrack,
   type ProjectClip,
   type ProjectSnapshot,
+  type ProjectTrack,
 } from '../project/ProjectModel.js';
 import {
   createProjectRepository,
@@ -21,52 +27,111 @@ import {
 
 export function mountWorkbench(root: HTMLElement, world: World): void {
   const rack = new Rack();
-  const synth = rack.add(new AudioEngine('synth-main'));
+  const audioRuntime = new AudioRuntime();
   const parameterBus = new ParameterBus();
-  parameterBus.registerTarget(synth);
-
   const theremin = rack.add(new ThereminController('theremin-main', parameterBus));
-  parameterBus.addMapping({
-    id: 'theremin-x-to-synth-pitch',
-    sourceModuleId: theremin.id,
-    sourcePortId: 'x',
-    targetModuleId: synth.id,
-    targetParameterId: 'pitch',
-    inputRange: [0, 1],
-    outputRange: [48, 84],
-    curve: 'linear',
-    invert: false,
-    deadZone: 0,
-    smoothingMs: 10,
-  });
-  parameterBus.addMapping({
-    id: 'theremin-y-to-synth-volume',
-    sourceModuleId: theremin.id,
-    sourcePortId: 'y',
-    targetModuleId: synth.id,
-    targetParameterId: 'volume',
-    inputRange: [0, 1],
-    outputRange: [0.025, 0.65],
-    curve: 'linear',
-    invert: false,
-    deadZone: 0,
-    smoothingMs: 14,
-  });
-
   const recorder = new EventRecorder();
-  const transport = createSequencerTransport(synth, parameterBus);
-  let project: ProjectSnapshot = createDefaultProject(synth.id);
+  const trackResources = new Map<string, {
+    instrument: AudioEngine;
+    bus: TrackAudioBus;
+    transport: ReturnType<typeof createSequencerTransport>;
+    unsubscribeTransport: () => void;
+  }>();
+  const noteOwners = new Map<string, AudioEngine>();
+  let project: ProjectSnapshot = createDefaultProject('synth-main');
   let selectedClipId: string | undefined;
   let selectedClip: ProjectClip | undefined;
   let repository: ProjectRepository = createProjectRepository();
   let persistenceReady = false;
-  let saveQueue: Promise<void> = Promise.resolve();
+  let audioReady = false;
+  let isDesktopPlaying = false;
+  let recordingTrackId: string | undefined;
   let spatialNoteId: string | undefined;
   let spatialNoteCounter = 0;
+  let saveQueue: Promise<void> = Promise.resolve();
+  const desktopNoteId = 'theremin-desktop-note';
+
+  const activeTrack = (): ProjectTrack =>
+    project.tracks.find(track => track.id === project.activeTrackId) ?? project.tracks[0]!;
+
+  const resourceFor = (trackId: string) => trackResources.get(trackId);
+
+  const ensureTrackRuntime = (track: ProjectTrack) => {
+    const existing = trackResources.get(track.id);
+    if (existing) return existing;
+
+    const instrument = rack.add(new AudioEngine(track.instrumentModuleId, audioRuntime));
+    const bus = rack.add(new TrackAudioBus('track-bus-' + track.id, audioRuntime));
+    parameterBus.registerTarget(instrument);
+    parameterBus.registerTarget(bus);
+    parameterBus.addMapping({
+      id: 'theremin-x-to-' + instrument.id,
+      sourceModuleId: theremin.id,
+      sourcePortId: 'x',
+      targetModuleId: instrument.id,
+      targetParameterId: 'pitch',
+      inputRange: [0, 1],
+      outputRange: [48, 84],
+      curve: 'linear',
+      invert: false,
+      deadZone: 0,
+      smoothingMs: 10,
+    });
+    parameterBus.addMapping({
+      id: 'theremin-y-to-' + instrument.id,
+      sourceModuleId: theremin.id,
+      sourcePortId: 'y',
+      targetModuleId: instrument.id,
+      targetParameterId: 'volume',
+      inputRange: [0, 1],
+      outputRange: [0.025, 0.65],
+      curve: 'linear',
+      invert: false,
+      deadZone: 0,
+      smoothingMs: 14,
+    });
+
+    const transport = createSequencerTransport(instrument, parameterBus);
+    const unsubscribeTransport = transport.subscribe((state) =>
+      handleTransportState(track.id, state),
+    );
+    const resources = { instrument, bus, transport, unsubscribeTransport };
+    trackResources.set(track.id, resources);
+    if (audioReady) void ensureTrackAudioReady(track.id);
+    return resources;
+  };
+
+  const ensureTrackAudioReady = async (trackId: string): Promise<void> => {
+    const track = project.tracks.find(item => item.id === trackId);
+    const resources = track ? resourceFor(trackId) : undefined;
+    if (!track || !resources) return;
+    const instrumentStart = resources.instrument.start();
+    const busStart = resources.bus.start();
+    // Both start methods create their graph nodes synchronously before awaiting
+    // context resume, so XR input cannot race an unprepared track graph.
+    resources.instrument.connectOutput(resources.bus.inputNode);
+    await Promise.all([instrumentStart, busStart]);
+    applyTrackMix();
+  };
+
+  const applyTrackMix = (): void => {
+    if (!audioReady) return;
+    const anySolo = project.tracks.some(track => track.solo);
+    const timestamp = performance.now() / 1000;
+    for (const track of project.tracks) {
+      const resources = resourceFor(track.id);
+      if (!resources) continue;
+      const isAudible = !track.muted && (!anySolo || track.solo);
+      resources.bus.setParameter('volume', isAudible ? track.volume : 0, timestamp);
+      resources.bus.setParameter('pan', track.pan, timestamp);
+    }
+  };
 
   const recordEvent = (event: MusicalEvent): void => {
     recorder.record(event);
   };
+
+  const noteKey = (sourceId: string, noteId: string): string => sourceId + ':' + noteId;
 
   const startNote = (
     sourceId: string,
@@ -75,6 +140,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     velocity: number,
     timestamp = performance.now() / 1000,
   ): void => {
+    const resources = resourceFor(project.activeTrackId);
+    if (!resources) return;
     const event: NoteOnEvent = {
       kind: 'note-on',
       sourceId,
@@ -83,7 +150,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       velocity,
       timestamp,
     };
-    synth.noteOn(event);
+    noteOwners.set(noteKey(sourceId, noteId), resources.instrument);
+    resources.instrument.noteOn(event);
     recordEvent(event);
   };
 
@@ -98,7 +166,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       noteId,
       timestamp,
     };
-    synth.noteOff(event);
+    const key = noteKey(sourceId, noteId);
+    const owner = noteOwners.get(key) ?? resourceFor(project.activeTrackId)?.instrument;
+    owner?.noteOff(event);
+    noteOwners.delete(key);
     recordEvent(event);
   };
 
@@ -123,13 +194,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '  <header class="workbench-header">',
     '    <div><p class="eyebrow">IMMERSIVE MUSIC WORKSTATION</p><h1>Vibe-Wizard</h1>',
     '    <p class="subtitle">Create instruments. Shape sounds. Make music.</p></div>',
-    '    <span class="prototype-tag">PROTOTYPE 04</span>',
+    '    <span class="prototype-tag">PROTOTYPE 05</span>',
     '  </header>',
     '  <div class="signal-row">',
     '    <span class="signal-dot" id="audio-status-dot"></span>',
     '    <span id="audio-status" role="status">Audio is stopped</span>',
-    '    <button class="action-button" id="enable-audio" type="button">Enable audio</button>',
-    '    <button class="action-button enter-vr-button" id="enter-vr" type="button">Enter VR</button>',
+    '    <button class="action-button" id="enable-audio" type="button" disabled>Enable audio</button>',
+    '    <button class="action-button enter-vr-button" id="enter-vr" type="button" disabled>Enter VR</button>',
     '  </div>',
     '  <div class="project-toolbar">',
     '    <label class="project-name-field" for="project-name"><span>PROJECT</span>',
@@ -146,17 +217,27 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <input id="theremin-y" type="range" min="0" max="1" value="0.55" step="0.001" /></label>',
     '    <div class="controller-readout"><span>X <strong id="x-value">0.500</strong></span>',
     '      <span>Y <strong id="y-value">0.550</strong></span><span>Pitch <strong id="pitch-value">66.0</strong></span></div>',
-    '    <button class="play-button" id="play-theremin" type="button"><span class="play-symbol">▶</span>',
+    '    <button class="play-button" id="play-theremin" type="button" disabled><span class="play-symbol">▶</span>',
     '      <span><strong>Play theremin</strong><small>Press and hold to sustain a tone on desktop</small></span></button>',
     '    <p class="spatial-hint">In VR, enter the session and move your right index fingertip into the floating field. Horizontal movement changes pitch; vertical movement changes volume.</p>',
     '  </div>',
     '  <div class="controller-panel sequencer-panel">',
-    '    <div class="section-heading"><div><p class="eyebrow">ARRANGEMENT · TRACK 01</p><h2 id="active-track-name">Theremin Synth</h2></div>',
+    '    <div class="section-heading"><div><p class="eyebrow">ARRANGEMENT · TRACKS</p><h2 id="active-track-name">Theremin Synth</h2></div>',
     '      <span class="module-chip" id="clip-summary">NO CLIP</span></div>',
+    '    <div class="track-toolbar">',
+    '      <label for="track-select"><span>ACTIVE TRACK</span><select id="track-select"></select></label>',
+    '      <button class="transport-button" id="add-track" type="button">+ Add instrument</button>',
+    '      <button class="transport-button" id="arm-track" type="button">● Armed</button>',
+    '      <button class="transport-button" id="mute-track" type="button">Mute</button>',
+    '      <button class="transport-button" id="solo-track" type="button">Solo</button>',
+    '    </div>',
+    '    <div class="track-mixer-controls">',
+    '      <label for="track-volume"><span>TRACK LEVEL</span><input id="track-volume" type="range" min="0" max="1" step="0.01" value="0.8" /></label>',
+    '      <label for="track-pan"><span>STEREO PAN</span><input id="track-pan" type="range" min="-1" max="1" step="0.01" value="0" /></label>',
+    '    </div>',
     '    <div class="clip-library-row">',
-    '      <label for="saved-clips"><span>SAVED PERFORMANCES</span>',
+    '      <label for="saved-clips"><span>CLIPS ON THIS TRACK</span>',
     '        <select id="saved-clips" disabled><option value="">No saved clips</option></select></label>',
-    '      <span class="track-badge">INSTRUMENT TRACK · SYNTH-MAIN</span>',
     '    </div>',
     '    <div class="transport-controls">',
     '      <button class="transport-button record-control" id="record-start" type="button" disabled>● Record</button>',
@@ -188,6 +269,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const projectSaveButton = get<HTMLButtonElement>('#project-save');
   const projectStatus = get<HTMLElement>('#project-status');
   const trackName = get<HTMLElement>('#active-track-name');
+  const trackSelect = get<HTMLSelectElement>('#track-select');
+  const addTrackButton = get<HTMLButtonElement>('#add-track');
+  const armTrackButton = get<HTMLButtonElement>('#arm-track');
+  const muteTrackButton = get<HTMLButtonElement>('#mute-track');
+  const soloTrackButton = get<HTMLButtonElement>('#solo-track');
+  const trackVolumeInput = get<HTMLInputElement>('#track-volume');
+  const trackPanInput = get<HTMLInputElement>('#track-pan');
   const clipSelect = get<HTMLSelectElement>('#saved-clips');
   const recordStartButton = get<HTMLButtonElement>('#record-start');
   const recordStopButton = get<HTMLButtonElement>('#record-stop');
@@ -201,18 +289,15 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !enableButton || !enterVrButton || !playButton || !xInput || !yInput ||
     !status || !statusDot || !xValue || !yValue || !pitchValue ||
     !projectNameInput || !projectSaveButton || !projectStatus || !trackName ||
+    !trackSelect || !addTrackButton || !armTrackButton || !muteTrackButton ||
+    !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
     !clipStopButton || !clipSummary || !captureStatus || !timeline
   ) {
     spatialAdapter.dispose();
     unsubscribeController();
-    transport.dispose();
     throw new Error('The workbench UI is missing a required control.');
   }
-
-  let audioReady = false;
-  let isDesktopPlaying = false;
-  const desktopNoteId = 'theremin-desktop-note';
 
   const drawTimeline = (clip: RecordingClip | undefined): void => {
     const context = timeline.getContext('2d');
@@ -321,10 +406,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
   };
 
+  const anyTransportPlaying = (): boolean =>
+    [...trackResources.values()].some(resources => resources.transport.currentState === 'playing');
+
   const updateClipUi = (): void => {
     const hasClip = Boolean(selectedClip && selectedClip.events.length > 0);
-    clipPlayButton.disabled = !hasClip || !audioReady || transport.currentState === 'playing';
-    clipStopButton.disabled = transport.currentState !== 'playing';
+    clipPlayButton.disabled = !hasClip || !audioReady || anyTransportPlaying();
+    clipStopButton.disabled = !anyTransportPlaying();
     clipSummary.textContent = selectedClip
       ? selectedClip.name.toUpperCase() + ' · ' + selectedClip.durationSeconds.toFixed(1) + 'S'
       : 'NO CLIP';
@@ -332,8 +420,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   };
 
   const refreshClipList = (): void => {
+    const trackClips = project.clips.filter(clip => clip.trackId === project.activeTrackId);
     clipSelect.replaceChildren();
-    if (project.clips.length === 0) {
+    if (trackClips.length === 0) {
       const option = document.createElement('option');
       option.value = '';
       option.textContent = 'No saved clips';
@@ -342,14 +431,14 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       selectedClipId = undefined;
       selectedClip = undefined;
     } else {
-      for (const clip of project.clips) {
+      for (const clip of trackClips) {
         const option = document.createElement('option');
         option.value = clip.id;
         option.textContent = clip.name + ' · ' + clip.durationSeconds.toFixed(1) + 's';
         clipSelect.append(option);
       }
-      if (!project.clips.some(clip => clip.id === selectedClipId)) {
-        selectedClipId = project.clips[project.clips.length - 1]?.id;
+      if (!trackClips.some(clip => clip.id === selectedClipId)) {
+        selectedClipId = trackClips[trackClips.length - 1]?.id;
       }
       clipSelect.value = selectedClipId ?? '';
       clipSelect.disabled = false;
@@ -360,9 +449,32 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const updateProjectUi = (): void => {
     projectNameInput.value = project.name;
-    const activeTrack = project.tracks.find(track => track.id === project.activeTrackId);
-    trackName.textContent = activeTrack?.name ?? 'No active track';
+    const selectedTrack = activeTrack();
+    trackName.textContent = selectedTrack?.name ?? 'No active track';
+
+    trackSelect.replaceChildren();
+    for (const track of [...project.tracks].sort((a, b) => a.order - b.order)) {
+      const option = document.createElement('option');
+      option.value = track.id;
+      option.textContent = track.name;
+      trackSelect.append(option);
+    }
+    trackSelect.value = selectedTrack.id;
+    recordStartButton.disabled = !persistenceReady || !selectedTrack.armed || recorder.isRecording;
+    armTrackButton.textContent = selectedTrack.armed ? '● Armed' : 'Arm track';
+    muteTrackButton.textContent = selectedTrack.muted ? 'Unmute' : 'Mute';
+    soloTrackButton.textContent = selectedTrack.solo ? 'Unsolo' : 'Solo';
+    trackVolumeInput.value = String(selectedTrack.volume);
+    trackPanInput.value = String(selectedTrack.pan);
+    trackSelect.disabled = recorder.isRecording;
+    addTrackButton.disabled = recorder.isRecording;
+    armTrackButton.disabled = recorder.isRecording;
+    muteTrackButton.disabled = recorder.isRecording;
+    soloTrackButton.disabled = recorder.isRecording;
+    trackVolumeInput.disabled = recorder.isRecording;
+    trackPanInput.disabled = recorder.isRecording;
     refreshClipList();
+    applyTrackMix();
   };
 
   const updateController = (): void => {
@@ -391,12 +503,18 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const enableAudio = async (): Promise<void> => {
     try {
-      await synth.start();
+      const runtimeStart = audioRuntime.start();
+      const trackStarts = project.tracks.map(async track => {
+        ensureTrackRuntime(track);
+        await ensureTrackAudioReady(track.id);
+      });
+      await Promise.all([runtimeStart, ...trackStarts]);
       audioReady = true;
       updateStatus('Audio engine running');
       statusDot.classList.add('is-live');
       enableButton.textContent = 'Audio enabled';
       enableButton.disabled = true;
+      applyTrackMix();
       updateClipUi();
     } catch (error) {
       updateStatus(error instanceof Error ? error.message : 'Could not start audio');
@@ -409,6 +527,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       try { await enableAudio(); } catch { return; }
     }
     if (!audioReady || isDesktopPlaying) return;
+    await ensureTrackAudioReady(project.activeTrackId);
     startNote(theremin.id, desktopNoteId, 48 + Number(xInput.value) * 36, 0.55);
     isDesktopPlaying = true;
     playButton.classList.add('is-playing');
@@ -424,12 +543,27 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const startRecording = (): void => {
     if (!persistenceReady || recorder.isRecording) return;
-    if (transport.currentState === 'playing') transport.stop();
+    if (anyTransportPlaying()) {
+      for (const resources of trackResources.values()) resources.transport.stop();
+    }
     selectedClipId = undefined;
     selectedClip = undefined;
+    const track = activeTrack();
+    if (!track.armed) {
+      captureStatus.textContent = 'Arm this track before recording.';
+      return;
+    }
+    recordingTrackId = track.id;
     recorder.start(performance.now() / 1000);
     recordStartButton.disabled = true;
     recordStopButton.disabled = false;
+    trackSelect.disabled = true;
+    addTrackButton.disabled = true;
+    armTrackButton.disabled = true;
+    muteTrackButton.disabled = true;
+    soloTrackButton.disabled = true;
+    trackVolumeInput.disabled = true;
+    trackPanInput.disabled = true;
     captureStatus.textContent = 'Recording notes and X/Y controller movement…';
     updateClipUi();
   };
@@ -445,7 +579,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       ...project,
       name: projectNameInput.value.trim() || project.name,
     };
-    project = addRecordingToProject(project, project.activeTrackId, recording);
+    project = addRecordingToProject(project, recordingTrackId ?? project.activeTrackId, recording);
+    recordingTrackId = undefined;
     selectedClipId = recording.id;
     captureStatus.textContent = 'Captured ' + recording.events.length + ' events over ' +
       recording.durationSeconds.toFixed(2) + ' seconds. Saving to this device…';
@@ -470,7 +605,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       else await repository.save(project);
     } catch (error) {
       repository = new MemoryProjectRepository();
-      project = createDefaultProject(synth.id);
+      project = createDefaultProject('synth-main');
       projectStatus.textContent = 'Session only · local storage unavailable';
       captureStatus.textContent = error instanceof Error
         ? 'Could not open saved projects: ' + error.message
@@ -478,15 +613,82 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
 
     persistenceReady = true;
-    recordStartButton.disabled = false;
+    recordStartButton.disabled = !activeTrack().armed;
     projectSaveButton.disabled = false;
     if (repository.durability === 'persistent') {
       projectStatus.textContent = 'Local project storage ready';
     } else if (!projectStatus.textContent.startsWith('Session only')) {
       projectStatus.textContent = 'Session only · browser storage unavailable';
     }
+    for (const track of project.tracks) ensureTrackRuntime(track);
+    enableButton.disabled = false;
+    enterVrButton.disabled = false;
+    playButton.disabled = false;
     updateProjectUi();
   };
+
+  trackSelect.addEventListener('change', () => {
+    if (recorder.isRecording) return;
+    project = setActiveProjectTrack(project, trackSelect.value);
+    selectedClipId = undefined;
+    selectedClip = undefined;
+    updateProjectUi();
+    void persistProject().catch((error: unknown) => {
+      projectStatus.textContent = error instanceof Error ? error.message : 'Could not save active track';
+    });
+  });
+
+  addTrackButton.addEventListener('click', () => {
+    if (recorder.isRecording) return;
+    const count = project.tracks.length + 1;
+    const moduleId = 'synth-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+    project = addInstrumentTrack(project, 'Instrument Track ' + String(count).padStart(2, '0'), moduleId);
+    const track = activeTrack();
+    ensureTrackRuntime(track);
+    selectedClipId = undefined;
+    selectedClip = undefined;
+    updateProjectUi();
+    void persistProject().catch((error: unknown) => {
+      projectStatus.textContent = error instanceof Error ? error.message : 'Could not save new track';
+    });
+  });
+
+  armTrackButton.addEventListener('click', () => {
+    if (recorder.isRecording) return;
+    const trackId = project.activeTrackId;
+    const shouldArm = !activeTrack().armed;
+    for (const track of project.tracks) {
+      project = updateProjectTrack(project, track.id, { armed: track.id === trackId && shouldArm });
+    }
+    updateProjectUi();
+    void persistProject();
+  });
+
+  muteTrackButton.addEventListener('click', () => {
+    if (recorder.isRecording) return;
+    project = updateProjectTrack(project, project.activeTrackId, { muted: !activeTrack().muted });
+    updateProjectUi();
+    void persistProject();
+  });
+
+  soloTrackButton.addEventListener('click', () => {
+    if (recorder.isRecording) return;
+    project = updateProjectTrack(project, project.activeTrackId, { solo: !activeTrack().solo });
+    updateProjectUi();
+    void persistProject();
+  });
+
+  trackVolumeInput.addEventListener('input', () => {
+    project = updateProjectTrack(project, project.activeTrackId, { volume: Number(trackVolumeInput.value) });
+    applyTrackMix();
+  });
+  trackVolumeInput.addEventListener('change', () => { void persistProject(); });
+
+  trackPanInput.addEventListener('input', () => {
+    project = updateProjectTrack(project, project.activeTrackId, { pan: Number(trackPanInput.value) });
+    applyTrackMix();
+  });
+  trackPanInput.addEventListener('change', () => { void persistProject(); });
 
   recordStartButton.addEventListener('click', startRecording);
   recordStopButton.addEventListener('click', stopRecording);
@@ -498,13 +700,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   });
 
   clipPlayButton.addEventListener('click', () => {
-    if (!selectedClip) return;
-    try { transport.play(selectedClip); }
-    catch (error) {
+    if (!selectedClip || !audioReady) return;
+    try {
+      for (const resources of trackResources.values()) resources.transport.stop();
+      const resources = resourceFor(selectedClip.trackId);
+      if (!resources) throw new Error('The clip track has no instrument runtime.');
+      resources.transport.play(selectedClip);
+    } catch (error) {
       captureStatus.textContent = error instanceof Error ? error.message : 'Could not play clip';
     }
   });
-  clipStopButton.addEventListener('click', () => transport.stop());
+  clipStopButton.addEventListener('click', () => {
+    for (const resources of trackResources.values()) resources.transport.stop();
+  });
 
   projectSaveButton.addEventListener('click', () => {
     projectSaveButton.disabled = true;
@@ -519,27 +727,26 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     });
   });
 
-  const updateTransportUi = (state: TransportState): void => {
+  function handleTransportState(trackId: string, state: TransportState): void {
     updateClipUi();
     if (state === 'playing') {
-      captureStatus.textContent = 'Playing recorded performance…';
+      captureStatus.textContent = 'Playing clip on ' +
+        (project.tracks.find(track => track.id === trackId)?.name ?? 'track') + '…';
       updateStatus('Sequencer playing');
-    } else if (state === 'completed') {
+    } else if (state === 'completed' && !anyTransportPlaying()) {
       captureStatus.textContent = 'Playback complete.';
       updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
-    } else if (!recorder.isRecording) {
+    } else if (state === 'stopped' && !anyTransportPlaying() && !recorder.isRecording) {
       updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
     }
-  };
-  const unsubscribeTransport = transport.subscribe(updateTransportUi);
+  }
 
   enableButton.addEventListener('click', () => void enableAudio().catch(() => undefined));
   enterVrButton.addEventListener('click', () => {
     stopDesktopTone();
-    const audioStart = synth.start();
+    const audioStart = enableAudio();
     const xrStart = world.launchXR();
     void Promise.all([audioStart, xrStart]).then(() => {
-      audioReady = true;
       statusDot.classList.add('is-live');
       enableButton.textContent = 'Audio enabled';
       enableButton.disabled = true;
@@ -555,7 +762,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   world.visibilityState.subscribe((state) => {
     const immersive = state !== VisibilityState.NonImmersive;
-    enterVrButton.disabled = immersive;
+    enterVrButton.disabled = !persistenceReady || immersive;
     enterVrButton.textContent = immersive ? 'VR active' : 'Enter VR';
     if (!immersive && audioReady) updateStatus('Audio engine running');
   });
@@ -577,12 +784,14 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   root.addEventListener('vibe-wizard-dispose', () => {
     stopDesktopTone();
     if (recorder.isRecording) stopRecording();
-    transport.dispose();
+    for (const resources of trackResources.values()) {
+      resources.transport.dispose();
+      resources.unsubscribeTransport();
+    }
     unsubscribeController();
-    unsubscribeTransport();
     spatialAdapter.dispose();
     window.removeEventListener('resize', resizeHandler);
-    void rack.dispose();
+    void rack.dispose().then(() => audioRuntime.dispose());
   }, { once: true });
 
   updateController();

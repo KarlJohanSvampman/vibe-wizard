@@ -36,7 +36,12 @@ XR hands / Desktop / MIDI / Sequencer
           |               |
       Instrument      Parameter Bus
           |               |
-       Audio graph <--- parameter updates
+       Shared AudioRuntime
+          |
+    Instrument output gain
+          |
+    Per-track audio bus
+     (level / pan / mute)
           |
        Track mixer
           |
@@ -50,7 +55,7 @@ AI providers --(async assets)--> validation/import --> local sample/instrument l
 
 A project owns one global rack. The rack contains instruments, effects, and controllers. Instruments are assigned to one or more tracks (subject to routing rules); effects can be inserted into track or send paths; controllers are not necessarily assigned to a track and may target any parameter.
 
-A track references an instrument instance or instrument routing endpoint. Do not make each track own a separate, duplicated module registry.
+A track references a unique instrument instance and its independent track audio bus. All instrument instances in a project share one lazy AudioRuntime/AudioContext, but retain independent voice pools and output connections. A track bus applies track level and stereo pan; project mute/solo state is applied to the bus level. Do not make each track own a separate, duplicated module registry.
 
 ## 5. Typed ports
 
@@ -75,7 +80,7 @@ Modules declare accepted input and output port types, supported parameter defini
 
 ## 7. Persistence
 
-Projects are versioned JSON documents. Large binary assets are stored separately in IndexedDB and referenced by stable asset IDs. Autosave should be transactional and resilient to tab closure. Presets should serialize module configuration and mapping definitions without serializing runtime AudioNode objects.
+Projects are versioned JSON documents. Schema version 2 stores instrument-track routing references and independent level/pan/mute/solo/arm state. The IndexedDB upgrade migrates version 1 tracks with neutral mix defaults. Large binary assets are stored separately in IndexedDB and referenced by stable asset IDs. Presets should serialize module configuration and mapping definitions without serializing runtime AudioNode objects.
 
 ## 8. IWSDK integration
 

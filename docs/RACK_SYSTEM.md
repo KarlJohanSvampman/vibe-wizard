@@ -2,14 +2,14 @@
 
 ## Rack model
 
-A project has one global rack. The rack stores module instances and connections. Tracks refer to instrument instances or instrument output routes; they do not own isolated copies of the module registry.
+A project has one global rack. The rack stores module instances and connections. Tracks reference an instrument instance and its independent audio output bus; the rack remains global rather than being duplicated per track.
 
 ## Module categories
 
 - **Instrument:** consumes note/control events and produces audio.
 - **Effect:** consumes audio and produces audio; exposes parameters.
 - **Controller:** consumes physical/virtual input and emits note, gate, or control events.
-- **Utility/router:** optional module that transforms or routes events/audio.
+- **Utility/router:** optional module that transforms or routes events/audio. A TrackAudioBus is the per-track output utility in the current prototype.
 
 ## Common module metadata
 
@@ -39,12 +39,12 @@ Port definitions include direction, cardinality, accepted source types, and opti
 
 An instrument must:
 - declare accepted musical/control event types
-- expose audio output
+- expose an audio output
 - expose parameter descriptors with units and valid ranges
 - handle note-on/off, panic, and disposal
 - provide serializable configuration and a preset representation
 
-Instruments may accept multiple simultaneous sources (e.g. live theremin and sequencer), with source identity retained so note-off from one source does not release another source's note.
+Multiple instruments share the project's AudioRuntime but retain independent voices and output gain stages. One instrument instance is assigned to at most one track in schema version 2. This keeps ownership and track mixing unambiguous.
 
 ## Controller contract
 
@@ -53,7 +53,16 @@ A controller may emit any declared combination of:
 - ControlSignal
 - GateEvent
 
-A theremin emits X and Y control signals. In harmonic mode, X may also generate quantized note events. Do not force every controller to emit notes.
+A theremin emits X and Y control signals. The same global controller can fan out to compatible parameters on multiple rack instruments through the Parameter Bus.
+
+## Track audio bus
+
+Each instrument track has a TrackAudioBus between its instrument output and the shared destination. It currently provides:
+- track level (0..1)
+- stereo pan (-1..1)
+- mute and solo behavior resolved by the project mixer
+
+The instrument's own output level remains separate from the track fader so expression controls do not overwrite the user's mix level. The bus is the future insertion point for track effects and sends.
 
 ## Effect contract
 
@@ -62,7 +71,3 @@ An effect exposes audio input/output and parameter descriptors. Effects can be p
 ## Registry and lifecycle
 
 The module registry resolves module type IDs to constructors/factories. Creating a module allocates stable identity and validates configuration. Removing a module must detach mappings, event subscriptions, audio connections, and XR representations. Presets capture module type/configuration and connections, not runtime objects.
-
-## Track assignment
-
-A track can receive events from one or several sources and route them to an instrument. Explicitly define whether an instrument may be shared across tracks; initial MVP may enforce one track per instrument instance to keep routing simple, while the rack remains global.
