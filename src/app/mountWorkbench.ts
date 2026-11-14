@@ -88,7 +88,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const resourceFor = (trackId: string) => trackResources.get(trackId);
 
-  const ensureTrackRuntime = (track: ProjectTrack) => {
+  const ensureTrackRuntime = (track: ProjectTrack, autoStartAudio = true) => {
     const existing = trackResources.get(track.id);
     if (existing) return existing;
 
@@ -131,7 +131,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     );
     const resources = { instrument, bus, transport, unsubscribeTransport };
     trackResources.set(track.id, resources);
-    if (audioReady) void ensureTrackAudioReady(track.id);
+    if (audioReady && autoStartAudio) void ensureTrackAudioReady(track.id);
     return resources;
   };
 
@@ -303,7 +303,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <div class="ai-generation-actions">',
     '        <label for="ai-sample-duration"><span>DURATION · SECONDS</span><input id="ai-sample-duration" type="number" min="1" max="30" step="1" value="6" /></label>',
     '        <button class="transport-button" id="ai-generate-sample" type="button">✦ Generate sampler</button>',
-    '        <button class="transport-button" id="ai-cancel-generation" type="button" disabled>Cancel</button>',
+    '        <button class="transport-button" id="ai-cancel-generation" type="button" disabled>Stop waiting</button>',
     '      </div>',
     '      <p class="ai-generation-status" id="ai-generation-status" role="status">Connect an audio-generation service to create samples from prompts. Provider keys stay on that service, never in this browser.</p>',
     '    </section>',
@@ -1520,7 +1520,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   aiCancelButton.addEventListener('click', () => {
     generationAbortController?.abort();
-    aiGenerationStatus.textContent = 'Cancelling AI generation…';
+    aiGenerationStatus.textContent = 'Stopping browser polling. The provider may continue its current generation.';
   });
 
   aiGenerateButton.addEventListener('click', () => {
@@ -1592,14 +1592,14 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         sampleFileName: generated.fileName,
       });
       projectHistory.commit(beforeEdit, project);
-      const resources = ensureTrackRuntime(generatedTrack);
-      if (audioReady) await resources.instrument.loadSample(generated.data);
+      ensureTrackRuntime(generatedTrack, false);
+      if (audioReady) await ensureTrackAudioReady(generatedTrack.id);
       await persistProject();
       updateProjectUi();
       aiGenerationStatus.textContent = 'Created ' + generated.fileName + ' on ' + generatedTrack.name + '. The sample is stored locally and ready to play.';
     })().catch((error: unknown) => {
       aiGenerationStatus.textContent = controller.signal.aborted
-        ? 'AI generation cancelled. No track was added.'
+        ? 'Stopped waiting. No track was added; the provider job may still finish remotely.'
         : error instanceof Error ? 'AI generation failed: ' + error.message : 'AI generation failed.';
     }).finally(() => {
       if (generationAbortController === controller) generationAbortController = undefined;
