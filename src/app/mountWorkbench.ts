@@ -1019,7 +1019,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       : selectedTrack.sampleFileName
         ? (resourceFor(selectedTrack.id)?.instrument.hasSample
           ? 'Loaded: ' + selectedTrack.sampleFileName
-          : 'Stored: ' + selectedTrack.sampleFileName + ' · enable audio to decode')
+          : 'Stored: ' + selectedTrack.sampleFileName + ' · click Enable audio to load')
         : 'Choose an audio file. It will be stored locally with the project reference.';
     aiGenerateButton.disabled = recorder.isRecording || anyTransportPlaying() || generationAbortController !== undefined;
     aiCancelButton.disabled = generationAbortController === undefined;
@@ -1134,7 +1134,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       enableButton.textContent = 'Audio enabled';
       enableButton.disabled = true;
       applyTrackMix();
-      updateClipUi();
+      // Refresh sampler asset status after deferred audio decoding completes.
+      updateProjectUi();
     } catch (error) {
       updateStatus(error instanceof Error ? error.message : 'Could not start audio');
       throw error;
@@ -1596,7 +1597,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       if (audioReady) await ensureTrackAudioReady(generatedTrack.id);
       await persistProject();
       updateProjectUi();
-      aiGenerationStatus.textContent = 'Created ' + generated.fileName + ' on ' + generatedTrack.name + '. The sample is stored locally and ready to play.';
+      const sampleLoaded = resourceFor(generatedTrack.id)?.instrument.hasSample === true;
+      aiGenerationStatus.textContent = sampleLoaded
+        ? 'Created ' + generated.fileName + ' on ' + generatedTrack.name + '. The sample is loaded and ready to play.'
+        : 'Created ' + generated.fileName + ' on ' + generatedTrack.name + '. It is stored locally; click Enable audio to load it into the Sampler.';
     })().catch((error: unknown) => {
       aiGenerationStatus.textContent = controller.signal.aborted
         ? 'Stopped waiting. No track was added; the provider job may still finish remotely.'
