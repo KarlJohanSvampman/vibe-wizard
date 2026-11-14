@@ -143,7 +143,7 @@ export class ThereminSpatialAdapter {
 
     this.lastX = point.x;
     this.controller.move(point.x, point.y, eventTime);
-    this.cursor.position.set(this.handLocalPosition.x, this.handLocalPosition.y, 0.012);
+    this.cursor.position.copy(this.handLocalPosition);
     this.cursor.visible = true;
     this.cursor.children[0]?.scale.setScalar(1 + Math.sin(renderTime * 5.5) * 0.12);
 
