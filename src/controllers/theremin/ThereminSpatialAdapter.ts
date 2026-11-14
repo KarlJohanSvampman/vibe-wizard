@@ -53,7 +53,6 @@ export class ThereminSpatialAdapter {
   private readonly stopXRFrame: () => void;
   private readonly stopVisibilitySubscription: () => void;
   private active = false;
-  private lastEventTime = 0;
 
   constructor(
     private readonly world: World,
@@ -74,7 +73,7 @@ export class ThereminSpatialAdapter {
       const immersive = state !== VisibilityState.NonImmersive;
       this.root.visible = immersive;
       if (!immersive) {
-        this.deactivate(this.lastEventTime);
+        this.deactivate(performance.now() / 1000);
       }
     });
 
@@ -106,7 +105,6 @@ export class ThereminSpatialAdapter {
   }
 
   private update(frame: XRFrame, renderTime: number, eventTime: number): void {
-    this.lastEventTime = eventTime;
     this.positionVolume();
 
     const inputSource = this.world.input.xr.getPrimaryInputSource(this.handedness);
