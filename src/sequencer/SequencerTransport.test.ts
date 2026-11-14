@@ -90,6 +90,11 @@ describe('SequencerTransport', () => {
     expect(transport.currentState).toBe('playing');
     expect(audio.notesOn).toHaveLength(1);
     expect(audio.notesOn[0]?.sourceId).toBe('sequencer');
+    // Later clip events enter the look-ahead window on subsequent scheduler ticks.
+    expect(target.values).toEqual([]);
+    expect(audio.notesOff).toHaveLength(0);
+
+    vi.advanceTimersByTime(125);
     expect(target.values).toEqual([66]);
     expect(audio.notesOff).toHaveLength(1);
 
