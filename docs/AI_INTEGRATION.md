@@ -2,7 +2,7 @@
 
 ## First AI workflow: prompt to playable sample
 
-The first concrete integration uses **ElevenLabs text-to-sound generation** through a local FastAPI gateway. ElevenLabs accepts a natural-language sound description and returns generated audio. Its Sound Effects API also documents musical components such as drum loops, bass lines, vintage brass stabs, and synth pads. The API currently supports generation durations up to 30 seconds and returns MP3 by default. See the [official Sound Effects API reference](https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert) and [capability guide](https://elevenlabs.io/docs/overview/capabilities/sound-effects).
+The first concrete integration uses **ElevenLabs text-to-sound generation** through a local FastAPI gateway. ElevenLabs accepts a natural-language sound description and returns generated audio. Its Sound Effects API also documents musical components such as drum loops, bass lines, vintage brass stabs, and synth pads. The API currently supports generation durations up to 30 seconds and returns MP3 by default. ElevenLabs documents a cost of 40 credits per second when an explicit duration is requested, so the UI warns about usage and defaults to a three-second sample. Check the current account pricing before generating. See the [official Sound Effects API reference](https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert) and [capability guide](https://elevenlabs.io/docs/overview/capabilities/sound-effects).
 
 Workflow:
 
