@@ -32,7 +32,7 @@ export function mountWorkbench(root: HTMLElement): void {
     inputRange: [0, 1],
     outputRange: [0.025, 0.65],
     curve: 'linear',
-    invert: true,
+    invert: false,
     deadZone: 0,
     smoothingMs: 14,
   });
