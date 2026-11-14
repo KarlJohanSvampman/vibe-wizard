@@ -14,9 +14,13 @@ import {
   addInstrumentTrack,
   addRecordingToProject,
   createDefaultProject,
+  getArrangementDurationBeats,
+  getClipDurationBeats,
   moveProjectClip,
+  projectClipToRecordingClip,
   setActiveProjectTrack,
   updateProjectTrack,
+  updateProjectTiming,
   type ProjectClip,
   type ProjectSnapshot,
   type ProjectTrack,
@@ -231,7 +235,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <span class="arrangement-label">MULTI-TRACK ARRANGEMENT</span>',
     '      <button class="transport-button" id="arrangement-play" type="button" disabled>▶ Play arrangement</button>',
     '      <button class="transport-button" id="arrangement-stop" type="button" disabled>■ Stop arrangement</button>',
-    '      <span class="arrangement-hint">Drag clips horizontally to move in time and vertically to move between tracks.</span>',
+    '      <span class="arrangement-hint">Drag clips between tracks. Positions snap to the musical grid.</span>',
+    '    </div>',
+    '    <div class="timing-toolbar">',
+    '      <label for="tempo-bpm"><span>TEMPO · BPM</span><input id="tempo-bpm" type="number" min="20" max="300" step="1" value="120" /></label>',
+    '      <label for="time-signature"><span>TIME SIGNATURE</span><select id="time-signature"><option value="4/4">4/4</option><option value="3/4">3/4</option><option value="2/4">2/4</option><option value="5/4">5/4</option><option value="6/8">6/8</option><option value="7/8">7/8</option><option value="9/8">9/8</option><option value="12/8">12/8</option></select></label>',
+    '      <label for="grid-snap"><span>SNAP TO</span><select id="grid-snap"><option value="1">Quarter note</option><option value="0.5">Eighth note</option><option value="0.25" selected>Sixteenth note</option><option value="0.125">Thirty-second</option><option value="0">Off</option></select></label>',
     '    </div>',
     '    <div class="arrangement-wrap"><canvas id="arrangement-timeline" width="1000" height="220" aria-label="Multi-track arrangement. Drag clips to reposition or move them to another instrument track."></canvas></div>',
     '    <div class="track-toolbar">',
@@ -294,6 +303,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const clipSummary = get<HTMLElement>('#clip-summary');
   const arrangementPlayButton = get<HTMLButtonElement>('#arrangement-play');
   const arrangementStopButton = get<HTMLButtonElement>('#arrangement-stop');
+  const tempoInput = get<HTMLInputElement>('#tempo-bpm');
+  const timeSignatureSelect = get<HTMLSelectElement>('#time-signature');
+  const gridSnapSelect = get<HTMLSelectElement>('#grid-snap');
   const arrangementTimeline = get<HTMLCanvasElement>('#arrangement-timeline');
   const captureStatus = get<HTMLElement>('#capture-status');
   const timeline = get<HTMLCanvasElement>('#clip-timeline');
@@ -306,7 +318,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
     !clipStopButton || !clipSummary || !arrangementPlayButton ||
-    !arrangementStopButton || !arrangementTimeline || !captureStatus || !timeline
+    !arrangementStopButton || !tempoInput || !timeSignatureSelect || !gridSnapSelect ||
+    !arrangementTimeline || !captureStatus || !timeline
   ) {
     arrangementTransport.dispose();
     spatialAdapter.dispose();
@@ -325,7 +338,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   type ArrangementPreview = {
     readonly clipId: string;
     readonly trackId: string;
-    readonly startSeconds: number;
+    readonly startBeats: number;
   };
 
   let arrangementHitRegions: ArrangementHitRegion[] = [];
@@ -333,11 +346,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     readonly clipId: string;
     readonly pointerId: number;
     readonly pointerStartX: number;
-    readonly originalStartSeconds: number;
+    readonly originalStartBeats: number;
     readonly originalTrackId: string;
     readonly originalActiveTrackId: string;
     previewTrackId: string;
-    previewStartSeconds: number;
+    previewStartBeats: number;
   } | undefined;
 
   const getArrangementMetrics = () => {
@@ -347,10 +360,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const right = 14;
     const top = 34;
     const rowHeight = 46;
-    const duration = Math.max(
-      8,
-      ...project.clips.map(clip => clip.startSeconds + clip.durationSeconds),
-    );
+    const durationBeats = getArrangementDurationBeats(project);
     return {
       tracks,
       width,
@@ -359,8 +369,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       right,
       top,
       rowHeight,
-      duration,
-      pixelsPerSecond: (width - left - right) / duration,
+      durationBeats,
+      pixelsPerBeat: (width - left - right) / durationBeats,
     };
   };
 
@@ -380,16 +390,30 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     context.font = '10px Inter, system-ui, sans-serif';
 
     const plotRight = metrics.width - metrics.right;
-    const tickStep = metrics.duration > 40 ? 5 : metrics.duration > 20 ? 2 : 1;
+    const beatsPerBar = project.timeSignature.numerator * 4 / project.timeSignature.denominator;
+    const barWidth = beatsPerBar * metrics.pixelsPerBeat;
+    const barsPerLabel = barWidth < 44 ? Math.ceil(44 / barWidth) : 1;
+    const beatStep = metrics.durationBeats > 128 ? 4 : metrics.durationBeats > 64 ? 2 : 1;
     context.fillStyle = '#8b8499';
-    context.strokeStyle = 'rgba(180, 164, 209, 0.14)';
-    for (let second = 0; second <= metrics.duration; second += tickStep) {
-      const x = metrics.left + second * metrics.pixelsPerSecond;
+    context.strokeStyle = 'rgba(180, 164, 209, 0.12)';
+    for (let beat = 0; beat <= metrics.durationBeats; beat += beatStep) {
+      const x = metrics.left + beat * metrics.pixelsPerBeat;
+      const isBar = Math.abs(beat / beatsPerBar - Math.round(beat / beatsPerBar)) < 0.0001;
+      if (isBar) continue;
       context.beginPath();
       context.moveTo(x, 22);
       context.lineTo(x, metrics.height - 8);
       context.stroke();
-      context.fillText(second + 's', x + 3, 15);
+    }
+    context.strokeStyle = 'rgba(190, 169, 225, 0.34)';
+    context.fillStyle = '#b7a8d2';
+    for (let bar = 0; bar * beatsPerBar <= metrics.durationBeats + 0.0001; bar += barsPerLabel) {
+      const x = metrics.left + bar * beatsPerBar * metrics.pixelsPerBeat;
+      context.beginPath();
+      context.moveTo(x, 22);
+      context.lineTo(x, metrics.height - 8);
+      context.stroke();
+      context.fillText('Bar ' + (bar + 1), x + 3, 15);
     }
 
     arrangementHitRegions = [];
@@ -417,13 +441,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     for (const clip of project.clips) {
       const isPreview = Boolean(preview && previewClip?.id === clip.id);
       const trackId = isPreview ? preview!.trackId : clip.trackId;
-      const startSeconds = isPreview ? preview!.startSeconds : clip.startSeconds;
+      const startBeats = isPreview ? preview!.startBeats : clip.startBeats;
       const trackIndex = metrics.tracks.findIndex(track => track.id === trackId);
       if (trackIndex < 0) continue;
 
-      const x = metrics.left + startSeconds * metrics.pixelsPerSecond;
+      const x = metrics.left + startBeats * metrics.pixelsPerBeat;
       const y = metrics.top + trackIndex * metrics.rowHeight + 8;
-      const width = Math.max(24, clip.durationSeconds * metrics.pixelsPerSecond);
+      const width = Math.max(24, getClipDurationBeats(clip) * metrics.pixelsPerBeat);
       const height = 27;
       const selected = clip.id === selectedClipId;
       context.fillStyle = isPreview
@@ -573,10 +597,16 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     arrangementPlayButton.disabled = !audioReady || recorder.isRecording ||
       project.clips.length === 0 || anyTransportPlaying();
     arrangementStopButton.disabled = arrangementTransport.currentState !== 'playing';
+    const timingControlsDisabled = recorder.isRecording || anyTransportPlaying();
+    tempoInput.disabled = timingControlsDisabled;
+    timeSignatureSelect.disabled = timingControlsDisabled;
+    const auditionClip = selectedClip
+      ? projectClipToRecordingClip(selectedClip, project.tempoBpm)
+      : undefined;
     clipSummary.textContent = selectedClip
-      ? selectedClip.name.toUpperCase() + ' · ' + selectedClip.durationSeconds.toFixed(1) + 'S'
+      ? selectedClip.name.toUpperCase() + ' · ' + getClipDurationBeats(selectedClip).toFixed(1) + ' BEATS'
       : 'NO CLIP';
-    drawTimeline(selectedClip);
+    drawTimeline(auditionClip);
   };
 
   const refreshClipList = (): void => {
@@ -594,7 +624,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       for (const clip of trackClips) {
         const option = document.createElement('option');
         option.value = clip.id;
-        option.textContent = clip.name + ' · ' + clip.durationSeconds.toFixed(1) + 's';
+        option.textContent = clip.name + ' · ' + getClipDurationBeats(clip).toFixed(1) + ' beats';
         clipSelect.append(option);
       }
       if (!trackClips.some(clip => clip.id === selectedClipId)) {
@@ -609,6 +639,18 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const updateProjectUi = (): void => {
     projectNameInput.value = project.name;
+    tempoInput.value = String(project.tempoBpm);
+    const signature = project.timeSignature.numerator + '/' + project.timeSignature.denominator;
+    if (![...timeSignatureSelect.options].some(option => option.value === signature)) {
+      const option = document.createElement('option');
+      option.value = signature;
+      option.textContent = signature;
+      timeSignatureSelect.append(option);
+    }
+    timeSignatureSelect.value = signature;
+    const timingControlsDisabled = recorder.isRecording || anyTransportPlaying();
+    tempoInput.disabled = timingControlsDisabled;
+    timeSignatureSelect.disabled = timingControlsDisabled;
     const selectedTrack = activeTrack();
     trackName.textContent = selectedTrack?.name ?? 'No active track';
 
@@ -815,11 +857,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       clipId: clip.id,
       pointerId: event.pointerId,
       pointerStartX: event.clientX,
-      originalStartSeconds: clip.startSeconds,
+      originalStartBeats: clip.startBeats,
       originalTrackId: clip.trackId,
       originalActiveTrackId,
       previewTrackId: clip.trackId,
-      previewStartSeconds: clip.startSeconds,
+      previewStartBeats: clip.startBeats,
     };
     arrangementTimeline.setPointerCapture(event.pointerId);
     updateProjectUi();
@@ -834,16 +876,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const rowIndex = Math.floor((localY - metrics.top) / metrics.rowHeight);
     const boundedRow = Math.max(0, Math.min(metrics.tracks.length - 1, rowIndex));
     const targetTrack = metrics.tracks[boundedRow];
-    const deltaSeconds = (event.clientX - arrangementDrag.pointerStartX) / metrics.pixelsPerSecond;
-    const rawStart = Math.max(0, arrangementDrag.originalStartSeconds + deltaSeconds);
-    const snappedStart = Math.round(rawStart * 4) / 4;
+    const deltaBeats = (event.clientX - arrangementDrag.pointerStartX) / metrics.pixelsPerBeat;
+    const rawStart = Math.max(0, arrangementDrag.originalStartBeats + deltaBeats);
+    const snapBeats = Number(gridSnapSelect.value);
+    const snappedStart = snapBeats > 0
+      ? Math.round(rawStart / snapBeats) * snapBeats
+      : rawStart;
 
-    arrangementDrag.previewStartSeconds = snappedStart;
+    arrangementDrag.previewStartBeats = Math.max(0, snappedStart);
     if (targetTrack) arrangementDrag.previewTrackId = targetTrack.id;
     drawArrangement({
       clipId: arrangementDrag.clipId,
       trackId: arrangementDrag.previewTrackId,
-      startSeconds: arrangementDrag.previewStartSeconds,
+      startBeats: arrangementDrag.previewStartBeats,
     });
     event.preventDefault();
   });
@@ -852,18 +897,15 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (!arrangementDrag || arrangementDrag.pointerId !== event.pointerId) return;
     const drag = arrangementDrag;
     arrangementDrag = undefined;
-    const clipChanged = drag.previewStartSeconds !== drag.originalStartSeconds ||
+    const clipChanged = drag.previewStartBeats !== drag.originalStartBeats ||
       drag.previewTrackId !== drag.originalTrackId;
     const activeTrackChanged = drag.originalActiveTrackId !== drag.previewTrackId;
-    if (
-      drag.previewStartSeconds !== drag.originalStartSeconds ||
-      drag.previewTrackId !== drag.originalTrackId
-    ) {
+    if (clipChanged) {
       project = moveProjectClip(
         project,
         drag.clipId,
         drag.previewTrackId,
-        drag.previewStartSeconds,
+        drag.previewStartBeats,
       );
       project = setActiveProjectTrack(project, drag.previewTrackId);
     }
@@ -888,6 +930,39 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     project = setActiveProjectTrack(project, originalActiveTrackId);
     selectedClip = project.clips.find(clip => clip.id === selectedClipId);
     updateProjectUi();
+  });
+
+  const commitTimingChange = (patch: { tempoBpm?: number; timeSignature?: { numerator: number; denominator: number } }): void => {
+    try {
+      project = updateProjectTiming(project, patch);
+      updateProjectUi();
+      void persistProject().catch((error: unknown) => {
+        projectStatus.textContent = error instanceof Error ? error.message : 'Could not save project timing.';
+      });
+    } catch (error) {
+      updateProjectUi();
+      captureStatus.textContent = error instanceof Error ? error.message : 'Invalid musical timing.';
+    }
+  };
+
+  tempoInput.addEventListener('change', () => {
+    const tempo = Number(tempoInput.value);
+    if (!Number.isFinite(tempo) || tempo < 20 || tempo > 300) {
+      tempoInput.value = String(project.tempoBpm);
+      return;
+    }
+    commitTimingChange({ tempoBpm: tempo });
+  });
+
+  timeSignatureSelect.addEventListener('change', () => {
+    const [numeratorText, denominatorText] = timeSignatureSelect.value.split('/');
+    const numerator = Number(numeratorText);
+    const denominator = Number(denominatorText);
+    if (!Number.isInteger(numerator) || !Number.isInteger(denominator)) {
+      timeSignatureSelect.value = project.timeSignature.numerator + '/' + project.timeSignature.denominator;
+      return;
+    }
+    commitTimingChange({ timeSignature: { numerator, denominator } });
   });
 
   trackSelect.addEventListener('change', () => {
@@ -969,7 +1044,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       for (const resources of trackResources.values()) resources.transport.stop();
       const resources = resourceFor(selectedClip.trackId);
       if (!resources) throw new Error('The clip track has no instrument runtime.');
-      resources.transport.play(selectedClip);
+      resources.transport.play(projectClipToRecordingClip(selectedClip, project.tempoBpm));
     } catch (error) {
       captureStatus.textContent = error instanceof Error ? error.message : 'Could not play clip';
     }

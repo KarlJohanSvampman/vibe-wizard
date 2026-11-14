@@ -175,3 +175,26 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
   .arrangement-toolbar .transport-button { flex: 1 1 42%; min-width: 0; }
   .arrangement-hint { flex-basis: 100%; }
 }
+
+
+/* Tempo-aware arrangement editing */
+.timing-toolbar {
+  display: flex; align-items: end; flex-wrap: wrap; gap: 10px;
+  margin: 0 0 12px; padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,.07); border-radius: 10px;
+  background: rgba(7,7,13,.24);
+}
+.timing-toolbar > label { display: grid; gap: 5px; min-width: 100px; }
+.timing-toolbar > label:first-child { flex: 0 1 112px; }
+.timing-toolbar > label > span {
+  color: #8e879e; font-size: 8px; font-weight: 800; letter-spacing: .14em;
+}
+.timing-toolbar input, .timing-toolbar select {
+  min-width: 0; width: 100%; padding: 8px 9px;
+  border: 1px solid rgba(179,151,226,.22); border-radius: 7px;
+  color: #f3eefb; background: #171420; font: inherit; font-size: 11px;
+}
+.timing-toolbar input:disabled, .timing-toolbar select:disabled { opacity: .55; }
+@media (max-width: 560px) {
+  .timing-toolbar > label { flex: 1 1 28%; }
+}

@@ -99,11 +99,19 @@ export class ArrangementTransport {
       if (!trackSinks.has(track.id)) {
         throw new Error('Track "' + track.name + '" has no ready instrument output.');
       }
-      endOffset = Math.max(endOffset, clip.startSeconds + clip.durationSeconds);
+      const secondsPerBeat = 60 / project.tempoBpm;
+      const clipStartSeconds = clip.startBeats * secondsPerBeat;
+      const clipTimeScale = clip.recordedAtTempoBpm / project.tempoBpm;
+      endOffset = Math.max(
+        endOffset,
+        clipStartSeconds + clip.durationSeconds * clipTimeScale,
+      );
 
       for (const recorded of clip.events) {
         scheduled.push({
-          audioOffsetSeconds: clip.startSeconds + recorded.offsetSeconds,
+          audioOffsetSeconds:
+            clip.startBeats * (60 / project.tempoBpm) +
+            recorded.offsetSeconds * clip.recordedAtTempoBpm / project.tempoBpm,
           clipId: clip.id,
           trackId: track.id,
           instrumentModuleId: track.instrumentModuleId,

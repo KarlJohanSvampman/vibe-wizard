@@ -1,7 +1,7 @@
 import type { MusicalEvent } from '../audio/events.js';
 import type { RecordedEvent, RecordingClip } from '../sequencer/Recorder.js';
 
-export const PROJECT_SCHEMA_VERSION = 2 as const;
+export const PROJECT_SCHEMA_VERSION = 3 as const;
 
 export interface ProjectTimeSignature {
   readonly numerator: number;
@@ -26,7 +26,10 @@ export interface ProjectTrack {
 export interface ProjectClip extends RecordingClip {
   readonly name: string;
   readonly trackId: string;
-  readonly startSeconds: number;
+  /** Musical position from project start, measured in quarter-note beats. */
+  readonly startBeats: number;
+  /** Tempo at which the performance was captured; used to scale clip-relative timing. */
+  readonly recordedAtTempoBpm: number;
   readonly createdAt: string;
 }
 
@@ -46,6 +49,11 @@ export interface ProjectSnapshot {
 export type ProjectTrackPatch = Partial<
   Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan'>
 >;
+
+export interface ProjectTimingPatch {
+  readonly tempoBpm?: number;
+  readonly timeSignature?: ProjectTimeSignature;
+}
 
 function makeId(prefix: string): string {
   return globalThis.crypto?.randomUUID?.() ??
@@ -148,20 +156,36 @@ export function setActiveProjectTrack(
   return { ...project, activeTrackId: trackId, updatedAt: now.toISOString() };
 }
 
-/** Move a clip on the arrangement timeline, optionally to another instrument lane. */
+export function updateProjectTiming(
+  snapshot: ProjectSnapshot,
+  patch: ProjectTimingPatch,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  const tempoBpm = patch.tempoBpm ?? project.tempoBpm;
+  const timeSignature = patch.timeSignature ?? project.timeSignature;
+  return validateProjectSnapshot({
+    ...project,
+    tempoBpm,
+    timeSignature: { ...timeSignature },
+    updatedAt: now.toISOString(),
+  });
+}
+
+/** Move a clip on the musical timeline, optionally to another instrument lane. */
 export function moveProjectClip(
   snapshot: ProjectSnapshot,
   clipId: string,
   targetTrackId: string,
-  startSeconds: number,
+  startBeats: number,
   now = new Date(),
 ): ProjectSnapshot {
   const project = validateProjectSnapshot(snapshot);
   if (!project.tracks.some(track => track.id === targetTrackId)) {
     throw new Error('Cannot move a clip to unknown track: ' + targetTrackId);
   }
-  if (!finiteNumber(startSeconds) || startSeconds < 0) {
-    throw new Error('Clip arrangement position must be a finite non-negative number.');
+  if (!finiteNumber(startBeats) || startBeats < 0) {
+    throw new Error('Clip arrangement position must be a finite non-negative beat value.');
   }
   if (!project.clips.some(clip => clip.id === clipId)) {
     throw new Error('Cannot move unknown clip: ' + clipId);
@@ -171,19 +195,42 @@ export function moveProjectClip(
     ...project,
     updatedAt: now.toISOString(),
     clips: project.clips.map(clip =>
-      clip.id === clipId ? { ...clip, trackId: targetTrackId, startSeconds } : clip,
+      clip.id === clipId ? { ...clip, trackId: targetTrackId, startBeats } : clip,
     ),
   });
 }
 
-export function getArrangementDurationSeconds(
+export function getClipDurationBeats(clip: ProjectClip): number {
+  return clip.durationSeconds * clip.recordedAtTempoBpm / 60;
+}
+
+export function getArrangementDurationBeats(
   project: ProjectSnapshot,
-  minimumSeconds = 8,
+  minimumBeats = 16,
 ): number {
   return Math.max(
-    minimumSeconds,
-    ...project.clips.map(clip => clip.startSeconds + clip.durationSeconds),
+    minimumBeats,
+    ...project.clips.map(clip => clip.startBeats + getClipDurationBeats(clip)),
   );
+}
+
+/** Convert a project clip to the seconds-based format used by the audition transport. */
+export function projectClipToRecordingClip(
+  clip: ProjectClip,
+  projectTempoBpm: number,
+): RecordingClip {
+  if (!finiteNumber(projectTempoBpm) || projectTempoBpm < 20 || projectTempoBpm > 300) {
+    throw new Error('Project tempo must be between 20 and 300 BPM.');
+  }
+  const scale = clip.recordedAtTempoBpm / projectTempoBpm;
+  return {
+    id: clip.id,
+    durationSeconds: clip.durationSeconds * scale,
+    events: clip.events.map(recorded => ({
+      offsetSeconds: recorded.offsetSeconds * scale,
+      event: { ...recorded.event },
+    })),
+  };
 }
 
 export function addRecordingToProject(
@@ -205,7 +252,8 @@ export function addRecordingToProject(
       ? project.clips[existingIndex]!.name
       : 'Performance ' + String(clipNumber).padStart(2, '0'),
     trackId,
-    startSeconds: 0,
+    startBeats: 0,
+    recordedAtTempoBpm: project.tempoBpm,
     createdAt: existingIndex >= 0
       ? project.clips[existingIndex]!.createdAt
       : now.toISOString(),
@@ -234,25 +282,40 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-/** Upgrade an older stored project without discarding its clips or IDs. */
+/** Upgrade older stored projects while preserving clip IDs and audible timing. */
 export function migrateProjectRecord(value: unknown): unknown {
   if (!isRecord(value)) throw new Error('Project data must be an object.');
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) return value;
-  if (value.schemaVersion !== 1 || !Array.isArray(value.tracks)) {
+  if ((value.schemaVersion !== 1 && value.schemaVersion !== 2) || !Array.isArray(value.tracks)) {
     throw new Error('Unsupported project schema version: ' + String(value.schemaVersion) + '.');
   }
-  return {
-    ...value,
-    schemaVersion: PROJECT_SCHEMA_VERSION,
-    tracks: value.tracks.map((track) => {
-      if (!isRecord(track)) return track;
-      return {
-        ...track,
-        volume: finiteNumber(track.volume) ? track.volume : 0.8,
-        pan: finiteNumber(track.pan) ? track.pan : 0,
-      };
-    }),
-  };
+
+  const tempoBpm = finiteNumber(value.tempoBpm) && value.tempoBpm >= 20 && value.tempoBpm <= 300
+    ? value.tempoBpm
+    : 120;
+  const tracks = value.tracks.map((track) => {
+    if (!isRecord(track)) return track;
+    return {
+      ...track,
+      volume: finiteNumber(track.volume) ? track.volume : 0.8,
+      pan: finiteNumber(track.pan) ? track.pan : 0,
+    };
+  });
+  const clips = Array.isArray(value.clips) ? value.clips.map((item) => {
+    if (!isRecord(item)) return item;
+    const { startSeconds, ...clip } = item;
+    return {
+      ...clip,
+      startBeats: finiteNumber(item.startBeats)
+        ? item.startBeats
+        : finiteNumber(startSeconds) ? startSeconds * tempoBpm / 60 : 0,
+      recordedAtTempoBpm: finiteNumber(item.recordedAtTempoBpm)
+        ? item.recordedAtTempoBpm
+        : tempoBpm,
+    };
+  }) : value.clips;
+
+  return { ...value, schemaVersion: PROJECT_SCHEMA_VERSION, tempoBpm, tracks, clips };
 }
 
 function validateMusicalEvent(value: unknown): value is MusicalEvent {
@@ -337,7 +400,9 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       !trackIds.has(item.trackId) ||
       typeof item.createdAt !== 'string' ||
       !finiteNumber(durationSeconds) || durationSeconds < 0 ||
-      !finiteNumber(item.startSeconds) || item.startSeconds < 0 ||
+      !finiteNumber(item.startBeats) || item.startBeats < 0 ||
+      !finiteNumber(item.recordedAtTempoBpm) ||
+      item.recordedAtTempoBpm < 20 || item.recordedAtTempoBpm > 300 ||
       !Array.isArray(item.events)
     ) {
       throw new Error('Project contains an invalid clip or an orphaned track reference.');

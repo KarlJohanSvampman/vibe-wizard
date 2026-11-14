@@ -14,12 +14,13 @@ The prototype includes:
 - Typed recording of notes and continuous controller movement.
 - Per-track clip audition and a shared arrangement transport.
 - A multi-track arrangement canvas with draggable clips and cross-track clip moves.
+- A tempo-aware beat/bar grid, BPM and time-signature controls, and configurable clip snap.
 - Synchronized playback of clips across tracks using one AudioContext start clock.
 - Track-scoped playback of each clip's recorded controller automation.
-- A versioned project model, IndexedDB persistence, and migration from schema version 1.
+- A versioned project model, IndexedDB persistence, and migration from schema versions 1 and 2.
 - Track selection/arming, saved-clip selection, and X/Y automation + note visualization.
 
-Multiple tracks currently use the same prototype oscillator synth. Independent routing and arrangement playback are in place; instrument variety, beat-based editing, and a full piano-roll editor are future milestones.
+Multiple tracks currently use the same prototype oscillator synth. Independent routing and arrangement playback are in place; instrument variety and a full piano-roll editor remain future milestones.
 
 ## Run locally
 
@@ -56,12 +57,13 @@ All instrument instances share one AudioContext but have independent voices and 
 ## Arrange and play a song
 
 1. Record one or more clips on different tracks.
-2. In the arrangement timeline, drag a clip horizontally to change its start position. Positions snap to quarter-second increments.
-3. Drag a clip vertically onto another instrument lane to reassign it to that track's instrument.
-4. Press Play arrangement. All clips are scheduled against one shared AudioContext start time, so events on separate tracks stay aligned.
-5. Press Stop arrangement to release any notes still held by the arrangement transport.
+2. Set the project tempo and time signature in the timing toolbar.
+3. Choose a snap resolution, then drag clips horizontally to move them by bars/beats; drag vertically to reassign them to another instrument lane.
+4. Press Play arrangement. All clips are scheduled against one shared AudioContext start time, so events on separate tracks stay aligned at the project tempo.
+5. Change the tempo to audition the same arrangement faster or slower without moving its beat positions.
+6. Press Stop arrangement to release any notes still held by the arrangement transport.
 
-The separate Play clip button remains available for auditioning just the selected clip. Arrangement positions currently use seconds; tempo-aware bars/beats, quantization, looping, and simultaneous editing are still to come.
+The separate Play clip button remains available for auditioning just the selected clip. Clip positions are stored in quarter-note beats. Recorded clip-relative event times retain their capture tempo and scale with the project tempo; loop sections, clip resizing/trimming, duplication, and simultaneous editing are still to come.
 
 ## Architecture
 

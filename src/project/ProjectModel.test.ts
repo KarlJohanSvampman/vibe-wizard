@@ -4,7 +4,9 @@ import {
   addInstrumentTrack,
   addRecordingToProject,
   createDefaultProject,
-  getArrangementDurationSeconds,
+  getArrangementDurationBeats,
+  projectClipToRecordingClip,
+  updateProjectTiming,
   migrateProjectRecord,
   moveProjectClip,
   setActiveProjectTrack,
@@ -15,7 +17,7 @@ import {
 describe('project model', () => {
   it('creates a project with a ready-to-mix instrument track', () => {
     const project = createDefaultProject('synth-main', new Date('2026-11-14T12:00:00.000Z'));
-    expect(project.schemaVersion).toBe(2);
+    expect(project.schemaVersion).toBe(3);
     expect(project.tempoBpm).toBe(120);
     expect(project.tracks).toHaveLength(1);
     expect(project.activeTrackId).toBe(project.tracks[0]?.id);
@@ -91,7 +93,8 @@ describe('project model', () => {
       id: 'clip-1',
       trackId: project.activeTrackId,
       name: 'Performance 01',
-      startSeconds: 0,
+      startBeats: 0,
+      recordedAtTempoBpm: 120,
       durationSeconds: 0.5,
     });
     expect(updated.updatedAt).toBe('2026-11-14T12:01:00.000Z');
@@ -137,10 +140,11 @@ describe('project model', () => {
     expect(moved.clips[0]).toMatchObject({
       id: recording.id,
       trackId: targetTrackId,
-      startSeconds: 3.25,
+      startBeats: 3.25,
     });
-    expect(getArrangementDurationSeconds(moved)).toBe(8);
-    expect(getArrangementDurationSeconds(moved, 1)).toBe(4.25);
+    expect(getArrangementDurationBeats(moved)).toBe(16);
+    expect(getArrangementDurationBeats(moved, 1)).toBeCloseTo(5.25);
+    expect(projectClipToRecordingClip(moved.clips[0]!, 60).durationSeconds).toBe(2);
   });
 
   it('rejects negative positions and unknown tracks when moving clips', () => {
@@ -159,9 +163,44 @@ describe('project model', () => {
       tracks: project.tracks.map(({ volume: _volume, pan: _pan, ...track }) => track),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version1));
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     expect(migrated.tracks[0]).toMatchObject({ volume: 0.8, pan: 0 });
     expect(migrated.id).toBe(project.id);
+  });
+
+  it('migrates legacy second positions into beats without changing audible timing', () => {
+    const project = createDefaultProject('synth-main');
+    const legacy = {
+      ...project,
+      schemaVersion: 2,
+      tempoBpm: 100,
+      clips: [{
+        id: 'legacy-clip',
+        name: 'Legacy',
+        trackId: project.activeTrackId,
+        startSeconds: 3,
+        createdAt: new Date().toISOString(),
+        durationSeconds: 1.2,
+        events: [{ offsetSeconds: 0.6, event: {
+          kind: 'note-on', sourceId: 'piano', noteId: 'n', pitch: 60, velocity: 0.8, timestamp: 1,
+        } }],
+      }],
+    };
+    const migrated = validateProjectSnapshot(migrateProjectRecord(legacy));
+    expect(migrated.clips[0]).toMatchObject({ startBeats: 5, recordedAtTempoBpm: 100 });
+    expect(projectClipToRecordingClip(migrated.clips[0]!, 100).events[0]?.offsetSeconds).toBe(0.6);
+  });
+
+  it('updates tempo and time signature while retaining clip beat positions', () => {
+    const project = createDefaultProject('synth-main');
+    const updated = updateProjectTiming(project, {
+      tempoBpm: 96,
+      timeSignature: { numerator: 3, denominator: 4 },
+    });
+    expect(updated).toMatchObject({
+      tempoBpm: 96,
+      timeSignature: { numerator: 3, denominator: 4 },
+    });
   });
 
   it('rejects invalid track mix values, duplicate module assignments, and unsupported schemas', () => {
@@ -187,7 +226,8 @@ describe('project model', () => {
         id: 'orphan',
         name: 'Broken',
         trackId: 'missing-track',
-        startSeconds: 0,
+        startBeats: 0,
+        recordedAtTempoBpm: 120,
         createdAt: new Date().toISOString(),
         durationSeconds: 1,
         events: [],

@@ -29,7 +29,7 @@ The theremin publishes control signals to observers after routing them through t
 
 A project owns stable track records; each clip references one track by `trackId`. The runtime creates one clip-audition transport per instrument track and one project-wide arrangement transport. Recordings are appended to the active armed track, with their original clip-relative event offsets preserved.
 
-Project snapshots are versioned and stored in IndexedDB. The application restores the most recently updated project during startup and offers a selector for saved performances on the active track. Each completed recording is persisted automatically; clip moves and track mixer changes are also saved.
+Project snapshots are versioned and stored in IndexedDB. Schema version 3 stores arrangement positions in quarter-note beats and records the capture tempo for each clip. Version 1 and 2 snapshots are migrated from seconds while preserving their existing audible start positions. The application restores the most recently updated project during startup and offers a selector for saved performances on the active track. Each completed recording is persisted automatically; clip moves and track mixer changes are also saved.
 
 The IndexedDB repository writes a complete project snapshot in one transaction. If IndexedDB is unavailable or fails to open, the app uses a session-only memory repository and labels this in the UI. Browser storage is local to the current browser profile and is not a backup or cloud-sync service.
 
@@ -39,7 +39,7 @@ See [Projects and Tracks](PROJECTS_AND_TRACKS.md) and [Arrangement Editing](ARRA
 
 - The per-track clip audition transport uses a short look-ahead scheduler.
 - The project-wide arrangement transport schedules every clip against one shared AudioContext start time.
-- Event time is computed as arrangement clip position plus clip-relative event offset.
+- Event time is computed from the beat-based clip position plus the clip-relative offset converted from capture tempo to project tempo.
 - Events are sorted once by event time and then by stable source order; they are sent to the instrument belonging to the clip's track.
 - Playback note IDs are namespaced by clip and transport sequence so they do not collide with live input or other arranged clips.
 - Stopping the arrangement releases notes whose matching note-off events have not yet been scheduled.
@@ -61,4 +61,4 @@ A future bake-automation operation can store resolved target parameter values wh
 
 ## Deferred sequencer features
 
-The project already reserves tempo and time-signature metadata, but transport and event offsets remain seconds-based. Musical beat conversion, tempo maps, bar/beat grid, configurable quantization, loop sections, clip resizing/trimming, duplication, multi-select, and rendered audio recording remain future work.
+Arrangement placement and shared playback use musical beats and the project's BPM/time signature. The recording and clip-audition paths retain source timestamps in seconds; a clip stores its capture tempo so its events can be interpreted musically when the project tempo changes. Tempo maps, loop sections, clip resizing/trimming, duplication, multi-select, piano-roll note editing, and rendered audio recording remain future work.

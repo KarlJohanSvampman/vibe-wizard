@@ -49,7 +49,8 @@ describe('ArrangementTransport', () => {
           id: 'clip-one',
           name: 'First performance',
           trackId: firstTrack.id,
-          startSeconds: 0,
+          startBeats: 0,
+          recordedAtTempoBpm: 120,
           createdAt: new Date().toISOString(),
           durationSeconds: 0.25,
           events: [
@@ -82,7 +83,8 @@ describe('ArrangementTransport', () => {
           id: 'clip-two',
           name: 'Second performance',
           trackId: secondTrack.id,
-          startSeconds: 0.5,
+          startBeats: 1,
+          recordedAtTempoBpm: 120,
           createdAt: new Date().toISOString(),
           durationSeconds: 0.25,
           events: [
@@ -161,6 +163,48 @@ describe('ArrangementTransport', () => {
     expect(secondInstrument.notesOff).toHaveLength(1);
   });
 
+  it('scales clip-relative seconds with project tempo while preserving beat positions', () => {
+    vi.useFakeTimers();
+    const base = createDefaultProject('synth-one');
+    const track = base.tracks[0]!;
+    const project: ProjectSnapshot = {
+      ...base,
+      tempoBpm: 60,
+      clips: [{
+        id: 'tempo-clip',
+        name: 'Tempo clip',
+        trackId: track.id,
+        startBeats: 2,
+        recordedAtTempoBpm: 120,
+        createdAt: new Date().toISOString(),
+        durationSeconds: 1,
+        events: [
+          event(0, {
+            kind: 'note-on', sourceId: 'theremin', noteId: 'n',
+            pitch: 60, velocity: 0.7, timestamp: 1,
+          }),
+          event(0.5, {
+            kind: 'note-off', sourceId: 'theremin', noteId: 'n', timestamp: 1.5,
+          }),
+        ],
+      }],
+    };
+    const clock = new FakeClock();
+    const instrument = new FakeInstrument();
+    const transport = new ArrangementTransport(clock, new ParameterBus());
+    transport.play(project, new Map([[track.id, instrument]]));
+    expect(instrument.notesOn).toHaveLength(0);
+    clock.time = 2.12;
+    vi.advanceTimersByTime(25);
+    expect(instrument.notesOn).toHaveLength(1);
+    expect(instrument.notesOn[0]?.timestamp).toBeCloseTo(102.12, 5);
+    clock.time = 3.12;
+    vi.advanceTimersByTime(25);
+    expect(instrument.notesOff).toHaveLength(1);
+    expect(instrument.notesOff[0]?.timestamp).toBeCloseTo(103.12, 5);
+    transport.dispose();
+  });
+
   it('releases scheduled live notes when the shared arrangement is stopped', () => {
     vi.useFakeTimers();
     const project = createDefaultProject('synth-one');
@@ -171,7 +215,8 @@ describe('ArrangementTransport', () => {
         id: 'sustained',
         name: 'Sustained',
         trackId: track.id,
-        startSeconds: 0,
+        startBeats: 0,
+          recordedAtTempoBpm: 120,
         createdAt: new Date().toISOString(),
         durationSeconds: 10,
         events: [
@@ -228,7 +273,8 @@ describe('ArrangementTransport', () => {
         id: 'clip',
         name: 'Clip',
         trackId: project.activeTrackId,
-        startSeconds: 0,
+        startBeats: 0,
+          recordedAtTempoBpm: 120,
         createdAt: new Date().toISOString(),
         durationSeconds: 0.1,
         events: [event(0, {
