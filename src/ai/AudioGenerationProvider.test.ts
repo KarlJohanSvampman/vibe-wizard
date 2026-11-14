@@ -37,7 +37,7 @@ describe('HTTP audio generation provider', () => {
     });
     expect(String(fetcher.mock.calls[1]?.[0])).toBe('http://localhost:8787/api/audio/generations/job-42');
     expect(String(fetcher.mock.calls[3]?.[0])).toBe('http://localhost:8787/files/bright-pad.wav');
-    expect(progress).toEqual([{ status: 'running', progress: 35, message: 'Rendering audio' }]);
+    expect(progress).toEqual([{ jobId: 'job-42', status: 'running', progress: 35, message: 'Rendering audio' }]);
     expect(result).toMatchObject({
       jobId: 'job-42', providerId: 'http-audio-generation',
       fileName: 'bright-pad.wav', mimeType: 'audio/wav',
