@@ -441,6 +441,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     recordStopButton.disabled = true;
     if (!recording) return;
 
+    project = {
+      ...project,
+      name: projectNameInput.value.trim() || project.name,
+    };
     project = addRecordingToProject(project, project.activeTrackId, recording);
     selectedClipId = recording.id;
     captureStatus.textContent = 'Captured ' + recording.events.length + ' events over ' +

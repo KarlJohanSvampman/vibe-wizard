@@ -2,7 +2,7 @@
 
 ## Guiding strategy
 
-Build a narrow vertical slice that validates the architecture before building a large DAW surface. The repository now has the IWSDK project foundation, a basic Web Audio synth, global rack, Parameter Bus, desktop and tracked-hand theremin, recording/playback, and local project persistence.
+Build a narrow vertical slice that validates the architecture before building a large DAW surface. The repository now has the IWSDK project foundation, a basic Web Audio synth, global rack, Parameter Bus, desktop and tracked-hand theremin, and an in-memory recording/playback loop.
 
 ## Phase 0 — Foundation
 
@@ -50,17 +50,14 @@ Build a narrow vertical slice that validates the architecture before building a 
 - [x] Add a simple automation/note timeline visualization.
 - [ ] Add tempo, musical grid, quantization, and loop sections.
 - [ ] Add clip editing and multiple tracks.
+- [ ] Add persistence for clips and projects.
 - [ ] Add rendered audio recording as a separate mode.
 
-## Phase 5 — Projects, tracks, and studio views
+## Phase 5 — Studio views and project persistence
 
-- [x] Add a versioned project snapshot and instrument-track model.
-- [x] Add IndexedDB persistence for project snapshots and recorded clips.
-- [x] Restore the latest project and select between saved performances.
-- [ ] Add multiple instrument tracks with independent audio routing.
-- [ ] Add arrangement view, track selection/arming, rack view, and mixer view.
-- [ ] Add persistent rack presets and parameter mapping state.
-- [ ] Add tempo-aware beat positions and project migration tests.
+- [ ] Arrangement view, track selection/arming, rack view, mixer view.
+- [ ] IndexedDB project and asset persistence with schema versioning.
+- [ ] Save/load project and rack presets.
 - [ ] Add undo/redo for editing actions.
 
 ## Phase 6 — Effects and richer instruments
@@ -80,4 +77,4 @@ Build a narrow vertical slice that validates the architecture before building a 
 
 ## Next recommended milestone
 
-Implement independent instrument buses and multiple instrument tracks, then build the arrangement view on top of the persisted project/clip model.
+Build a proper project/track model and persistent clip storage. That creates the data foundation for the arrangement view, piano roll, and multi-instrument rack routing.

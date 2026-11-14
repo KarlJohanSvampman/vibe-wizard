@@ -94,30 +94,3 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
   .controller-readout { gap: 12px; flex-wrap: wrap; } .workbench-footer { flex-wrap: wrap; }
   .transport-button { flex: 1 1 40%; }
 }
-
-/* Project persistence and clip selection */
-.project-toolbar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-top: 12px; padding: 10px 12px; border: 1px solid rgba(255,255,255,.07);
-  border-radius: 12px; background: rgba(7,7,13,.24);
-}
-.project-name-field, .clip-library-row label { display: grid; gap: 5px; }
-.project-name-field { flex: 1 1 220px; }
-.project-name-field > span, .clip-library-row label > span {
-  color: #8e879e; font-size: 8px; font-weight: 800; letter-spacing: .14em;
-}
-.project-name-field input, .clip-library-row select {
-  min-width: 0; width: 100%; padding: 7px 9px; border: 1px solid rgba(179,151,226,.22);
-  border-radius: 7px; color: #f3eefb; background: #171420; font: inherit; font-size: 11px;
-}
-.project-status { flex: 1 1 150px; color: #9d95ab; font-size: 10px; }
-.clip-library-row {
-  display: flex; align-items: end; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-  margin: 2px 0 14px;
-}
-.clip-library-row label { flex: 1 1 240px; max-width: 420px; }
-.track-badge {
-  padding: 8px 10px; border: 1px solid rgba(83,201,196,.18); border-radius: 7px;
-  color: #83bcb9; background: rgba(41,117,113,.09); font-size: 8px;
-  font-weight: 800; letter-spacing: .08em;
-}
