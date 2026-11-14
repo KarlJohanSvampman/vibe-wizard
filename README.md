@@ -10,11 +10,12 @@ The prototype includes:
 - Meta IWSDK project setup and desktop development runtime.
 - A local Web Audio synthesizer, global rack, and reusable Parameter Bus.
 - Desktop slider input and tracked right-index-finger spatial theremin control.
-- An in-memory event recorder for notes and continuous controller movement.
-- A look-ahead sequencer that replays clips through the same rack and mappings.
-- A simple timeline showing X/Y automation and note durations.
+- Typed recording of notes and continuous controller movement.
+- Look-ahead clip playback through the same rack and mappings.
+- A versioned project/track model and IndexedDB persistence for performances.
+- Automatic startup loading, a saved-clip selector, and a simple X/Y automation + note timeline.
 
-The prototype currently supports one theremin-driven synth and one in-memory clip.
+The current runtime has one theremin-driven synth instrument track. The project model supports multiple instrument tracks, but independent multi-track audio routing and arrangement editing are future milestones.
 
 ## Run locally
 
@@ -35,17 +36,16 @@ npm test
 npm run build
 ```
 
-## Record and replay
+## Record, save, and replay
 
-1. Enable audio.
-2. Press Record.
-3. Perform using the desktop X/Y sliders and Play theremin, or enter VR and move the right index fingertip inside the floating field.
-4. Press Stop recording. Notes still held at stop are automatically closed in the clip.
-5. Inspect the X/Y automation lanes and note blocks.
-6. Press Play clip to hear the performance replay through the current synth and Parameter Bus.
-7. Press Stop playback to stop the transport and release playback voices.
+1. Wait for the project status to report that local project storage is ready.
+2. Enable audio.
+3. Press Record and perform with the desktop controls or tracked VR hand.
+4. Press Stop recording. The clip is attached to the active instrument track and saved automatically.
+5. Choose any saved performance from the selector and press Play clip.
+6. Rename the project and press Save project to persist the new name.
 
-The clip is held in memory only and is cleared on page reload.
+Projects are stored in this browser's IndexedDB and are available after reload in the same browser profile. Clearing site data removes them. When IndexedDB is unavailable, the UI explicitly reports session-only storage.
 
 ## Architecture
 
@@ -53,11 +53,13 @@ The clip is held in memory only and is cleared on page reload.
 - src/rack — global module registry and Parameter Bus.
 - src/controllers — platform-neutral theremin and XR hand adapter.
 - src/sequencer — event recording and look-ahead clip transport.
+- src/project — versioned project model and IndexedDB repository.
 - src/app — desktop controls and timeline visualization.
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Projects and tracks](docs/PROJECTS_AND_TRACKS.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [Audio engine](docs/AUDIO_ENGINE.md)
 - [Rack and module contracts](docs/RACK_SYSTEM.md)
