@@ -2,7 +2,7 @@
 
 ## Guiding strategy
 
-Build a narrow vertical slice that validates the architecture before building a large DAW surface. The repository has the IWSDK project foundation, a basic Web Audio synth, a global rack registry, a reusable Parameter Bus, and both desktop and tracked-hand theremin input paths.
+Build a narrow vertical slice that validates the architecture before building a large DAW surface. The repository now has the IWSDK project foundation, a basic Web Audio synth, global rack, Parameter Bus, desktop and tracked-hand theremin, and an in-memory recording/playback loop.
 
 ## Phase 0 — Foundation
 
@@ -10,15 +10,16 @@ Build a narrow vertical slice that validates the architecture before building a 
 - [x] Add an application entry point and Vite configuration.
 - [x] Establish a desktop UI surface independent of the XR scene.
 - [x] Add initial architecture and subsystem documents.
-- [ ] Run install, typecheck, test, and production build locally after each milestone.
+- [ ] Verify clean install, typecheck, tests, and production build locally.
 - [ ] Verify the generated scene on physical Quest hardware.
 
 ## Phase 1 — Audio foundation
 
 - [x] Define deferred AudioContext initialization.
-- [x] Implement a small polyphonic Web Audio synthesizer with note-on/off.
-- [ ] Add audio scheduler and transport clock.
-- [ ] Add polyphony limits and voice-stealing policy.
+- [x] Implement a basic Web Audio synthesizer with note-on/off.
+- [x] Translate shared event timestamps to AudioContext time.
+- [x] Add look-ahead note and parameter scheduling for clip playback.
+- [ ] Add explicit polyphony limits and voice-stealing policy.
 - [ ] Add panic/cleanup behavior tests and manual audio smoke tests.
 
 ## Phase 2 — Rack and parameter system
@@ -42,12 +43,15 @@ Build a narrow vertical slice that validates the architecture before building a 
 
 ## Phase 4 — Recording and sequencer
 
-- [x] Add typed note/control event models.
-- [x] Add a timestamped event recorder for note and control events.
-- [ ] Connect live note/control events to the recorder.
-- [ ] Add transport, clip playback, and scheduler integration.
-- [ ] Add automation lane and event editing.
-- [ ] Add piano roll and recording workflow (arm, record, stop, commit).
+- [x] Add typed note/control event recording.
+- [x] Capture live theremin X/Y controller output from desktop and XR.
+- [x] Automatically close notes held when recording stops.
+- [x] Add AudioContext look-ahead clip playback through the rack.
+- [x] Add a simple automation/note timeline visualization.
+- [ ] Add tempo, musical grid, quantization, and loop sections.
+- [ ] Add clip editing and multiple tracks.
+- [ ] Add persistence for clips and projects.
+- [ ] Add rendered audio recording as a separate mode.
 
 ## Phase 5 — Studio views and project persistence
 
@@ -71,18 +75,6 @@ Build a narrow vertical slice that validates the architecture before building a 
 - [ ] Instrument Designer outputs a playable package: samples/zones, pitch/velocity maps, loop points, envelopes, metadata.
 - [ ] Keep API credentials out of browser builds; use an optional thin service or local inference adapter when required.
 
-## Later exploration
+## Next recommended milestone
 
-- Virtual guitar with chord/fret and strumming gesture recognition.
-- Additional spatial instruments and controller types.
-- Advanced mixer, sends, automation lanes, multi-channel routing.
-- Cloud sync/collaboration only when local project model is stable.
-
-## Current vertical-slice acceptance criteria
-
-1. Synth creates audible polyphonic notes.
-2. Theremin controls pitch and volume from desktop sliders.
-3. A tracked right index fingertip controls pitch and volume inside the spatial volume.
-4. Leaving the spatial volume or losing tracking releases the active spatial note.
-5. Parameter mapping changes do not require instrument changes.
-6. Typecheck, tests, and production build pass.
+Build a proper project/track model and persistent clip storage. That creates the data foundation for the arrangement view, piano roll, and multi-instrument rack routing.

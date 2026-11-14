@@ -3,11 +3,14 @@ import { clamp } from '../../audio/events.js';
 import type { RackModule } from '../../rack/types.js';
 import { ParameterBus } from '../../rack/ParameterBus.js';
 
+export type ControlSignalListener = (signal: ControlSignal) => void;
+
 /** Platform-neutral two-axis controller. XR and desktop adapters feed normalized coordinates. */
 export class ThereminController implements RackModule {
   readonly kind = 'controller' as const;
   private x = 0.5;
   private y = 0.5;
+  private readonly listeners = new Set<ControlSignalListener>();
 
   constructor(
     readonly id: string,
@@ -18,7 +21,7 @@ export class ThereminController implements RackModule {
     this.x = clamp(x, 0, 1);
     this.y = clamp(y, 0, 1);
 
-    const xSignal: ControlSignal = {
+    this.emit({
       kind: 'control',
       sourceId: this.id,
       portId: 'x',
@@ -26,8 +29,8 @@ export class ThereminController implements RackModule {
       min: 0,
       max: 1,
       timestamp,
-    };
-    const ySignal: ControlSignal = {
+    });
+    this.emit({
       kind: 'control',
       sourceId: this.id,
       portId: 'y',
@@ -35,10 +38,12 @@ export class ThereminController implements RackModule {
       min: 0,
       max: 1,
       timestamp,
-    };
+    });
+  }
 
-    this.parameterBus.process(xSignal);
-    this.parameterBus.process(ySignal);
+  subscribe(listener: ControlSignalListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   get position(): Readonly<{ x: number; y: number }> {
@@ -48,5 +53,14 @@ export class ThereminController implements RackModule {
   setParameter(parameterId: string, value: number, _timestamp: number): void {
     if (parameterId === 'x') this.x = clamp(value, 0, 1);
     if (parameterId === 'y') this.y = clamp(value, 0, 1);
+  }
+
+  dispose(): void {
+    this.listeners.clear();
+  }
+
+  private emit(signal: ControlSignal): void {
+    this.parameterBus.process(signal);
+    for (const listener of this.listeners) listener(signal);
   }
 }

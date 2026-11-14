@@ -8,53 +8,38 @@ The audio engine owns the AudioContext, graph construction, scheduling, voices, 
 
 - Construct without starting audio.
 - Initialize/resume only in response to an explicit user gesture where browser autoplay policy requires it.
-- Expose state: uninitialized, running, suspended, disposed.
-- Support idempotent suspend/resume and deterministic disposal.
-- Never create a new AudioContext per note or per component.
+- Expose running state and AudioContext time.
+- Support deterministic disposal.
+- Never create a new AudioContext per note or component.
 
-## Timing
+## Clock model
 
-Use `AudioContext.currentTime` as the audio clock. The sequencer translates musical ticks/beats into audio times. Schedule events in short look-ahead windows from a timer/worker, but schedule individual AudioNode operations against future AudioContext times. Animation frames are for visuals only.
+Input adapters use performance-time seconds as a common monotonic event timestamp. AudioEngine translates that clock into AudioContext time when scheduling notes and parameter values.
 
-Define a single internal timestamp convention (audio-context seconds for scheduled events; musical ticks/beats for arrangement positions). Conversion is owned by the transport/scheduler boundary.
+The sequencer schedules against AudioContext time with a short look-ahead window. It converts clip-relative event positions into future performance-time timestamps, which the audio engine maps to its clock. Animation frames are for visuals and tracking, not note scheduling.
 
 ## Instrument contract
 
-An instrument receives typed musical events and produces audio. It should expose parameter descriptors and serializable configuration. A first synth can use OscillatorNode + GainNode per voice with a master output; future DSP can move to AudioWorklet.
+An instrument receives typed musical events and produces audio. It exposes parameter descriptors and serializable configuration. The first synth uses OscillatorNode and GainNode per voice.
 
-Required event handling:
-- note-on(pitch, velocity, timestamp)
-- note-off(pitch, timestamp)
-- pitch bend / expression where supported
-- all-notes-off / panic
+Required event handling includes note-on, note-off, pitch bend/expression where supported, and all-notes-off.
 
-Velocity should affect amplitude and may affect timbre. Release must be envelope-based, not an abrupt stop.
+Velocity affects amplitude. Release is envelope-based rather than abrupt.
 
 ## Voices
 
-- Explicit maximum polyphony.
-- Voice allocator with predictable voice stealing (oldest/quietest configurable policy).
-- Prevent stuck notes with all-notes-off, source disconnection, and input-source lifecycle cleanup.
-- Note identity must include source/channel/note or a unique note-instance ID so overlapping same-pitch notes can be released correctly.
-
-## Graph
-
-Initial:
-`Instrument -> Track Gain -> Master Gain -> Destination`
-
-Later:
-`Instrument -> Insert Effects -> Track Gain -> Master/Sends -> Master -> Destination`
-
-Graph mutation must avoid audible clicks: use scheduled ramps/crossfades when replacing connections or gain values.
+- Explicit maximum polyphony is still planned.
+- A note instance is identified by source and unique note ID.
+- Prevent stuck notes with all-notes-off and input-source lifecycle cleanup.
+- A scheduled note-off can move an existing release earlier when playback is stopped.
 
 ## Resource rules
 
 - Decode and preload samples before playback.
 - Avoid large allocations, decoding, or unbounded graph construction in audio callbacks.
 - Use AudioWorklet for custom time-critical processing.
-- Make sample-rate and device output considerations explicit.
 - Monitor CPU and memory on target Quest hardware.
 
 ## Testing
 
-Unit tests cover voice allocation, event normalization, scheduling conversion, and graph ownership. Manual tests cover actual output, latency, clipping, suspension, and long sessions.
+Unit tests cover scheduling, event normalization, mappings, and recorder behavior. Manual tests cover actual output, latency, clipping, suspension, and long sessions.

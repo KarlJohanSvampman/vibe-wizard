@@ -6,56 +6,54 @@ Vibe-Wizard is a browser-first digital audio workstation for immersive music cre
 
 ## Current status
 
-The repository contains an IWSDK 1.1 project scaffold, a basic Web Audio synthesizer, a global rack and Parameter Bus, a desktop theremin control surface, and a spatial theremin that reads the tracked right index fingertip during immersive sessions.
+The prototype includes:
+- Meta IWSDK project setup and desktop development runtime.
+- A local Web Audio synthesizer, global rack, and reusable Parameter Bus.
+- Desktop slider input and tracked right-index-finger spatial theremin control.
+- An in-memory event recorder for notes and continuous controller movement.
+- A look-ahead sequencer that replays clips through the same rack and mappings.
+- A simple timeline showing X/Y automation and note durations.
 
-The second prototype milestone adds the real tracked-joint path and an in-world interaction volume. Physical Quest behavior still needs to be checked on target hardware.
-
-## Product principles
-
-- **The rack is the heart of the application.** Instruments, effects, and controllers are independent modules with declared ports and parameters.
-- **Inputs are interchangeable.** Instruments can receive notes and controls from a virtual piano, theremin, sequencer, MIDI devices, and future sources.
-- **Controllers are reusable.** A controller can target parameters on any rack module, including multiple instruments.
-- **Performances are recordable.** Notes and continuous controller movements are recorded as editable events and automation.
-- **Audio stays local.** The audio engine runs client-side; AI generation is asynchronous and never sits in the real-time audio path.
-- **VR is a first-class interface, not a constraint.** The same project remains usable on desktop.
-
-## Technology
-
-- TypeScript, Vite, and Vitest
-- Three.js through Meta's Immersive Web SDK (IWSDK)
-- Web Audio API, with AudioWorklet available for later custom DSP
-- IndexedDB planned for local project and sample storage
-- IWSDK IWER emulator for desktop XR testing, followed by physical Quest validation
-
-The current scaffold follows the manifest-first IWSDK project structure. Official guidance: [IWSDK overview](https://developers.meta.com/vr/documentation/iwsdk/guides/overview/), [XR input overview](https://developers.meta.com/vr/documentation/iwsdk/concepts/xr-input/), and [Meta's SDK repository](https://github.com/meta/immersive-web-sdk).
+The prototype currently supports one theremin-driven synth and one in-memory clip.
 
 ## Run locally
 
-Requirements: Node.js 20.19+ (20 line), 22.12+ (22 line), or 24+; npm is included with Node.js.
+Requirements: Node.js 20.19+ (20 line), 22.12+ (22 line), or 24+.
 
-\`\`\`bash
+```bash
 npm install
 npm run dev
-\`\`\`
+```
 
-Use the desktop IWER emulation first. When the page opens, press **Enter VR** to resume audio and request an immersive session. In the emulator, select hand input mode if available. On Quest, use the network URL over HTTPS in Meta Quest Browser and enable hand tracking.
+Use the desktop IWER emulator first. Press Enable audio to initialize local audio; use Enter VR to request the immersive session and start audio from the same user gesture. On Quest, open the HTTPS development URL in Meta Quest Browser with hand tracking enabled.
 
-Other useful commands:
+Quality checks:
 
-\`\`\`bash
+```bash
 npm run typecheck
 npm test
 npm run build
-npm run preview
-npm run dev:status
-npm run dev:down
-\`\`\`
+```
 
-## Current theremin workflow
+## Record and replay
 
-- Desktop: enable audio, move the X/Y sliders, and press/hold **Play theremin**.
-- VR: press **Enter VR**, then move the right index fingertip into the floating field in front of you. Horizontal movement changes pitch; vertical movement changes volume. Leaving the field or losing tracking releases the note.
-- The floating field is approximately 72 cm wide, 48 cm high, and 24 cm deep. It follows the viewer's horizontal facing direction.
+1. Enable audio.
+2. Press Record.
+3. Perform using the desktop X/Y sliders and Play theremin, or enter VR and move the right index fingertip inside the floating field.
+4. Press Stop recording. Notes still held at stop are automatically closed in the clip.
+5. Inspect the X/Y automation lanes and note blocks.
+6. Press Play clip to hear the performance replay through the current synth and Parameter Bus.
+7. Press Stop playback to stop the transport and release playback voices.
+
+The clip is held in memory only and is cleared on page reload.
+
+## Architecture
+
+- src/audio — Web Audio engine and typed events.
+- src/rack — global module registry and Parameter Bus.
+- src/controllers — platform-neutral theremin and XR hand adapter.
+- src/sequencer — event recording and look-ahead clip transport.
+- src/app — desktop controls and timeline visualization.
 
 ## Documentation
 
@@ -69,6 +67,10 @@ npm run dev:down
 - [AI integration](docs/AI_INTEGRATION.md)
 - [Technical decisions](docs/TECHNICAL_DECISIONS.md)
 
-## Scope
+## Product principles
 
-This prototype deliberately focuses on the core rack/input/recording workflow. Mixing polish, extensive effects, a sampler, drum pads, virtual guitar, cloud collaboration, and AI instrument generation follow after the core interaction and recording model are proven.
+- The rack is global and modules are independent.
+- Inputs are interchangeable and use typed event/control streams.
+- Controllers can target any compatible rack parameter.
+- Audio stays local; AI asset creation remains asynchronous.
+- VR and desktop use the same domain logic through separate input adapters.

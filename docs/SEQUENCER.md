@@ -2,7 +2,7 @@
 
 ## Overview
 
-The sequencer records and plays typed musical events and continuous automation. It does not care whether input originated from the virtual piano, theremin, MIDI, future guitar, or another instrument.
+The sequencer records and plays typed musical events and continuous automation. It does not care whether input originated from the virtual piano, theremin, MIDI, future guitar, or another source.
 
 ## Event categories
 
@@ -13,32 +13,34 @@ The sequencer records and plays typed musical events and continuous automation. 
 
 ## Recording
 
-1. Select a track.
-2. Assign or create instrument.
-3. Select one or more input sources.
-4. Arm recording.
-5. Start transport/record.
-6. Capture events with stable timestamps and source identity.
-7. Stop and commit a clip.
-8. Edit/replay.
+The first capture path uses one monotonic event clock: performance-time seconds.
 
-Recording input events and rendered audio are separate modes. Do not confuse a recorded controller trajectory with an audio recording.
+1. Start recording.
+2. Capture note-on/off events and timestamped controller output signals.
+3. Stop recording to commit an in-memory clip.
+4. Automatically close note instances still held at stop time.
+5. Inspect the X/Y automation lanes and note-duration lane.
+6. Play the clip through the same Parameter Bus and instrument rack.
 
-## Playback
+The theremin publishes control signals to observers after routing them through the Parameter Bus. The recorder subscribes to that stream, so it captures the same normalized values regardless of whether a desktop slider or tracked fingertip produced them.
 
-The transport converts musical positions into scheduled audio times. Notes and automation are scheduled against the audio clock. Live input and playback may coexist; define merge/priority rules and preserve source IDs.
+## Playback and scheduling
 
-## Arrangement views
+- The transport uses a short look-ahead scheduler driven by a lightweight interval.
+- Each event is translated from clip-relative seconds into a future AudioContext time.
+- The audio engine converts the future audio time back into the shared performance-time clock, allowing AudioParam values and notes to be scheduled ahead.
+- Playback note IDs are namespaced so recorded voices do not collide with live input note IDs.
+- Stopping playback releases notes owned by the playback source.
+- Live and playback control signals use the same Parameter Bus mappings.
 
-- Arrangement: tracks, clips, tempo, time signature, automation lanes.
-- Piano roll: note pitch, start, duration, velocity.
-- Rack: module instances, routing, parameters, mappings.
-- Mixer: track gain/pan, inserts, sends, master.
+The render loop is not used as the audio clock. XR frames update tracked input; audio scheduling is performed against AudioContext time.
 
-## Editing
+## Current prototype UI
 
-Support move, resize, split, delete, quantize, duplicate, and loop. Preserve original captured timing until the user explicitly quantizes.
+The workbench exposes Record, Stop recording, Play clip, and Stop playback. Its canvas timeline shows X-axis automation, Y-axis automation, and note blocks showing pitch and held duration.
+
+The clip currently remains in memory for the lifetime of the page. Persistence, multiple tracks, tempo/grid editing, loop sections, and rendered audio recording are future work.
 
 ## Automation
 
-Automation may represent source controller movement or resolved target parameter values. Prefer retaining source identity and mapping reference so users can edit mappings later; optionally allow a “freeze/bake automation” operation to store final parameter values when decoupling is desired.
+The first implementation records source controller output values and replays them through the current Parameter Bus mappings. Changing a mapping can change the result without rewriting the recorded controller trajectory. A future bake-automation operation can store resolved target parameter values when decoupling is desired.
