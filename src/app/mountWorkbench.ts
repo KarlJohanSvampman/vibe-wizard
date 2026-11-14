@@ -148,11 +148,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         const asset = await sampleAssets.load(track.sampleAssetId);
         if (asset) await resources.instrument.loadSample(asset.data);
       } catch (error) {
-        if (track.id === project.activeTrackId) {
-          captureStatus.textContent = error instanceof Error
-            ? 'Could not restore sample: ' + error.message
-            : 'Could not restore this sampler sample.';
-        }
+        console.warn('Could not restore sampler sample for track ' + track.id, error);
       }
     }
     applyTrackMix();

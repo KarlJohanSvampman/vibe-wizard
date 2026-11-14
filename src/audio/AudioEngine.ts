@@ -207,7 +207,6 @@ export class AudioEngine implements RackModule {
       sources.push(sample);
       nodes.push(sample);
       pitchControls.push({ parameter: sample.playbackRate, multiplier: 1 });
-      sample.start(startTime);
     } else {
       // Keep an unloaded sampler track responsive, while the UI asks for a file.
       addOscillator('triangle', 1);
