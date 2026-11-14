@@ -81,6 +81,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   let spatialNoteCounter = 0;
   let saveQueue: Promise<void> = Promise.resolve();
   let generationAbortController: AbortController | undefined;
+  let isCreatingNewProject = false;
   const desktopNoteId = 'theremin-desktop-note';
 
   const activeTrack = (): ProjectTrack =>
@@ -247,6 +248,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '  <div class="project-toolbar">',
     '    <label class="project-name-field" for="project-name"><span>PROJECT</span>',
     '      <input id="project-name" type="text" maxlength="80" value="Untitled Session" /></label>',
+    '    <button class="transport-button" id="project-new" type="button" disabled>＋ New project</button>',
     '    <button class="transport-button" id="project-save" type="button" disabled>Save project</button>',
     '    <span class="project-status" id="project-status" role="status">Loading local project…</span>',
     '  </div>',
@@ -356,6 +358,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const yValue = get<HTMLElement>('#y-value');
   const pitchValue = get<HTMLElement>('#pitch-value');
   const projectNameInput = get<HTMLInputElement>('#project-name');
+  const newProjectButton = get<HTMLButtonElement>('#project-new');
   const projectSaveButton = get<HTMLButtonElement>('#project-save');
   const projectStatus = get<HTMLElement>('#project-status');
   const trackName = get<HTMLElement>('#active-track-name');
@@ -405,7 +408,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   if (
     !enableButton || !enterVrButton || !playButton || !xInput || !yInput ||
     !status || !statusDot || !xValue || !yValue || !pitchValue ||
-    !projectNameInput || !projectSaveButton || !projectStatus || !trackName ||
+    !projectNameInput || !newProjectButton || !projectSaveButton || !projectStatus || !trackName ||
     !trackSelect || !newInstrumentTypeSelect || !sampleImportRow || !sampleFileInput ||
     !sampleStatus || !aiServiceUrlInput || !aiSamplePromptInput || !aiSampleDurationInput ||
     !aiGenerateButton || !aiCancelButton || !aiGenerationStatus ||
@@ -971,6 +974,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const updateProjectUi = (): void => {
     projectNameInput.value = project.name;
+    newProjectButton.disabled = !persistenceReady || recorder.isRecording ||
+      anyTransportPlaying() || generationAbortController !== undefined || isCreatingNewProject;
     tempoInput.value = String(project.tempoBpm);
     const signature = project.timeSignature.numerator + '/' + project.timeSignature.denominator;
     if (![...timeSignatureSelect.options].some(option => option.value === signature)) {
@@ -1927,6 +1932,86 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }).finally(() => {
       projectSaveButton.disabled = false;
     });
+  });
+
+  const startNewProject = async (): Promise<void> => {
+    if (
+      !persistenceReady || recorder.isRecording || anyTransportPlaying() ||
+      generationAbortController !== undefined || isCreatingNewProject
+    ) return;
+
+    const accepted = window.confirm(
+      'Start a new project?\n\n' +
+      '"' + project.name + '" will be saved on this device. ' +
+      'A fresh, empty project will open. Your previous project will be kept.',
+    );
+    if (!accepted) return;
+
+    isCreatingNewProject = true;
+    newProjectButton.disabled = true;
+    projectSaveButton.disabled = true;
+    try {
+      // Flush any queued edits and preserve the current session before switching.
+      await persistProject();
+      const previousProjectName = project.name;
+
+      stopDesktopTone();
+      if (spatialNoteId) {
+        stopNote(theremin.id, spatialNoteId);
+        spatialNoteId = undefined;
+      }
+      arrangementTransport.stop();
+
+      // Release the previous project's instruments, buses, schedulers and mappings.
+      for (const [trackId, resources] of [...trackResources.entries()]) {
+        resources.transport.dispose();
+        resources.unsubscribeTransport();
+        parameterBus.unregisterTarget(resources.instrument.id);
+        parameterBus.unregisterTarget(resources.bus.id);
+        await rack.remove(resources.instrument.id);
+        await rack.remove(resources.bus.id);
+        trackResources.delete(trackId);
+      }
+      noteOwners.clear();
+
+      const previousUpdatedAt = Date.parse(project.updatedAt);
+      const nextTimestamp = new Date(Number.isFinite(previousUpdatedAt)
+        ? Math.max(Date.now(), previousUpdatedAt + 1)
+        : Date.now());
+      project = createDefaultProject('synth-main', nextTimestamp);
+      projectHistory.clear();
+      selectedClipId = undefined;
+      selectedClip = undefined;
+      selectedPianoNote = undefined;
+      pianoDrag = undefined;
+      recordingTrackId = undefined;
+
+      projectNameInput.value = project.name;
+      ensureTrackRuntime(activeTrack(), false);
+      if (audioReady) await ensureTrackAudioReady(project.activeTrackId);
+      updateProjectUi();
+      await persistProject();
+
+      projectStatus.textContent = repository.durability === 'persistent'
+        ? 'New project saved · previous project kept on this device'
+        : 'New session created · browser storage unavailable';
+      captureStatus.textContent = 'Started a fresh project. "' + previousProjectName +
+        '" was saved separately on this device.';
+    } catch (error) {
+      projectStatus.textContent = error instanceof Error
+        ? 'Could not finish creating the new project: ' + error.message
+        : 'Could not finish creating the new project.';
+    } finally {
+      isCreatingNewProject = false;
+      newProjectButton.disabled = !persistenceReady || recorder.isRecording ||
+        anyTransportPlaying() || generationAbortController !== undefined;
+      projectSaveButton.disabled = false;
+      updateProjectUi();
+    }
+  };
+
+  newProjectButton.addEventListener('click', () => {
+    void startNewProject();
   });
 
   function handleTransportState(trackId: string, state: TransportState): void {
