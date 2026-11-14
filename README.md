@@ -24,7 +24,7 @@ The prototype includes:
 - A versioned project model, IndexedDB persistence, and migration from schema versions 1, 2, and 3.
 - Track selection/arming, saved-clip selection, and X/Y automation + note visualization.
 
-Instrument tracks now select from four distinct voice families: an expressive analog-style synth, an additive piano voice, a synthesized one-shot drum kit, and a chromatic sampler for imported audio. Sample bytes are stored separately in IndexedDB and projects retain a stable asset reference. The piano and drum voices are generated locally with Web Audio; the sampler plays user-provided audio without uploading it.
+Instrument tracks now select from four distinct voice families: an expressive analog-style synth, an additive piano voice, a synthesized one-shot drum kit, and a chromatic sampler for imported audio. Sample bytes are stored separately in IndexedDB and projects retain a stable asset reference. The piano and drum voices are generated locally with Web Audio; the sampler plays user-provided audio without uploading it. An AI Sample Studio accepts prompts and runs asynchronous generation jobs through a configurable backend, then creates a sampler track with the generated audio and saved prompt/provider provenance.
 
 ## Run locally
 
@@ -56,7 +56,7 @@ npm run build
 5. Adjust its independent Track Level and Stereo Pan. Mute and Solo operate across the project mix.
 6. Use the saved-clip selector and Play clip to audition one clip on its assigned instrument. Sampler tracks expose a local audio-file import control; supported files are decoded by the browser and their bytes are stored in IndexedDB.
 
-All instrument instances share one AudioContext but have independent voices and track-output buses. Piano and drum synthesis use native Web Audio nodes, while sampler tracks decode a user-selected audio file and play it chromatically around MIDI note 60. Imported samples remain on the device in a separate IndexedDB asset store; no audio is uploaded.
+All instrument instances share one AudioContext but have independent voices and track-output buses. Piano and drum synthesis use native Web Audio nodes, while sampler tracks decode an audio file and play it chromatically around MIDI note 60. Imported and AI-generated samples remain on the device in a separate IndexedDB asset store; no audio is uploaded. The AI Sample Studio expects a provider proxy implementing the asynchronous HTTP job contract in [AI integration](docs/AI_INTEGRATION.md); enter its base URL in the studio. Provider credentials stay on that service, not in the browser.
 
 ## Arrange and play a song
 
@@ -73,7 +73,8 @@ The separate Play clip button remains available for auditioning just the selecte
 
 ## Architecture
 
-- src/audio — shared AudioRuntime, Web Audio instruments, and typed events.
+- src/audio — shared AudioRuntime, Web Audio instruments, typed events, and local sample assets.
+- src/ai — asynchronous provider contracts and HTTP job client for generated audio.
 - src/rack — global module registry, Parameter Bus, and track audio buses.
 - src/controllers — platform-neutral theremin and XR hand adapter.
 - src/sequencer — event recording, clip audition transport, and shared arrangement transport.
