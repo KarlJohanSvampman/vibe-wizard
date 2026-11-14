@@ -5,6 +5,7 @@ import { AudioEngine } from '../audio/AudioEngine.js';
 import { createAudioAssetStore } from '../audio/AudioAssetStore.js';
 import { getInstrumentLabel, isInstrumentType } from '../audio/InstrumentTypes.js';
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
+import { HttpAudioGenerationProvider } from '../ai/AudioGenerationProvider.js';
 import { Rack } from '../rack/Rack.js';
 import { ParameterBus } from '../rack/ParameterBus.js';
 import { TrackAudioBus } from '../rack/TrackAudioBus.js';
@@ -79,6 +80,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   let spatialNoteId: string | undefined;
   let spatialNoteCounter = 0;
   let saveQueue: Promise<void> = Promise.resolve();
+  let generationAbortController: AbortController | undefined;
   const desktopNoteId = 'theremin-desktop-note';
 
   const activeTrack = (): ProjectTrack =>
@@ -294,6 +296,17 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <label for="sample-file"><span>SAMPLER AUDIO FILE</span><input id="sample-file" type="file" accept="audio/*" /></label>',
     '      <span id="sample-status">Choose a Sampler track to import audio.</span>',
     '    </div>',
+    '    <section class="ai-sample-studio">',
+    '      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
+    '      <label for="ai-service-url"><span>AI SERVICE BASE URL</span><input id="ai-service-url" type="url" placeholder="http://localhost:8787/api" autocomplete="url" /></label>',
+    '      <label for="ai-sample-prompt"><span>SOUND PROMPT</span><textarea id="ai-sample-prompt" rows="3" maxlength="4000" placeholder="A warm, evolving analog bass with a soft attack, subtle tape saturation, and a clean low end."></textarea></label>',
+    '      <div class="ai-generation-actions">',
+    '        <label for="ai-sample-duration"><span>DURATION · SECONDS</span><input id="ai-sample-duration" type="number" min="1" max="60" step="1" value="6" /></label>',
+    '        <button class="transport-button" id="ai-generate-sample" type="button">✦ Generate sampler</button>',
+    '        <button class="transport-button" id="ai-cancel-generation" type="button" disabled>Cancel</button>',
+    '      </div>',
+    '      <p class="ai-generation-status" id="ai-generation-status" role="status">Connect an audio-generation service to create samples from prompts. Provider keys stay on that service, never in this browser.</p>',
+    '    </section>',
     '    <div class="track-mixer-controls">',
     '      <label for="track-volume"><span>TRACK LEVEL</span><input id="track-volume" type="range" min="0" max="1" step="0.01" value="0.8" /></label>',
     '      <label for="track-pan"><span>STEREO PAN</span><input id="track-pan" type="range" min="-1" max="1" step="0.01" value="0" /></label>',
@@ -351,6 +364,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const sampleImportRow = get<HTMLElement>('#sample-import-row');
   const sampleFileInput = get<HTMLInputElement>('#sample-file');
   const sampleStatus = get<HTMLElement>('#sample-status');
+  const aiServiceUrlInput = get<HTMLInputElement>('#ai-service-url');
+  const aiSamplePromptInput = get<HTMLTextAreaElement>('#ai-sample-prompt');
+  const aiSampleDurationInput = get<HTMLInputElement>('#ai-sample-duration');
+  const aiGenerateButton = get<HTMLButtonElement>('#ai-generate-sample');
+  const aiCancelButton = get<HTMLButtonElement>('#ai-cancel-generation');
+  const aiGenerationStatus = get<HTMLElement>('#ai-generation-status');
   const addTrackButton = get<HTMLButtonElement>('#add-track');
   const armTrackButton = get<HTMLButtonElement>('#arm-track');
   const muteTrackButton = get<HTMLButtonElement>('#mute-track');
@@ -388,7 +407,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !status || !statusDot || !xValue || !yValue || !pitchValue ||
     !projectNameInput || !projectSaveButton || !projectStatus || !trackName ||
     !trackSelect || !newInstrumentTypeSelect || !sampleImportRow || !sampleFileInput ||
-    !sampleStatus || !addTrackButton || !armTrackButton || !muteTrackButton ||
+    !sampleStatus || !aiServiceUrlInput || !aiSamplePromptInput || !aiSampleDurationInput ||
+    !aiGenerateButton || !aiCancelButton || !aiGenerationStatus ||
+    !addTrackButton || !armTrackButton || !muteTrackButton ||
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
     !clipStopButton || !clipDuplicateButton || !clipSummary || !arrangementPlayButton ||
@@ -403,6 +424,17 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     unsubscribeController();
     throw new Error('The workbench UI is missing a required control.');
   }
+
+  const aiEndpointStorageKey = 'vibe-wizard.ai-service-url';
+  try {
+    aiServiceUrlInput.value = globalThis.localStorage?.getItem(aiEndpointStorageKey) ?? '';
+  } catch {
+    aiServiceUrlInput.value = '';
+  }
+  aiServiceUrlInput.addEventListener('change', () => {
+    try { globalThis.localStorage?.setItem(aiEndpointStorageKey, aiServiceUrlInput.value.trim()); }
+    catch { /* Endpoint can still be entered for this session. */ }
+  });
 
   type ArrangementHitRegion = {
     readonly clipId: string;
@@ -989,6 +1021,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
           ? 'Loaded: ' + selectedTrack.sampleFileName
           : 'Stored: ' + selectedTrack.sampleFileName + ' · enable audio to decode')
         : 'Choose an audio file. It will be stored locally with the project reference.';
+    aiGenerateButton.disabled = recorder.isRecording || anyTransportPlaying() || generationAbortController !== undefined;
+    aiCancelButton.disabled = generationAbortController === undefined;
+    aiServiceUrlInput.disabled = recorder.isRecording || generationAbortController !== undefined;
+    aiSamplePromptInput.disabled = recorder.isRecording || generationAbortController !== undefined;
+    aiSampleDurationInput.disabled = recorder.isRecording || generationAbortController !== undefined;
     addTrackButton.disabled = recorder.isRecording;
     armTrackButton.disabled = recorder.isRecording;
     muteTrackButton.disabled = recorder.isRecording;
@@ -1479,6 +1516,95 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         : 'Sample import failed.';
     });
     sampleFileInput.value = '';
+  });
+
+  aiCancelButton.addEventListener('click', () => {
+    generationAbortController?.abort();
+    aiGenerationStatus.textContent = 'Cancelling AI generation…';
+  });
+
+  aiGenerateButton.addEventListener('click', () => {
+    if (recorder.isRecording || anyTransportPlaying() || generationAbortController) return;
+    const endpoint = aiServiceUrlInput.value.trim();
+    const prompt = aiSamplePromptInput.value.trim();
+    const durationSeconds = Number(aiSampleDurationInput.value);
+    if (!endpoint) {
+      aiGenerationStatus.textContent = 'Enter the base URL of an audio-generation service first.';
+      aiServiceUrlInput.focus();
+      return;
+    }
+    if (!prompt || prompt.length > 4000) {
+      aiGenerationStatus.textContent = 'Enter a sound prompt between 1 and 4000 characters.';
+      aiSamplePromptInput.focus();
+      return;
+    }
+    if (!Number.isFinite(durationSeconds) || durationSeconds < 1 || durationSeconds > 60) {
+      aiGenerationStatus.textContent = 'Choose a duration between 1 and 60 seconds.';
+      aiSampleDurationInput.focus();
+      return;
+    }
+
+    const controller = new AbortController();
+    generationAbortController = controller;
+    updateProjectUi();
+    aiGenerationStatus.textContent = 'Submitting your prompt to the AI service…';
+    void (async () => {
+      const provider = new HttpAudioGenerationProvider(endpoint);
+      const generated = await provider.generateSample(
+        { prompt, durationSeconds },
+        progress => {
+          const percent = progress.progress === undefined ? '' : ' · ' + Math.round(progress.progress) + '%';
+          aiGenerationStatus.textContent = (progress.message || 'AI generation ' + progress.status) + percent;
+        },
+        controller.signal,
+      );
+
+      const assetId = 'ai-sample-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+      const createdAt = new Date().toISOString();
+      await sampleAssets.save({
+        id: assetId,
+        name: generated.fileName,
+        mimeType: generated.mimeType,
+        data: generated.data,
+        updatedAt: createdAt,
+        origin: {
+          kind: 'ai-generated',
+          providerId: generated.providerId,
+          jobId: generated.jobId,
+          prompt,
+          createdAt,
+        },
+      });
+
+      const beforeEdit = project;
+      const trackNumber = project.tracks.length + 1;
+      const moduleId = 'sampler-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+      project = addInstrumentTrack(
+        project,
+        'AI Sample ' + String(trackNumber).padStart(2, '0'),
+        moduleId,
+        new Date(),
+        'sampler',
+      );
+      const generatedTrack = activeTrack();
+      project = updateProjectTrack(project, generatedTrack.id, {
+        sampleAssetId: assetId,
+        sampleFileName: generated.fileName,
+      });
+      projectHistory.commit(beforeEdit, project);
+      const resources = ensureTrackRuntime(generatedTrack);
+      if (audioReady) await resources.instrument.loadSample(generated.data);
+      await persistProject();
+      updateProjectUi();
+      aiGenerationStatus.textContent = 'Created ' + generated.fileName + ' on ' + generatedTrack.name + '. The sample is stored locally and ready to play.';
+    })().catch((error: unknown) => {
+      aiGenerationStatus.textContent = controller.signal.aborted
+        ? 'AI generation cancelled. No track was added.'
+        : error instanceof Error ? 'AI generation failed: ' + error.message : 'AI generation failed.';
+    }).finally(() => {
+      if (generationAbortController === controller) generationAbortController = undefined;
+      updateProjectUi();
+    });
   });
 
   armTrackButton.addEventListener('click', () => {
