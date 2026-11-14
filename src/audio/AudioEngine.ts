@@ -131,14 +131,20 @@ export class AudioEngine implements RackModule {
   }
 
   setParameter(parameterId: string, value: number, timestamp: number): void {
-    if (!Number.isFinite(value) || !this.context) return;
-    const at = this.toAudioTime(timestamp);
+    if (!Number.isFinite(value)) return;
 
     if (parameterId === 'volume') {
+      // Keep the most recent controller value even before AudioContext starts.
       this.masterVolume = clamp(value, 0, 1);
-      this.masterGain?.gain.setTargetAtTime(this.masterVolume, at, 0.012);
+      if (this.context && this.masterGain) {
+        const at = this.toAudioTime(timestamp);
+        this.masterGain.gain.setTargetAtTime(this.masterVolume, at, 0.012);
+      }
       return;
     }
+
+    if (!this.context) return;
+    const at = this.toAudioTime(timestamp);
 
     if (parameterId === 'pitch') {
       const frequency = midiToFrequency(clamp(value, 0, 127));
