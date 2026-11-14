@@ -1019,11 +1019,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   function handleTransportState(trackId: string, state: TransportState): void {
     updateClipUi();
     if (state === 'playing') {
-      captureStatus.textContent = 'Playing clip on ' +
+      captureStatus!.textContent = 'Playing clip on ' +
         (project.tracks.find(track => track.id === trackId)?.name ?? 'track') + '…';
       updateStatus('Sequencer playing');
     } else if (state === 'completed' && !anyTransportPlaying()) {
-      captureStatus.textContent = 'Playback complete.';
+      captureStatus!.textContent = 'Playback complete.';
       updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
     } else if (state === 'stopped' && !anyTransportPlaying() && !recorder.isRecording) {
       updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');

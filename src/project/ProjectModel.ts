@@ -327,12 +327,16 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
 
   const clipIds = new Set<string>();
   const clips: ProjectClip[] = value.clips.map((item) => {
+    if (!isRecord(item)) {
+      throw new Error('Project contains an invalid clip or an orphaned track reference.');
+    }
+    const durationSeconds = item.durationSeconds;
     if (
-      !isRecord(item) || typeof item.id !== 'string' ||
+      typeof item.id !== 'string' ||
       typeof item.name !== 'string' || typeof item.trackId !== 'string' ||
       !trackIds.has(item.trackId) ||
       typeof item.createdAt !== 'string' ||
-      !finiteNumber(item.durationSeconds) || item.durationSeconds < 0 ||
+      !finiteNumber(durationSeconds) || durationSeconds < 0 ||
       !finiteNumber(item.startSeconds) || item.startSeconds < 0 ||
       !Array.isArray(item.events)
     ) {
@@ -345,7 +349,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       if (
         !isRecord(recorded) || !finiteNumber(recorded.offsetSeconds) ||
         recorded.offsetSeconds < 0 ||
-        recorded.offsetSeconds > item.durationSeconds + 0.001 ||
+        recorded.offsetSeconds > durationSeconds + 0.001 ||
         !validateMusicalEvent(recorded.event)
       ) {
         throw new Error('Project contains an invalid recorded event.');
