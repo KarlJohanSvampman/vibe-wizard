@@ -1,5 +1,7 @@
 import type { MusicalEvent } from '../audio/events.js';
 import type { RecordedEvent, RecordingClip } from '../sequencer/Recorder.js';
+import { isInstrumentType } from '../audio/InstrumentTypes.js';
+import type { InstrumentType } from '../audio/InstrumentTypes.js';
 
 export const PROJECT_SCHEMA_VERSION = 4 as const;
 
@@ -13,6 +15,10 @@ export interface ProjectTrack {
   readonly name: string;
   readonly kind: 'instrument';
   readonly instrumentModuleId: string;
+  readonly instrumentType: InstrumentType;
+  /** Stable binary sample reference; the audio bytes live in the separate asset store. */
+  readonly sampleAssetId?: string;
+  readonly sampleFileName?: string;
   readonly order: number;
   readonly muted: boolean;
   readonly solo: boolean;
@@ -72,7 +78,7 @@ export interface ProjectSnapshot {
 }
 
 export type ProjectTrackPatch = Partial<
-  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan'>
+  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan' | 'sampleAssetId' | 'sampleFileName'>
 >;
 
 export interface ProjectTimingPatch {
@@ -90,6 +96,7 @@ function makeId(prefix: string): string {
 export function createDefaultProject(
   instrumentModuleId: string,
   now = new Date(),
+  instrumentType: InstrumentType = 'synth',
 ): ProjectSnapshot {
   const timestamp = now.toISOString();
   const projectId = makeId('project');
@@ -109,6 +116,7 @@ export function createDefaultProject(
       name: 'Theremin Synth',
       kind: 'instrument',
       instrumentModuleId,
+      instrumentType,
       order: 0,
       muted: false,
       solo: false,
@@ -125,6 +133,7 @@ export function addInstrumentTrack(
   name: string,
   instrumentModuleId: string,
   now = new Date(),
+  instrumentType: InstrumentType = 'synth',
 ): ProjectSnapshot {
   const project = validateProjectSnapshot(snapshot);
   if (project.tracks.some(track => track.instrumentModuleId === instrumentModuleId)) {
@@ -136,6 +145,7 @@ export function addInstrumentTrack(
     name: name.trim() || 'Instrument Track ' + (project.tracks.length + 1),
     kind: 'instrument',
     instrumentModuleId,
+    instrumentType,
     order: project.tracks.reduce((highest, item) => Math.max(highest, item.order), -1) + 1,
     muted: false,
     solo: false,
@@ -691,6 +701,9 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       !isRecord(item) || typeof item.id !== 'string' ||
       typeof item.name !== 'string' || item.kind !== 'instrument' ||
       typeof item.instrumentModuleId !== 'string' ||
+      (item.instrumentType !== undefined && !isInstrumentType(item.instrumentType)) ||
+      (item.sampleAssetId !== undefined && typeof item.sampleAssetId !== 'string') ||
+      (item.sampleFileName !== undefined && typeof item.sampleFileName !== 'string') ||
       !finiteNumber(item.order) ||
       typeof item.muted !== 'boolean' || typeof item.solo !== 'boolean' ||
       typeof item.armed !== 'boolean' ||
@@ -705,7 +718,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     }
     trackIds.add(item.id);
     moduleIds.add(item.instrumentModuleId);
-    return item as unknown as ProjectTrack;
+    return { ...item, instrumentType: item.instrumentType ?? 'synth' } as unknown as ProjectTrack;
   });
 
   if (tracks.length === 0 || !trackIds.has(value.activeTrackId)) {

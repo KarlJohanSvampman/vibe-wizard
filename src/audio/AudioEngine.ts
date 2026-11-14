@@ -2,19 +2,29 @@ import { clamp, midiToFrequency } from './events.js';
 import type { NoteOffEvent, NoteOnEvent } from './events.js';
 import type { RackModule } from '../rack/types.js';
 import { AudioRuntime } from './AudioRuntime.js';
+import type { InstrumentType } from './InstrumentTypes.js';
 
-interface SynthVoice {
-  readonly oscillator: OscillatorNode;
+interface PitchControl {
+  readonly parameter: AudioParam;
+  readonly multiplier: number;
+}
+
+interface InstrumentVoice {
+  readonly sources: AudioScheduledSourceNode[];
+  readonly nodes: AudioNode[];
+  readonly pitchControls: PitchControl[];
   readonly envelope: GainNode;
   readonly sourceId: string;
   readonly velocity: number;
   readonly startTime: number;
+  readonly oneShot: boolean;
+  remainingSources: number;
   releaseTime?: number;
 }
 
 /**
- * Prototype Web Audio instrument. Multiple engines can share one AudioRuntime
- * while retaining independent voices and output connections.
+ * Multi-voice Web Audio instrument host. Instrument families share one runtime
+ * and track-output contract but construct different native Web Audio voices.
  */
 export class AudioEngine implements RackModule {
   readonly kind = 'instrument' as const;
@@ -23,11 +33,17 @@ export class AudioEngine implements RackModule {
   private readonly ownsRuntime: boolean;
   private masterGain: GainNode | undefined;
   private outputNode: AudioNode | undefined;
-  private readonly voices = new Map<string, SynthVoice>();
+  private readonly voices = new Map<string, InstrumentVoice>();
   private masterVolume = 0.35;
+  private sampleBuffer: AudioBuffer | undefined;
+  private noiseBuffer: AudioBuffer | undefined;
   private disposed = false;
 
-  constructor(readonly id: string, runtime?: AudioRuntime) {
+  constructor(
+    readonly id: string,
+    runtime?: AudioRuntime,
+    readonly instrumentType: InstrumentType = 'synth',
+  ) {
     this.runtime = runtime ?? new AudioRuntime();
     this.ownsRuntime = runtime === undefined;
   }
@@ -54,8 +70,18 @@ export class AudioEngine implements RackModule {
     return this.runtime.currentTime;
   }
 
+  get hasSample(): boolean {
+    return this.sampleBuffer !== undefined;
+  }
+
   performanceTimeForAudioTime(audioTime: number): number {
     return this.runtime.performanceTimeForAudioTime(audioTime);
+  }
+
+  /** Decode one user-provided sample on the shared project AudioContext. */
+  async loadSample(data: ArrayBuffer): Promise<void> {
+    const context = this.runtime.requireContext();
+    this.sampleBuffer = await context.decodeAudioData(data.slice(0));
   }
 
   /** Route this instrument's output into its owning track bus. */
@@ -78,39 +104,179 @@ export class AudioEngine implements RackModule {
       timestamp: event.timestamp,
     });
 
-    const oscillator = context.createOscillator();
-    const envelope = context.createGain();
     const pitch = clamp(event.pitch, 0, 127);
     const velocity = clamp(event.velocity, 0, 1);
+    const envelope = context.createGain();
+    const sources: AudioScheduledSourceNode[] = [];
+    const nodes: AudioNode[] = [envelope];
+    const pitchControls: PitchControl[] = [];
+    const oneShot = this.instrumentType === 'drums';
+    const amplitude = Math.max(0.0001, velocity);
 
-    oscillator.type = 'sawtooth';
-    oscillator.frequency.setValueAtTime(midiToFrequency(pitch), startTime);
     envelope.gain.setValueAtTime(0.0001, startTime);
-    envelope.gain.linearRampToValueAtTime(Math.max(0.0001, velocity), startTime + 0.015);
-    oscillator.connect(envelope);
+    envelope.gain.linearRampToValueAtTime(amplitude, startTime + 0.008);
     envelope.connect(this.masterGain);
-    oscillator.start(startTime);
 
-    const voice: SynthVoice = {
-      oscillator,
+    const addOscillator = (
+      type: OscillatorType,
+      harmonic: number,
+      partialLevel = 1,
+      detuneCents = 0,
+    ): OscillatorNode => {
+      const oscillator = context.createOscillator();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(midiToFrequency(pitch) * harmonic, startTime);
+      if (detuneCents !== 0) oscillator.detune.setValueAtTime(detuneCents, startTime);
+      if (partialLevel === 1) {
+        oscillator.connect(envelope);
+      } else {
+        const partialGain = context.createGain();
+        partialGain.gain.value = partialLevel;
+        oscillator.connect(partialGain);
+        partialGain.connect(envelope);
+        nodes.push(partialGain);
+      }
+      sources.push(oscillator);
+      nodes.push(oscillator);
+      pitchControls.push({ parameter: oscillator.frequency, multiplier: harmonic });
+      return oscillator;
+    };
+
+    if (this.instrumentType === 'synth') {
+      addOscillator('sawtooth', 1);
+    } else if (this.instrumentType === 'piano') {
+      // A compact additive piano model: the fundamental dominates while
+      // upper harmonics provide the bright attack of a struck string.
+      [1, 2, 3, 4].forEach((harmonic, index) => {
+        addOscillator('sine', harmonic, [1, 0.34, 0.15, 0.065][index]!, index === 1 ? -2 : 0);
+      });
+      envelope.gain.setTargetAtTime(Math.max(0.0001, amplitude * 0.17), startTime + 0.22, 0.52);
+    } else if (this.instrumentType === 'drums') {
+      const addNoise = (
+        filterType: BiquadFilterType,
+        frequency: number,
+        duration: number,
+      ): void => {
+        const noise = context.createBufferSource();
+        noise.buffer = this.getNoiseBuffer(context);
+        const filter = context.createBiquadFilter();
+        filter.type = filterType;
+        filter.frequency.setValueAtTime(frequency, startTime);
+        filter.Q.value = filterType === 'bandpass' ? 0.85 : 0.7;
+        noise.connect(filter);
+        filter.connect(envelope);
+        sources.push(noise);
+        nodes.push(noise, filter);
+        noise.start(startTime);
+        noise.stop(startTime + duration);
+      };
+
+      if (pitch === 35 || pitch === 36) {
+        const kick = addOscillator('sine', 1);
+        kick.frequency.setValueAtTime(155, startTime);
+        kick.frequency.exponentialRampToValueAtTime(46, startTime + 0.13);
+        envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.48);
+        kick.stop(startTime + 0.5);
+      } else if (pitch === 38 || pitch === 40) {
+        addNoise('bandpass', 1850, 0.28);
+        const body = addOscillator('triangle', 1);
+        body.frequency.setValueAtTime(pitch === 38 ? 185 : 160, startTime);
+        body.frequency.exponentialRampToValueAtTime(80, startTime + 0.11);
+        envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.32);
+        body.stop(startTime + 0.34);
+      } else if ([42, 44, 46, 49, 51, 53].includes(pitch)) {
+        addNoise('highpass', pitch === 46 || pitch === 49 ? 5200 : 7200, pitch === 46 ? 0.55 : 0.18);
+        envelope.gain.exponentialRampToValueAtTime(
+          0.0001,
+          startTime + (pitch === 46 ? 0.52 : 0.2),
+        );
+      } else {
+        const tom = addOscillator('sine', 1);
+        const base = 95 + ((pitch % 12) * 8);
+        tom.frequency.setValueAtTime(base * 1.8, startTime);
+        tom.frequency.exponentialRampToValueAtTime(base * 0.72, startTime + 0.2);
+        envelope.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.38);
+        tom.stop(startTime + 0.4);
+      }
+    } else if (this.sampleBuffer) {
+      const sample = context.createBufferSource();
+      sample.buffer = this.sampleBuffer;
+      const rate = midiToFrequency(pitch) / midiToFrequency(60);
+      sample.playbackRate.setValueAtTime(rate, startTime);
+      sample.connect(envelope);
+      sources.push(sample);
+      nodes.push(sample);
+      pitchControls.push({ parameter: sample.playbackRate, multiplier: 1 });
+      sample.start(startTime);
+    } else {
+      // Keep an unloaded sampler track responsive, while the UI asks for a file.
+      addOscillator('triangle', 1);
+    }
+
+    if (!oneShot || this.instrumentType === 'sampler') {
+      for (const source of sources) {
+        if (source instanceof OscillatorNode && source.context !== context) continue;
+        if (source instanceof OscillatorNode && sources.length > 0) {
+          // Oscillators are started together below; the check avoids double-starting
+          // any source created by a branch-specific helper.
+        }
+      }
+    }
+
+    const voice: InstrumentVoice = {
+      sources,
+      nodes,
+      pitchControls,
       envelope,
       sourceId: event.sourceId,
       velocity,
       startTime,
+      oneShot,
+      remainingSources: sources.length,
     };
     this.voices.set(event.noteId, voice);
 
-    oscillator.onended = () => {
-      envelope.disconnect();
-      oscillator.disconnect();
-      if (this.voices.get(event.noteId) === voice) this.voices.delete(event.noteId);
-    };
+    for (const source of sources) {
+      source.onended = () => {
+        try { source.disconnect(); } catch { /* already disconnected */ }
+        voice.remainingSources -= 1;
+        if (voice.remainingSources <= 0) {
+          for (const node of nodes) {
+            try { node.disconnect(); } catch { /* already disconnected */ }
+          }
+          if (this.voices.get(event.noteId) === voice) this.voices.delete(event.noteId);
+        }
+      };
+      if (!(source instanceof AudioBufferSourceNode) || this.instrumentType !== 'drums') {
+        // Buffer-backed drum noise sources are started at their construction site.
+        // Other scheduled sources are started once here.
+        if (!(source instanceof OscillatorNode && this.instrumentType === 'drums')) {
+          source.start(startTime);
+        }
+      }
+    }
+
+    if (sources.length === 0) {
+      this.voices.delete(event.noteId);
+    }
+  }
+
+  private getNoiseBuffer(context: AudioContext): AudioBuffer {
+    if (this.noiseBuffer) return this.noiseBuffer;
+    const length = Math.max(1, Math.floor(context.sampleRate * 0.8));
+    const buffer = context.createBuffer(1, length, context.sampleRate);
+    const channel = buffer.getChannelData(0);
+    for (let index = 0; index < channel.length; index += 1) {
+      channel[index] = Math.random() * 2 - 1;
+    }
+    this.noiseBuffer = buffer;
+    return buffer;
   }
 
   noteOff(event: NoteOffEvent, releaseSeconds = 0.14): void {
     const voice = this.voices.get(event.noteId);
     const context = this.runtime.context;
-    if (!voice || !context || context.state === 'closed') return;
+    if (!voice || voice.oneShot || !context || context.state === 'closed') return;
 
     const requestedTime = this.runtime.toAudioTime(event.timestamp);
     const releaseTime = Math.max(requestedTime, voice.startTime);
@@ -118,16 +284,20 @@ export class AudioEngine implements RackModule {
 
     if (requestedTime < voice.startTime) {
       voice.envelope.gain.cancelScheduledValues(voice.startTime);
-      voice.oscillator.stop(Math.max(context.currentTime, requestedTime));
+      for (const source of voice.sources) {
+        try { source.stop(Math.max(context.currentTime, requestedTime)); } catch { /* already stopped */ }
+      }
       voice.releaseTime = requestedTime;
       return;
     }
 
     const release = Math.max(0.015, releaseSeconds);
     voice.envelope.gain.cancelScheduledValues(releaseTime);
-    voice.envelope.gain.setValueAtTime(voice.velocity, releaseTime);
+    voice.envelope.gain.setValueAtTime(Math.max(0.0001, voice.velocity), releaseTime);
     voice.envelope.gain.linearRampToValueAtTime(0.0001, releaseTime + release);
-    voice.oscillator.stop(releaseTime + release + 0.02);
+    for (const source of voice.sources) {
+      try { source.stop(releaseTime + release + 0.02); } catch { /* already stopped */ }
+    }
     voice.releaseTime = releaseTime;
   }
 
@@ -158,13 +328,16 @@ export class AudioEngine implements RackModule {
       return;
     }
 
-    if (!this.masterGain) return;
-    if (parameterId === 'pitch') {
-      const frequency = midiToFrequency(clamp(value, 0, 127));
-      const at = this.runtime.toAudioTime(timestamp);
-      for (const voice of this.voices.values()) {
-        voice.oscillator.frequency.setTargetAtTime(
-          frequency,
+    if (parameterId !== 'pitch' || !this.masterGain || this.instrumentType === 'drums') return;
+    const pitch = clamp(value, 0, 127);
+    const at = this.runtime.toAudioTime(timestamp);
+    const frequency = this.instrumentType === 'sampler'
+      ? midiToFrequency(pitch) / midiToFrequency(60)
+      : midiToFrequency(pitch);
+    for (const voice of this.voices.values()) {
+      for (const control of voice.pitchControls) {
+        control.parameter.setTargetAtTime(
+          frequency * control.multiplier,
           Math.max(at, voice.startTime),
           0.018,
         );

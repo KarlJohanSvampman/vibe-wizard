@@ -31,6 +31,7 @@ describe('project model', () => {
     expect(project.tracks[0]).toMatchObject({
       kind: 'instrument',
       instrumentModuleId: 'synth-main',
+      instrumentType: 'synth',
       armed: true,
       muted: false,
       solo: false,
@@ -54,6 +55,24 @@ describe('project model', () => {
     });
     expect(() => addInstrumentTrack(second, 'Duplicate', 'synth-piano'))
       .toThrow(/already assigned/i);
+  });
+
+  it('persists an explicit instrument family and defaults legacy tracks to synth', () => {
+    const project = createDefaultProject('synth-main');
+    const piano = addInstrumentTrack(project, 'Piano', 'piano-main', new Date(), 'piano');
+    const drums = addInstrumentTrack(piano, 'Drums', 'drums-main', new Date(), 'drums');
+    expect(drums.tracks[1]?.instrumentType).toBe('piano');
+    expect(drums.tracks[2]?.instrumentType).toBe('drums');
+
+    const legacy = {
+      ...project,
+      tracks: project.tracks.map(({ instrumentType: _instrumentType, ...track }) => track),
+    };
+    expect(validateProjectSnapshot(legacy).tracks[0]?.instrumentType).toBe('synth');
+    expect(() => validateProjectSnapshot({
+      ...project,
+      tracks: project.tracks.map(track => ({ ...track, instrumentType: 'unknown' })),
+    })).toThrow(/invalid track/i);
   });
 
   it('updates track mix and selection without changing clip ownership', () => {
