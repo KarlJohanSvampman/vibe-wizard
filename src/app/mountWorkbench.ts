@@ -863,11 +863,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     clipSummary.textContent = selectedClip
       ? selectedClip.name.toUpperCase() + ' · ' + getClipDurationBeats(selectedClip).toFixed(1) + ' BEATS'
       : 'NO CLIP';
-    const selectedNote = selectedClip && selectedPianoNote
-      ? getProjectClipNotes(selectedClip).find(note =>
+    const currentClip = selectedClip;
+    const selectedNote = currentClip && selectedPianoNote
+      ? getProjectClipNotes(currentClip).find(note =>
         note.sourceId === selectedPianoNote!.sourceId &&
         note.noteId === selectedPianoNote!.noteId &&
-        note.startBeat < selectedClip.lengthBeats,
+        note.startBeat < currentClip.lengthBeats,
       )
       : undefined;
     if (!selectedNote) selectedPianoNote = undefined;
