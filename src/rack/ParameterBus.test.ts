@@ -67,9 +67,9 @@ describe('ParameterBus', () => {
 
   it('fans one controller output out to multiple destinations', () => {
     const bus = new ParameterBus();
-    const first = new TestTarget('first');
+    const synth = new TestTarget('synth');
     const second = new TestTarget('second');
-    bus.registerTarget(first);
+    bus.registerTarget(synth);
     bus.registerTarget(second);
     bus.addMapping(baseMapping);
     bus.addMapping({
@@ -81,7 +81,7 @@ describe('ParameterBus', () => {
     });
 
     expect(bus.process(signal(0.5))).toBe(2);
-    expect(first.values[0]?.value).toBe(66);
+    expect(synth.values[0]?.value).toBe(66);
     expect(second.values[0]?.value).toBe(6100);
   });
 
