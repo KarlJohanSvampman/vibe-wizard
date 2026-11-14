@@ -301,7 +301,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <label for="ai-service-url"><span>AI SERVICE BASE URL</span><input id="ai-service-url" type="url" placeholder="http://localhost:8787/api" autocomplete="url" /></label>',
     '      <label for="ai-sample-prompt"><span>SOUND PROMPT</span><textarea id="ai-sample-prompt" rows="3" maxlength="4000" placeholder="A warm, evolving analog bass with a soft attack, subtle tape saturation, and a clean low end."></textarea></label>',
     '      <div class="ai-generation-actions">',
-    '        <label for="ai-sample-duration"><span>DURATION · SECONDS</span><input id="ai-sample-duration" type="number" min="1" max="60" step="1" value="6" /></label>',
+    '        <label for="ai-sample-duration"><span>DURATION · SECONDS</span><input id="ai-sample-duration" type="number" min="1" max="30" step="1" value="6" /></label>',
     '        <button class="transport-button" id="ai-generate-sample" type="button">✦ Generate sampler</button>',
     '        <button class="transport-button" id="ai-cancel-generation" type="button" disabled>Cancel</button>',
     '      </div>',
@@ -427,7 +427,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const aiEndpointStorageKey = 'vibe-wizard.ai-service-url';
   try {
-    aiServiceUrlInput.value = globalThis.localStorage?.getItem(aiEndpointStorageKey) ?? '';
+    aiServiceUrlInput.value = globalThis.localStorage?.getItem(aiEndpointStorageKey) ?? 'http://localhost:8787/api';
   } catch {
     aiServiceUrlInput.value = '';
   }
@@ -1538,8 +1538,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       aiSamplePromptInput.focus();
       return;
     }
-    if (!Number.isFinite(durationSeconds) || durationSeconds < 1 || durationSeconds > 60) {
-      aiGenerationStatus.textContent = 'Choose a duration between 1 and 60 seconds.';
+    if (!Number.isFinite(durationSeconds) || durationSeconds < 1 || durationSeconds > 30) {
+      aiGenerationStatus.textContent = 'Choose a duration between 1 and 30 seconds for the current provider.';
       aiSampleDurationInput.focus();
       return;
     }

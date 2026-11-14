@@ -173,7 +173,7 @@ export class HttpAudioGenerationProvider implements AudioGenerationProvider {
       body: JSON.stringify({
         prompt,
         durationSeconds: request.durationSeconds,
-        outputFormat: 'wav',
+        outputFormat: 'mp3',
       }),
       credentials: 'omit',
       signal,
@@ -227,7 +227,7 @@ export class HttpAudioGenerationProvider implements AudioGenerationProvider {
       if (!result || typeof result.downloadUrl !== 'string') {
         throw new Error('Completed AI job did not include a downloadable audio result.');
       }
-      downloadUrl = ensureHttpUrl(new URL(result.downloadUrl, this.baseUrl).href, 'Generated audio URL');
+      downloadUrl = ensureHttpUrl(new URL(result.downloadUrl, base).href, 'Generated audio URL');
       fileName = cleanFileName(result.fileName, fileName);
       resultMimeType = typeof result.mimeType === 'string' ? result.mimeType : undefined;
       break;

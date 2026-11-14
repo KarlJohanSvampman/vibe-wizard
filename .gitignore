@@ -11,3 +11,9 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Python AI gateway
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/

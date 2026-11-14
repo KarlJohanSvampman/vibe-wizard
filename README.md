@@ -47,6 +47,21 @@ npm test
 npm run build
 ```
 
+## Start AI sample generation
+
+The optional local AI gateway requires Python 3.11+ and an ElevenLabs API key:
+
+```bash
+python -m venv .venv
+# Windows PowerShell: .venv\\Scripts\\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
+pip install -r server/requirements.txt
+# Copy .env.example to .env and set ELEVENLABS_API_KEY
+python -m uvicorn server.ai_gateway:app --reload --host 127.0.0.1 --port 8787
+```
+
+Run the Vite workbench separately with `npm run dev`. The AI panel defaults to `http://localhost:8787/api`. Prompts are sent to the local gateway; the gateway keeps the provider key server-side, submits the request to ElevenLabs, and returns an asynchronous job result. The current provider generates up to 30-second sound effects and musical components; it does not yet generate fully editable multisampled instruments or complete arrangements.
+
 ## Multiple instrument tracks
 
 1. Wait for the local project status to report that storage is ready.
@@ -56,7 +71,7 @@ npm run build
 5. Adjust its independent Track Level and Stereo Pan. Mute and Solo operate across the project mix.
 6. Use the saved-clip selector and Play clip to audition one clip on its assigned instrument. Sampler tracks expose a local audio-file import control; supported files are decoded by the browser and their bytes are stored in IndexedDB.
 
-All instrument instances share one AudioContext but have independent voices and track-output buses. Piano and drum synthesis use native Web Audio nodes, while sampler tracks decode an audio file and play it chromatically around MIDI note 60. Imported and AI-generated samples remain on the device in a separate IndexedDB asset store; no audio is uploaded. The AI Sample Studio expects a provider proxy implementing the asynchronous HTTP job contract in [AI integration](docs/AI_INTEGRATION.md); enter its base URL in the studio. Provider credentials stay on that service, not in the browser.
+All instrument instances share one AudioContext but have independent voices and track-output buses. Piano and drum synthesis use native Web Audio nodes, while sampler tracks decode an audio file and play it chromatically around MIDI note 60. Imported and AI-generated samples remain on the device in a separate IndexedDB asset store; no audio is uploaded. The AI Sample Studio connects to the included local FastAPI gateway at `http://localhost:8787/api`. The gateway uses ElevenLabs text-to-sound generation, with its API key kept in the server-side `.env` file. It turns generated audio into a new Sampler track and stores the sample and prompt provenance locally.
 
 ## Arrange and play a song
 
