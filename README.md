@@ -2,11 +2,11 @@
 
 **Create instruments. Shape sounds. Make music.**
 
-Vibe-Wizard is a browser-first digital audio workstation designed for immersive music creation in VR, with desktop development and editing support. It combines a modular instrument rack, expressive spatial controllers, a sequencer, and AI-assisted sample and instrument creation.
+Vibe-Wizard is a browser-first digital audio workstation for immersive music creation in VR, with desktop development and editing support. It combines a modular instrument rack, expressive spatial controllers, a sequencer, and AI-assisted sample and instrument creation.
 
-## Project status
+## Current status
 
-Early foundation. The first milestone is a playable vertical slice proving the audio/rack/input architecture before expanding into a full DAW.
+The repository contains an IWSDK 1.1 project scaffold, core audio/rack/controller abstractions, and a small desktop theremin-to-synth prototype. The VR scene and desktop controls are deliberately kept separate from the audio domain. Hand-tracked spatial controls and richer studio views are the next implementation steps.
 
 ## Product principles
 
@@ -15,17 +15,39 @@ Early foundation. The first milestone is a playable vertical slice proving the a
 - **Controllers are reusable.** A controller can target parameters on any rack module, including multiple instruments.
 - **Performances are recordable.** Notes and continuous controller movements are recorded as editable events and automation.
 - **Audio stays local.** The audio engine runs client-side; AI generation is asynchronous and never sits in the real-time audio path.
-- **VR is a first-class interface, not a constraint.** The same project should remain usable on desktop.
+- **VR is a first-class interface, not a constraint.** The same project remains usable on desktop.
 
-## Initial technology choices
+## Technology
 
-- TypeScript and Vite
+- TypeScript, Vite, and Vitest
 - Three.js through Meta's Immersive Web SDK (IWSDK)
-- Web Audio API / AudioWorklet for audio
-- IndexedDB for local projects and sample assets
-- Vitest for unit tests
+- Web Audio API, with AudioWorklet available for later custom DSP
+- IndexedDB planned for local project and sample storage
+- IWSDK's IWER emulator for desktop XR testing, followed by physical Quest validation
 
-IWSDK is built on Three.js and an ECS runtime. The official starter generator is `npm create @iwsdk@latest`; use the generated project structure and manifest as the source of truth rather than hand-rolling an outdated SDK setup. See [IWSDK documentation](https://iwsdk.dev/) and [Meta's official repository](https://github.com/meta/immersive-web-sdk).
+The current scaffold follows the manifest-first IWSDK project structure. Official guidance: [IWSDK overview](https://developers.meta.com/vr/documentation/iwsdk/guides/overview/), [project setup](https://developers.meta.com/vr/documentation/iwsdk/guides/01-project-setup/), and [Meta's SDK repository](https://github.com/meta/immersive-web-sdk).
+
+## Run locally
+
+Requirements: Node.js 20.19+ (20 line), 22.12+ (22 line), or 24+; npm is included with Node.js.
+
+```bash
+npm install
+npm run dev
+```
+
+The IWSDK CLI starts a managed development session and reports the actual local/network URLs. Use its desktop IWER emulation first; use the network URL over HTTPS when testing on Quest. Other useful commands:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+npm run preview
+npm run dev:status
+npm run dev:down
+```
+
+The browser may require a user gesture before audio can start. Open the desktop controls and press **Enable audio**, then press and hold **Play theremin**.
 
 ## First vertical slice
 
@@ -34,8 +56,8 @@ IWSDK is built on Three.js and an ECS runtime. The official starter generator is
 3. Map theremin X to pitch and Y to volume using a reusable Parameter Bus.
 4. Play the instrument continuously from the theremin.
 5. Record note/control events and controller automation.
-6. Replay the performance.
-7. Change the mapping without changing the instrument.
+6. Replay and edit the performance.
+7. Change mappings without changing the instrument.
 
 ## Documentation
 
@@ -47,19 +69,8 @@ IWSDK is built on Three.js and an ECS runtime. The official starter generator is
 - [Sequencer and recording](docs/SEQUENCER.md)
 - [VR interaction](docs/VR_INTERACTION.md)
 - [AI integration](docs/AI_INTEGRATION.md)
+- [Technical decisions](docs/TECHNICAL_DECISIONS.md)
 
-## Development
+## Scope
 
-The initial repository contains architecture and product specifications. Scaffold the runtime using the official IWSDK generator after checking the selected starter options:
-
-```bash
-npm create @iwsdk@latest
-```
-
-Choose **TypeScript** and a **VR** experience. Enable grabbing only if useful for the first scene; physics is not required for the initial music prototype. Keep the generator's required dependency aliases, manifest, plugin configuration, and scripts intact.
-
-Node.js requirements are version-sensitive; use the current requirement in the official setup guide. As of the checked documentation, use Node 20.19+ (20 line), 22.12+ (22 line), or 24+.
-
-## Current scope
-
-The first implementation should prioritize the architecture and minimal end-to-end musical interaction. Mixing polish, extensive effects, drum pads, virtual guitar, cloud collaboration, and AI instrument generation can follow once the core is proven.
+The current prototype is intentionally small. Mixing polish, extensive effects, a sampler, drum pads, virtual guitar, cloud collaboration, and AI instrument generation follow after the core rack/input/recording workflow is proven.
