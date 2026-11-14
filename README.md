@@ -6,7 +6,9 @@ Vibe-Wizard is a browser-first digital audio workstation for immersive music cre
 
 ## Current status
 
-The repository contains an IWSDK 1.1 project scaffold, core audio/rack/controller abstractions, and a small desktop theremin-to-synth prototype. The VR scene and desktop controls are deliberately kept separate from the audio domain. Hand-tracked spatial controls and richer studio views are the next implementation steps.
+The repository contains an IWSDK 1.1 project scaffold, a basic Web Audio synthesizer, a global rack and Parameter Bus, a desktop theremin control surface, and a spatial theremin that reads the tracked right index fingertip during immersive sessions.
+
+The second prototype milestone adds the real tracked-joint path and an in-world interaction volume. Physical Quest behavior still needs to be checked on target hardware.
 
 ## Product principles
 
@@ -23,41 +25,37 @@ The repository contains an IWSDK 1.1 project scaffold, core audio/rack/controlle
 - Three.js through Meta's Immersive Web SDK (IWSDK)
 - Web Audio API, with AudioWorklet available for later custom DSP
 - IndexedDB planned for local project and sample storage
-- IWSDK's IWER emulator for desktop XR testing, followed by physical Quest validation
+- IWSDK IWER emulator for desktop XR testing, followed by physical Quest validation
 
-The current scaffold follows the manifest-first IWSDK project structure. Official guidance: [IWSDK overview](https://developers.meta.com/vr/documentation/iwsdk/guides/overview/), [project setup](https://developers.meta.com/vr/documentation/iwsdk/guides/01-project-setup/), and [Meta's SDK repository](https://github.com/meta/immersive-web-sdk).
+The current scaffold follows the manifest-first IWSDK project structure. Official guidance: [IWSDK overview](https://developers.meta.com/vr/documentation/iwsdk/guides/overview/), [XR input overview](https://developers.meta.com/vr/documentation/iwsdk/concepts/xr-input/), and [Meta's SDK repository](https://github.com/meta/immersive-web-sdk).
 
 ## Run locally
 
 Requirements: Node.js 20.19+ (20 line), 22.12+ (22 line), or 24+; npm is included with Node.js.
 
-```bash
+\`\`\`bash
 npm install
 npm run dev
-```
+\`\`\`
 
-The IWSDK CLI starts a managed development session and reports the actual local/network URLs. Use its desktop IWER emulation first; use the network URL over HTTPS when testing on Quest. Other useful commands:
+Use the desktop IWER emulation first. When the page opens, press **Enter VR** to resume audio and request an immersive session. In the emulator, select hand input mode if available. On Quest, use the network URL over HTTPS in Meta Quest Browser and enable hand tracking.
 
-```bash
+Other useful commands:
+
+\`\`\`bash
 npm run typecheck
 npm test
 npm run build
 npm run preview
 npm run dev:status
 npm run dev:down
-```
+\`\`\`
 
-The browser may require a user gesture before audio can start. Open the desktop controls and press **Enable audio**, then press and hold **Play theremin**.
+## Current theremin workflow
 
-## First vertical slice
-
-1. Create a polyphonic synthesizer instrument.
-2. Create a virtual theremin controller with normalized X/Y outputs.
-3. Map theremin X to pitch and Y to volume using a reusable Parameter Bus.
-4. Play the instrument continuously from the theremin.
-5. Record note/control events and controller automation.
-6. Replay and edit the performance.
-7. Change mappings without changing the instrument.
+- Desktop: enable audio, move the X/Y sliders, and press/hold **Play theremin**.
+- VR: press **Enter VR**, then move the right index fingertip into the floating field in front of you. Horizontal movement changes pitch; vertical movement changes volume. Leaving the field or losing tracking releases the note.
+- The floating field is approximately 72 cm wide, 48 cm high, and 24 cm deep. It follows the viewer's horizontal facing direction.
 
 ## Documentation
 
@@ -73,4 +71,4 @@ The browser may require a user gesture before audio can start. Open the desktop 
 
 ## Scope
 
-The current prototype is intentionally small. Mixing polish, extensive effects, a sampler, drum pads, virtual guitar, cloud collaboration, and AI instrument generation follow after the core rack/input/recording workflow is proven.
+This prototype deliberately focuses on the core rack/input/recording workflow. Mixing polish, extensive effects, a sampler, drum pads, virtual guitar, cloud collaboration, and AI instrument generation follow after the core interaction and recording model are proven.

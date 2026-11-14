@@ -11,9 +11,9 @@ if (!(sceneContainer instanceof HTMLDivElement)) {
 }
 
 World.create(sceneContainer, projectOptions)
-  .then(() => {
+  .then((world) => {
     if (workbenchRoot) {
-      mountWorkbench(workbenchRoot);
+      mountWorkbench(workbenchRoot, world);
     }
   })
   .catch((error: unknown) => {
