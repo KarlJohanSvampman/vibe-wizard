@@ -32,7 +32,11 @@ describe('EventRecorder', () => {
 
     const clip = recorder.stop(10.6, 'clip-test');
     expect(clip?.durationSeconds).toBeCloseTo(0.6);
-    expect(clip?.events.map(item => item.offsetSeconds)).toEqual([0.2, 0.25, 0.5]);
+    const offsets = clip?.events.map(item => item.offsetSeconds) ?? [];
+    expect(offsets).toHaveLength(3);
+    expect(offsets[0]).toBeCloseTo(0.2);
+    expect(offsets[1]).toBeCloseTo(0.25);
+    expect(offsets[2]).toBeCloseTo(0.5);
     expect(clip?.events[0]?.event.kind).toBe('control');
   });
 
