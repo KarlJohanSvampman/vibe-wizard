@@ -201,6 +201,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   enableButton.addEventListener('click', () => void enableAudio().catch(() => undefined));
 
   enterVrButton.addEventListener('click', () => {
+    stopTone();
     // Invoke both APIs inside this gesture so browser user activation is
     // available to AudioContext.resume() and the WebXR session request.
     const audioStart = synth.start();
