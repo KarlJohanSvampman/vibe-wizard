@@ -53,7 +53,7 @@ export class ThereminSpatialAdapter {
   private readonly stopXRFrame: () => void;
   private readonly stopVisibilitySubscription: () => void;
   private active = false;
-  private lastXRTime = 0;
+  private lastEventTime = 0;
 
   constructor(
     private readonly world: World,
@@ -74,14 +74,14 @@ export class ThereminSpatialAdapter {
       const immersive = state !== VisibilityState.NonImmersive;
       this.root.visible = immersive;
       if (!immersive) {
-        this.deactivate(this.lastXRTime);
+        this.deactivate(this.lastEventTime);
       }
     });
 
     // The callback runs after IWSDK's ECS/input systems have sampled the
     // current XRFrame, so the requested hand-joint pose is fresh this frame.
-    this.stopXRFrame = world.onXRFrame((frame, _delta, time) => {
-      this.update(frame, time);
+    this.stopXRFrame = world.onXRFrame((frame, _delta, renderTime) => {
+      this.update(frame, renderTime, performance.now() / 1000);
     });
   }
 
@@ -105,8 +105,8 @@ export class ThereminSpatialAdapter {
     });
   }
 
-  private update(frame: XRFrame, time: number): void {
-    this.lastXRTime = time;
+  private update(frame: XRFrame, renderTime: number, eventTime: number): void {
+    this.lastEventTime = eventTime;
     this.positionVolume();
 
     const inputSource = this.world.input.xr.getPrimaryInputSource(this.handedness);
@@ -114,7 +114,7 @@ export class ThereminSpatialAdapter {
     const referenceSpace = this.world.xrReferenceSpace;
 
     if (!indexTipSpace || !referenceSpace) {
-      this.deactivate(time);
+      this.deactivate(eventTime);
       return;
     }
 
@@ -144,14 +144,14 @@ export class ThereminSpatialAdapter {
     }
 
     this.lastX = point.x;
-    this.controller.move(point.x, point.y, time);
+    this.controller.move(point.x, point.y, eventTime);
     this.cursor.position.set(this.handLocalPosition.x, this.handLocalPosition.y, 0.012);
     this.cursor.visible = true;
-    this.cursor.children[0]?.scale.setScalar(1 + Math.sin(time * 5.5) * 0.12);
+    this.cursor.children[0]?.scale.setScalar(1 + Math.sin(renderTime * 5.5) * 0.12);
 
     if (!this.active) {
       this.active = true;
-      this.options.onActiveChange?.(true, point, time);
+      this.options.onActiveChange?.(true, point, eventTime);
     }
   }
 
