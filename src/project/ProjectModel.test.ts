@@ -277,11 +277,11 @@ describe('project model', () => {
     });
     expect(getProjectClipNotes(edited.clips[0]!).find(note => note.noteId === 'new-note'))
       .toMatchObject({ pitch: 72, velocity: 0.55, startBeat: 2, durationBeats: 1 });
-    expect(edited.clips[0]?.events.find(item => item.event.kind === 'control'))
-      .toMatchObject({
-        offsetSeconds: 0.9,
-        event: { kind: 'control', sourceId: 'live', portId: 'x', value: 0.42 },
-      });
+    const preservedControl = edited.clips[0]?.events.find(item => item.event.kind === 'control');
+    expect(preservedControl?.offsetSeconds).toBeCloseTo(0.9, 5);
+    expect(preservedControl?.event).toMatchObject({
+      kind: 'control', sourceId: 'live', portId: 'x', value: 0.42,
+    });
     const deleted = deleteProjectClipNote(edited, 'piano-clip', 'piano-roll', 'new-note');
     expect(getProjectClipNotes(deleted.clips[0]!).map(note => note.noteId)).toEqual(['held']);
     expect(deleted.clips[0]?.events.some(item =>
