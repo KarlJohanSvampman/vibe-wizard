@@ -733,6 +733,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const stopRecording = (): void => {
     if (!recorder.isRecording) return;
     const recording = recorder.stop(performance.now() / 1000);
+    const destinationTrackId = recordingTrackId ?? project.activeTrackId;
     recordStartButton.disabled = !persistenceReady;
     recordStopButton.disabled = true;
     recordingTrackId = undefined;
@@ -746,7 +747,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       ...project,
       name: projectNameInput.value.trim() || project.name,
     };
-    project = addRecordingToProject(project, recordingTrackId ?? project.activeTrackId, recording);
+    project = addRecordingToProject(project, destinationTrackId, recording);
     selectedClipId = recording.id;
     captureStatus.textContent = 'Captured ' + recording.events.length + ' events over ' +
       recording.durationSeconds.toFixed(2) + ' seconds. Saving to this device…';
