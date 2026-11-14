@@ -73,7 +73,7 @@ Modules declare accepted input and output port types, supported parameter defini
 ## 6. Scheduling and performance
 
 - Schedule audio ahead using the shared AudioContext clock; do not rely on animation-frame timing for note precision.
-- The arrangement transport translates each event to clip start position plus clip-relative event offset.
+- The arrangement transport converts quarter-note beat positions to AudioContext seconds using project BPM, then scales clip-relative seconds from each clip's capture tempo.
 - All arrangement clips share one start time and scheduler, preserving alignment across instrument tracks.
 - Automation recorded into a clip is routed to the instrument assigned to that clip's track; live controllers may still fan out globally.
 - Keep rendering and audio timing independent.
@@ -84,7 +84,7 @@ Modules declare accepted input and output port types, supported parameter defini
 
 ## 7. Persistence
 
-Projects are versioned JSON documents. Schema version 2 stores instrument-track routing references, clip start positions and independent level/pan/mute/solo/arm state. The IndexedDB upgrade migrates version 1 tracks with neutral mix defaults. Large binary assets are stored separately in IndexedDB and referenced by stable asset IDs. Presets should serialize module configuration and mapping definitions without serializing runtime AudioNode objects.
+Projects are versioned JSON documents. Schema version 3 stores instrument-track routing references, beat-based clip start positions, per-clip capture tempo, and independent level/pan/mute/solo/arm state. IndexedDB upgrades migrate schema versions 1 and 2 while preserving existing audible clip placement. Large binary assets are stored separately in IndexedDB and referenced by stable asset IDs. Presets should serialize module configuration and mapping definitions without serializing runtime AudioNode objects.
 
 ## 8. IWSDK integration
 
