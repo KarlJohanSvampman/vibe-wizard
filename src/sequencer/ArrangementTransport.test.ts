@@ -50,6 +50,7 @@ describe('ArrangementTransport', () => {
           name: 'First performance',
           trackId: firstTrack.id,
           startBeats: 0,
+          lengthBeats: 0.5,
           recordedAtTempoBpm: 120,
           createdAt: new Date().toISOString(),
           durationSeconds: 0.25,
@@ -84,6 +85,7 @@ describe('ArrangementTransport', () => {
           name: 'Second performance',
           trackId: secondTrack.id,
           startBeats: 1,
+          lengthBeats: 0.5,
           recordedAtTempoBpm: 120,
           createdAt: new Date().toISOString(),
           durationSeconds: 0.25,
@@ -175,6 +177,7 @@ describe('ArrangementTransport', () => {
         name: 'Tempo clip',
         trackId: track.id,
         startBeats: 2,
+        lengthBeats: 2,
         recordedAtTempoBpm: 120,
         createdAt: new Date().toISOString(),
         durationSeconds: 1,
@@ -205,6 +208,79 @@ describe('ArrangementTransport', () => {
     transport.dispose();
   });
 
+  it('loops between beat boundaries, releases held notes, and exposes a wrapped playhead', () => {
+    vi.useFakeTimers();
+    const base = createDefaultProject('synth-one');
+    const track = base.tracks[0]!;
+    const project: ProjectSnapshot = {
+      ...base,
+      tempoBpm: 120,
+      loopRegion: { enabled: true, startBeat: 0, endBeat: 1 },
+      clips: [{
+        id: 'loop-clip',
+        name: 'Loop clip',
+        trackId: track.id,
+        startBeats: 0,
+        lengthBeats: 1,
+        recordedAtTempoBpm: 120,
+        createdAt: new Date().toISOString(),
+        durationSeconds: 0.5,
+        events: [
+          event(0, {
+            kind: 'note-on', sourceId: 'theremin', noteId: 'loop-note',
+            pitch: 60, velocity: 0.8, timestamp: 1,
+          }),
+        ],
+      }],
+    };
+    const clock = new FakeClock();
+    const instrument = new FakeInstrument();
+    const transport = new ArrangementTransport(clock, new ParameterBus());
+    transport.play(project, new Map([[track.id, instrument]]));
+    expect(instrument.notesOn).toHaveLength(1);
+    expect(transport.currentBeat).toBeCloseTo(0, 5);
+
+    clock.time = 0.5;
+    vi.advanceTimersByTime(25);
+    expect(instrument.notesOn).toHaveLength(2);
+    expect(instrument.notesOff).toHaveLength(1);
+    expect(instrument.notesOff[0]?.timestamp).toBeCloseTo(100.62, 5);
+    expect(instrument.notesOn[1]?.timestamp).toBeCloseTo(100.62, 5);
+
+    clock.time = 0.8;
+    expect(transport.currentBeat).toBeCloseTo(0.36, 2);
+    transport.stop();
+    expect(instrument.notesOff).toHaveLength(2);
+    expect(transport.currentState).toBe('stopped');
+  });
+
+  it('rejects a loop region with no playable events', () => {
+    const base = createDefaultProject('synth-one');
+    const track = base.tracks[0]!;
+    const outsideLoop: ProjectSnapshot = {
+      ...base,
+      loopRegion: { enabled: true, startBeat: 4, endBeat: 8 },
+      clips: [{
+        id: 'outside-loop',
+        name: 'Outside',
+        trackId: track.id,
+        startBeats: 0,
+        lengthBeats: 1,
+        recordedAtTempoBpm: 120,
+        createdAt: new Date().toISOString(),
+        durationSeconds: 0.5,
+        events: [event(0, {
+          kind: 'note-on', sourceId: 'theremin', noteId: 'n',
+          pitch: 60, velocity: 0.5, timestamp: 1,
+        })],
+      }],
+    };
+    const clock = new FakeClock();
+    const transport = new ArrangementTransport(clock, new ParameterBus());
+    expect(() => transport.play(outsideLoop, new Map([[track.id, new FakeInstrument()]])))
+      .toThrow(/loop region contains no musical events/i);
+  });
+
   it('releases scheduled live notes when the shared arrangement is stopped', () => {
     vi.useFakeTimers();
     const project = createDefaultProject('synth-one');
@@ -216,7 +292,8 @@ describe('ArrangementTransport', () => {
         name: 'Sustained',
         trackId: track.id,
         startBeats: 0,
-          recordedAtTempoBpm: 120,
+        lengthBeats: 20,
+        recordedAtTempoBpm: 120,
         createdAt: new Date().toISOString(),
         durationSeconds: 10,
         events: [
@@ -274,7 +351,8 @@ describe('ArrangementTransport', () => {
         name: 'Clip',
         trackId: project.activeTrackId,
         startBeats: 0,
-          recordedAtTempoBpm: 120,
+        lengthBeats: 0.2,
+        recordedAtTempoBpm: 120,
         createdAt: new Date().toISOString(),
         durationSeconds: 0.1,
         events: [event(0, {

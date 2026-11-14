@@ -5,9 +5,10 @@
 The project has one lane per instrument track. Each clip retains its own event list and duration, plus three timing/ownership fields:
 - `trackId`: the instrument track that receives the clip.
 - `startBeats`: where the clip begins on the project timeline, in quarter-note beats.
+- `lengthBeats`: the non-destructive visible/playable clip length.
 - `recordedAtTempoBpm`: the tempo at which the performance was captured.
 
-Event offsets and duration remain clip-relative seconds, interpreted at `recordedAtTempoBpm`. The arrangement converts those offsets into musical time and scales them against the current project tempo. Moving a clip never rewrites its recorded note or automation events.
+Event offsets and the original recorded duration remain clip-relative seconds, interpreted at `recordedAtTempoBpm`. The arrangement converts those offsets into musical time and scales them against the current project tempo. Moving or resizing a clip never rewrites its recorded note or automation events.
 
 ## Timeline interaction
 
@@ -16,7 +17,11 @@ The arrangement canvas renders track lanes in track order and clips as blocks:
 - Drag vertically to move it onto another instrument lane.
 - The ruler displays bars using the project's time signature.
 - Drag positions snap to a user-selected musical subdivision (quarter, eighth, sixteenth, thirty-second note, or off).
-- A successful move commits through the project model and is saved to IndexedDB.
+- Drag a clip's right edge to resize its non-destructive musical length. Events beyond the clip edge are skipped until the clip is extended again.
+- Use Duplicate clip to create a content-identical copy immediately after the source clip.
+- Set Loop In/Out by bar number and enable Loop arrangement to repeat that region.
+- A vertical playhead marks current playback position; it wraps within an active loop.
+- Successful edits commit through the project model and are saved to IndexedDB.
 - Moving a clip to another track changes its playback instrument and the target of its recorded controller automation.
 
 The data model accepts any finite non-negative beat position; snapping is a presentation-layer behavior.
@@ -30,7 +35,7 @@ Play arrangement starts one `ArrangementTransport` for the whole project. The tr
 4. Chooses one future AudioContext start time.
 5. Sends each note to the instrument assigned to the clip's owning track.
 6. Routes each recorded control signal through the Parameter Bus with the owning instrument as its target scope.
-7. Releases active notes when playback is stopped or the arrangement completes.
+7. Releases active notes when playback is stopped, the arrangement completes, or a loop boundary is reached.
 
 The global live theremin still fans out to its registered instrument mappings. Arrangement automation is scoped because it belongs to a particular clip/track performance.
 
@@ -38,7 +43,7 @@ The selected-clip Play clip control remains a single-track audition path. Starti
 
 ## Timing limitations
 
-The project stores clip start positions in quarter-note beats. A bar contains `numerator × 4 / denominator` quarter-note beats, allowing signatures such as 3/4 and 6/8 to share one timeline representation. Project tempo converts beat positions to AudioContext seconds; each clip's captured tempo converts its relative event seconds to musical time. Tempo changes therefore preserve clip placement and note relationships while changing playback duration. There is no tempo map, loop region, clip resizing, trimming, duplication, selection groups, or undo yet.
+The project stores clip start positions and lengths in quarter-note beats. A bar contains `numerator × 4 / denominator` quarter-note beats, allowing signatures such as 3/4 and 6/8 to share one timeline representation. Project tempo converts beat positions to AudioContext seconds; each clip's captured tempo converts its relative event seconds to musical time. Tempo changes therefore preserve clip placement and note relationships while changing playback duration. Loop In/Out are stored as beat positions and expressed in bars in the UI. Clip resizing changes only `lengthBeats`; event data remains intact. Tempo maps, selection groups, undo/redo, and piano-roll editing remain future work.
 
 ## Manual acceptance checks
 
@@ -48,3 +53,6 @@ The project stores clip start positions in quarter-note beats. A bar contains `n
 4. Enable audio and press Play arrangement. Verify both tracks begin in sync and their notes overlap at the intended project times.
 5. Change one track's level/pan, mute, and solo settings and confirm the project mixer continues to affect only the intended track.
 6. Stop arrangement playback while a long note is held and confirm that the voice is released.
+7. Enable a loop spanning two or more bars, play across the loop out point, and confirm that the playhead wraps and held notes release cleanly.
+8. Shorten a clip with its right-edge handle, play it, then extend it again and confirm the previously hidden events are still present.
+9. Duplicate a clip and verify the copy retains its events and starts immediately after the source clip.

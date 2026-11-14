@@ -168,6 +168,15 @@ export class SequencerTransport {
       clearInterval(this.timer);
       this.timer = undefined;
     }
+    const timestamp = this.audio.performanceTimeForAudioTime(this.audio.currentTime);
+    for (const playbackId of this.playbackNoteIds.values()) {
+      this.audio.noteOff({
+        kind: 'note-off',
+        sourceId: 'sequencer',
+        noteId: playbackId,
+        timestamp,
+      }, 0.025);
+    }
     this.playbackNoteIds.clear();
     this.scheduledVoiceIds.clear();
     this.clip = undefined;

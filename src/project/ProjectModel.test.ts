@@ -7,6 +7,9 @@ import {
   getArrangementDurationBeats,
   projectClipToRecordingClip,
   updateProjectTiming,
+  updateProjectLoopRegion,
+  resizeProjectClip,
+  duplicateProjectClip,
   migrateProjectRecord,
   moveProjectClip,
   setActiveProjectTrack,
@@ -17,7 +20,7 @@ import {
 describe('project model', () => {
   it('creates a project with a ready-to-mix instrument track', () => {
     const project = createDefaultProject('synth-main', new Date('2026-11-14T12:00:00.000Z'));
-    expect(project.schemaVersion).toBe(3);
+    expect(project.schemaVersion).toBe(4);
     expect(project.tempoBpm).toBe(120);
     expect(project.tracks).toHaveLength(1);
     expect(project.activeTrackId).toBe(project.tracks[0]?.id);
@@ -94,6 +97,7 @@ describe('project model', () => {
       trackId: project.activeTrackId,
       name: 'Performance 01',
       startBeats: 0,
+      lengthBeats: 1,
       recordedAtTempoBpm: 120,
       durationSeconds: 0.5,
     });
@@ -163,7 +167,7 @@ describe('project model', () => {
       tracks: project.tracks.map(({ volume: _volume, pan: _pan, ...track }) => track),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version1));
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.tracks[0]).toMatchObject({ volume: 0.8, pan: 0 });
     expect(migrated.id).toBe(project.id);
   });
@@ -187,7 +191,9 @@ describe('project model', () => {
       }],
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(legacy));
-    expect(migrated.clips[0]).toMatchObject({ startBeats: 5, recordedAtTempoBpm: 100 });
+    expect(migrated.clips[0]).toMatchObject({
+      startBeats: 5, lengthBeats: 2, recordedAtTempoBpm: 100,
+    });
     expect(projectClipToRecordingClip(migrated.clips[0]!, 100).events[0]?.offsetSeconds).toBe(0.6);
   });
 
@@ -201,6 +207,38 @@ describe('project model', () => {
       tempoBpm: 96,
       timeSignature: { numerator: 3, denominator: 4 },
     });
+  });
+
+  it('resizes and duplicates clips without rewriting their recorded events', () => {
+    const project = createDefaultProject('synth-main');
+    const recorder = new EventRecorder();
+    recorder.start(1);
+    recorder.record({
+      kind: 'note-on', sourceId: 'test', noteId: 'note-1', pitch: 60, velocity: 0.8, timestamp: 1.1,
+    });
+    const recording = recorder.stop(2, 'original')!;
+    const withClip = addRecordingToProject(project, project.activeTrackId, recording);
+    const resized = resizeProjectClip(withClip, 'original', 3);
+    expect(resized.clips[0]?.lengthBeats).toBe(3);
+    const duplicate = duplicateProjectClip(resized, 'original', 'duplicate');
+    expect(duplicate.clips[1]).toMatchObject({
+      id: 'duplicate', name: 'Performance 01 copy', startBeats: 3, lengthBeats: 3,
+      trackId: project.activeTrackId,
+    });
+    expect(duplicate.clips[1]?.events).toEqual(duplicate.clips[0]?.events);
+    expect(() => resizeProjectClip(duplicate, 'missing', 2)).toThrow(/unknown clip/i);
+    expect(() => duplicateProjectClip(duplicate, 'original', 'duplicate')).toThrow(/unique/i);
+  });
+
+  it('updates a loop region and rejects zero-length loop ranges', () => {
+    const project = createDefaultProject('synth-main');
+    const looped = updateProjectLoopRegion(project, {
+      enabled: true, startBeat: 4, endBeat: 12,
+    });
+    expect(looped.loopRegion).toEqual({ enabled: true, startBeat: 4, endBeat: 12 });
+    expect(() => updateProjectLoopRegion(project, {
+      enabled: true, startBeat: 4, endBeat: 4,
+    })).toThrow(/metadata|loop/i);
   });
 
   it('rejects invalid track mix values, duplicate module assignments, and unsupported schemas', () => {
@@ -227,6 +265,7 @@ describe('project model', () => {
         name: 'Broken',
         trackId: 'missing-track',
         startBeats: 0,
+        lengthBeats: 2,
         recordedAtTempoBpm: 120,
         createdAt: new Date().toISOString(),
         durationSeconds: 1,

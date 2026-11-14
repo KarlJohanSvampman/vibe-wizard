@@ -14,13 +14,16 @@ import {
   addInstrumentTrack,
   addRecordingToProject,
   createDefaultProject,
+  duplicateProjectClip,
   getArrangementDurationBeats,
   getClipDurationBeats,
   moveProjectClip,
   projectClipToRecordingClip,
+  resizeProjectClip,
   setActiveProjectTrack,
   updateProjectTrack,
   updateProjectTiming,
+  updateProjectLoopRegion,
   type ProjectClip,
   type ProjectSnapshot,
   type ProjectTrack,
@@ -242,6 +245,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <label for="time-signature"><span>TIME SIGNATURE</span><select id="time-signature"><option value="4/4">4/4</option><option value="3/4">3/4</option><option value="2/4">2/4</option><option value="5/4">5/4</option><option value="6/8">6/8</option><option value="7/8">7/8</option><option value="9/8">9/8</option><option value="12/8">12/8</option></select></label>',
     '      <label for="grid-snap"><span>SNAP TO</span><select id="grid-snap"><option value="1">Quarter note</option><option value="0.5">Eighth note</option><option value="0.25" selected>Sixteenth note</option><option value="0.125">Thirty-second</option><option value="0">Off</option></select></label>',
     '    </div>',
+    '    <div class="loop-toolbar">',
+    '      <label class="loop-toggle" for="loop-enabled"><input id="loop-enabled" type="checkbox" /> <span>Loop arrangement</span></label>',
+    '      <label for="loop-start-bar"><span>LOOP IN · BAR</span><input id="loop-start-bar" type="number" min="1" step="1" value="1" /></label>',
+    '      <label for="loop-end-bar"><span>LOOP OUT · BAR</span><input id="loop-end-bar" type="number" min="2" step="1" value="5" /></label>',
+    '      <span class="arrangement-hint">Enabled loops repeat between the selected bar boundaries.</span>',
+    '    </div>',
     '    <div class="arrangement-wrap"><canvas id="arrangement-timeline" width="1000" height="220" aria-label="Multi-track arrangement. Drag clips to reposition or move them to another instrument track."></canvas></div>',
     '    <div class="track-toolbar">',
     '      <label for="track-select"><span>ACTIVE TRACK</span><select id="track-select"></select></label>',
@@ -262,6 +271,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <button class="transport-button record-control" id="record-start" type="button" disabled>● Record</button>',
     '      <button class="transport-button" id="record-stop" type="button" disabled>Stop recording</button>',
     '      <button class="transport-button" id="clip-play" type="button" disabled>▶ Play clip</button>',
+    '      <button class="transport-button" id="clip-duplicate" type="button" disabled>Duplicate clip</button>',
     '      <button class="transport-button" id="clip-stop" type="button" disabled>■ Stop playback</button>',
     '    </div>',
     '    <div class="timeline-wrap"><canvas id="clip-timeline" width="1000" height="210" aria-label="Recorded notes and theremin automation timeline"></canvas></div>',
@@ -300,12 +310,16 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const recordStopButton = get<HTMLButtonElement>('#record-stop');
   const clipPlayButton = get<HTMLButtonElement>('#clip-play');
   const clipStopButton = get<HTMLButtonElement>('#clip-stop');
+  const clipDuplicateButton = get<HTMLButtonElement>('#clip-duplicate');
   const clipSummary = get<HTMLElement>('#clip-summary');
   const arrangementPlayButton = get<HTMLButtonElement>('#arrangement-play');
   const arrangementStopButton = get<HTMLButtonElement>('#arrangement-stop');
   const tempoInput = get<HTMLInputElement>('#tempo-bpm');
   const timeSignatureSelect = get<HTMLSelectElement>('#time-signature');
   const gridSnapSelect = get<HTMLSelectElement>('#grid-snap');
+  const loopEnabledInput = get<HTMLInputElement>('#loop-enabled');
+  const loopStartBarInput = get<HTMLInputElement>('#loop-start-bar');
+  const loopEndBarInput = get<HTMLInputElement>('#loop-end-bar');
   const arrangementTimeline = get<HTMLCanvasElement>('#arrangement-timeline');
   const captureStatus = get<HTMLElement>('#capture-status');
   const timeline = get<HTMLCanvasElement>('#clip-timeline');
@@ -317,8 +331,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !trackSelect || !addTrackButton || !armTrackButton || !muteTrackButton ||
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
-    !clipStopButton || !clipSummary || !arrangementPlayButton ||
+    !clipStopButton || !clipDuplicateButton || !clipSummary || !arrangementPlayButton ||
     !arrangementStopButton || !tempoInput || !timeSignatureSelect || !gridSnapSelect ||
+    !loopEnabledInput || !loopStartBarInput || !loopEndBarInput ||
     !arrangementTimeline || !captureStatus || !timeline
   ) {
     arrangementTransport.dispose();
@@ -339,18 +354,23 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     readonly clipId: string;
     readonly trackId: string;
     readonly startBeats: number;
+    readonly lengthBeats: number;
   };
+  type ArrangementDragMode = 'move' | 'resize';
 
   let arrangementHitRegions: ArrangementHitRegion[] = [];
   let arrangementDrag: {
     readonly clipId: string;
     readonly pointerId: number;
     readonly pointerStartX: number;
+    readonly mode: ArrangementDragMode;
     readonly originalStartBeats: number;
+    readonly originalLengthBeats: number;
     readonly originalTrackId: string;
     readonly originalActiveTrackId: string;
     previewTrackId: string;
     previewStartBeats: number;
+    previewLengthBeats: number;
   } | undefined;
 
   const getArrangementMetrics = () => {
@@ -360,7 +380,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const right = 14;
     const top = 34;
     const rowHeight = 46;
-    const durationBeats = getArrangementDurationBeats(project);
+    const durationBeats = Math.max(
+      getArrangementDurationBeats(project),
+      project.loopRegion.endBeat,
+    );
     return {
       tracks,
       width,
@@ -442,12 +465,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       const isPreview = Boolean(preview && previewClip?.id === clip.id);
       const trackId = isPreview ? preview!.trackId : clip.trackId;
       const startBeats = isPreview ? preview!.startBeats : clip.startBeats;
+      const lengthBeats = isPreview ? preview!.lengthBeats : getClipDurationBeats(clip);
       const trackIndex = metrics.tracks.findIndex(track => track.id === trackId);
       if (trackIndex < 0) continue;
 
       const x = metrics.left + startBeats * metrics.pixelsPerBeat;
       const y = metrics.top + trackIndex * metrics.rowHeight + 8;
-      const width = Math.max(24, getClipDurationBeats(clip) * metrics.pixelsPerBeat);
+      const width = Math.max(24, lengthBeats * metrics.pixelsPerBeat);
       const height = 27;
       const selected = clip.id === selectedClipId;
       context.fillStyle = isPreview
@@ -460,6 +484,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       context.strokeRect(x + 0.5, y + 0.5, Math.max(1, width - 1), height - 1);
       context.fillStyle = '#fff';
       if (width > 42) context.fillText(clip.name.slice(0, Math.max(4, Math.floor(width / 7))), x + 6, y + 17);
+      context.fillStyle = selected ? '#f4eaff' : 'rgba(220, 210, 240, 0.55)';
+      context.fillRect(x + Math.max(0, width - 5), y + 3, 3, height - 6);
 
       if (!isPreview) {
         arrangementHitRegions.push({
@@ -476,6 +502,27 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (project.clips.length === 0) {
       context.fillStyle = '#777184';
       context.fillText('Record a performance to create a clip, then drag it onto this timeline.', metrics.left + 10, metrics.top + 24);
+    }
+
+    const loop = project.loopRegion;
+    if (loop.enabled) {
+      context.fillStyle = 'rgba(99, 220, 165, 0.85)';
+      const loopX1 = metrics.left + loop.startBeat * metrics.pixelsPerBeat;
+      const loopX2 = metrics.left + loop.endBeat * metrics.pixelsPerBeat;
+      context.fillRect(loopX1, 20, Math.max(1, loopX2 - loopX1), 2);
+      context.fillRect(loopX1, 20, 2, metrics.height - 28);
+      context.fillRect(loopX2, 20, 2, metrics.height - 28);
+    }
+
+    const playheadBeat = arrangementTransport.currentBeat;
+    if (playheadBeat !== undefined) {
+      const playheadX = metrics.left + playheadBeat * metrics.pixelsPerBeat;
+      context.strokeStyle = '#ffcf6e';
+      context.lineWidth = 1.5;
+      context.beginPath();
+      context.moveTo(playheadX, 20);
+      context.lineTo(playheadX, metrics.height - 8);
+      context.stroke();
     }
   };
 
@@ -593,6 +640,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const updateClipUi = (): void => {
     const hasClip = Boolean(selectedClip && selectedClip.events.length > 0);
     clipPlayButton.disabled = !hasClip || !audioReady || recorder.isRecording || anyTransportPlaying();
+    clipDuplicateButton.disabled = !selectedClip || recorder.isRecording || anyTransportPlaying();
     clipStopButton.disabled = !anyTransportPlaying();
     arrangementPlayButton.disabled = !audioReady || recorder.isRecording ||
       project.clips.length === 0 || anyTransportPlaying();
@@ -600,6 +648,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const timingControlsDisabled = recorder.isRecording || anyTransportPlaying();
     tempoInput.disabled = timingControlsDisabled;
     timeSignatureSelect.disabled = timingControlsDisabled;
+    loopEnabledInput.disabled = timingControlsDisabled;
+    loopStartBarInput.disabled = timingControlsDisabled;
+    loopEndBarInput.disabled = timingControlsDisabled;
     const auditionClip = selectedClip
       ? projectClipToRecordingClip(selectedClip, project.tempoBpm)
       : undefined;
@@ -648,9 +699,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       timeSignatureSelect.append(option);
     }
     timeSignatureSelect.value = signature;
+    const beatsPerBar = project.timeSignature.numerator * 4 / project.timeSignature.denominator;
+    loopEnabledInput.checked = project.loopRegion.enabled;
+    loopStartBarInput.value = String(Math.floor(project.loopRegion.startBeat / beatsPerBar) + 1);
+    loopEndBarInput.value = String(Math.max(
+      Number(loopStartBarInput.value) + 1,
+      Math.ceil(project.loopRegion.endBeat / beatsPerBar) + 1,
+    ));
     const timingControlsDisabled = recorder.isRecording || anyTransportPlaying();
     tempoInput.disabled = timingControlsDisabled;
     timeSignatureSelect.disabled = timingControlsDisabled;
+    loopEnabledInput.disabled = timingControlsDisabled;
+    loopStartBarInput.disabled = timingControlsDisabled;
+    loopEndBarInput.disabled = timingControlsDisabled;
     const selectedTrack = activeTrack();
     trackName.textContent = selectedTrack?.name ?? 'No active track';
 
@@ -853,15 +914,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     project = setActiveProjectTrack(project, hit.trackId);
     selectedClipId = clip.id;
     selectedClip = clip;
+    const isResizeHandle = hit.x + hit.width - x <= 12;
     arrangementDrag = {
       clipId: clip.id,
       pointerId: event.pointerId,
       pointerStartX: event.clientX,
+      mode: isResizeHandle ? 'resize' : 'move',
       originalStartBeats: clip.startBeats,
+      originalLengthBeats: getClipDurationBeats(clip),
       originalTrackId: clip.trackId,
       originalActiveTrackId,
       previewTrackId: clip.trackId,
       previewStartBeats: clip.startBeats,
+      previewLengthBeats: getClipDurationBeats(clip),
     };
     arrangementTimeline.setPointerCapture(event.pointerId);
     updateProjectUi();
@@ -872,23 +937,31 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (!arrangementDrag || arrangementDrag.pointerId !== event.pointerId) return;
     const metrics = getArrangementMetrics();
     const rect = arrangementTimeline.getBoundingClientRect();
-    const localY = event.clientY - rect.top;
-    const rowIndex = Math.floor((localY - metrics.top) / metrics.rowHeight);
-    const boundedRow = Math.max(0, Math.min(metrics.tracks.length - 1, rowIndex));
-    const targetTrack = metrics.tracks[boundedRow];
     const deltaBeats = (event.clientX - arrangementDrag.pointerStartX) / metrics.pixelsPerBeat;
-    const rawStart = Math.max(0, arrangementDrag.originalStartBeats + deltaBeats);
     const snapBeats = Number(gridSnapSelect.value);
-    const snappedStart = snapBeats > 0
-      ? Math.round(rawStart / snapBeats) * snapBeats
-      : rawStart;
-
-    arrangementDrag.previewStartBeats = Math.max(0, snappedStart);
-    if (targetTrack) arrangementDrag.previewTrackId = targetTrack.id;
+    if (arrangementDrag.mode === 'resize') {
+      const rawLength = Math.max(0.125, arrangementDrag.originalLengthBeats + deltaBeats);
+      const snappedLength = snapBeats > 0
+        ? Math.round(rawLength / snapBeats) * snapBeats
+        : rawLength;
+      arrangementDrag.previewLengthBeats = Math.max(0.125, snappedLength);
+    } else {
+      const localY = event.clientY - rect.top;
+      const rowIndex = Math.floor((localY - metrics.top) / metrics.rowHeight);
+      const boundedRow = Math.max(0, Math.min(metrics.tracks.length - 1, rowIndex));
+      const targetTrack = metrics.tracks[boundedRow];
+      const rawStart = Math.max(0, arrangementDrag.originalStartBeats + deltaBeats);
+      const snappedStart = snapBeats > 0
+        ? Math.round(rawStart / snapBeats) * snapBeats
+        : rawStart;
+      arrangementDrag.previewStartBeats = Math.max(0, snappedStart);
+      if (targetTrack) arrangementDrag.previewTrackId = targetTrack.id;
+    }
     drawArrangement({
       clipId: arrangementDrag.clipId,
       trackId: arrangementDrag.previewTrackId,
       startBeats: arrangementDrag.previewStartBeats,
+      lengthBeats: arrangementDrag.previewLengthBeats,
     });
     event.preventDefault();
   });
@@ -897,10 +970,17 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (!arrangementDrag || arrangementDrag.pointerId !== event.pointerId) return;
     const drag = arrangementDrag;
     arrangementDrag = undefined;
-    const clipChanged = drag.previewStartBeats !== drag.originalStartBeats ||
-      drag.previewTrackId !== drag.originalTrackId;
+    const clipMoved = drag.mode === 'move' && (
+      drag.previewStartBeats !== drag.originalStartBeats ||
+      drag.previewTrackId !== drag.originalTrackId
+    );
+    const clipResized = drag.mode === 'resize' &&
+      drag.previewLengthBeats !== drag.originalLengthBeats;
     const activeTrackChanged = drag.originalActiveTrackId !== drag.previewTrackId;
-    if (clipChanged) {
+    if (clipResized) {
+      project = resizeProjectClip(project, drag.clipId, drag.previewLengthBeats);
+    }
+    if (clipMoved) {
       project = moveProjectClip(
         project,
         drag.clipId,
@@ -912,11 +992,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     selectedClipId = drag.clipId;
     selectedClip = project.clips.find(clip => clip.id === selectedClipId);
     updateProjectUi();
-    if (clipChanged || activeTrackChanged) {
+    if (clipMoved || clipResized || activeTrackChanged) {
       void persistProject().catch((error: unknown) => {
         projectStatus.textContent = error instanceof Error
           ? error.message
-          : 'Could not save the clip position.';
+          : 'Could not save the clip edit.';
       });
     }
     event.preventDefault();
@@ -964,6 +1044,30 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
     commitTimingChange({ timeSignature: { numerator, denominator } });
   });
+
+  const commitLoopRegion = (): void => {
+    const startBar = Number(loopStartBarInput.value);
+    const endBar = Number(loopEndBarInput.value);
+    if (!Number.isInteger(startBar) || !Number.isInteger(endBar) ||
+        startBar < 1 || endBar <= startBar) {
+      captureStatus.textContent = 'Loop out must be a later bar than loop in.';
+      updateProjectUi();
+      return;
+    }
+    const beatsPerBar = project.timeSignature.numerator * 4 / project.timeSignature.denominator;
+    project = updateProjectLoopRegion(project, {
+      enabled: loopEnabledInput.checked,
+      startBeat: (startBar - 1) * beatsPerBar,
+      endBeat: (endBar - 1) * beatsPerBar,
+    });
+    updateProjectUi();
+    void persistProject().catch((error: unknown) => {
+      projectStatus.textContent = error instanceof Error ? error.message : 'Could not save loop region.';
+    });
+  };
+  loopEnabledInput.addEventListener('change', commitLoopRegion);
+  loopStartBarInput.addEventListener('change', commitLoopRegion);
+  loopEndBarInput.addEventListener('change', commitLoopRegion);
 
   trackSelect.addEventListener('change', () => {
     if (recorder.isRecording) return;
@@ -1049,6 +1153,21 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       captureStatus.textContent = error instanceof Error ? error.message : 'Could not play clip';
     }
   });
+  clipDuplicateButton.addEventListener('click', () => {
+    if (!selectedClip || recorder.isRecording || anyTransportPlaying()) return;
+    try {
+      project = duplicateProjectClip(project, selectedClip.id);
+      selectedClipId = project.clips[project.clips.length - 1]?.id;
+      selectedClip = project.clips.find(clip => clip.id === selectedClipId);
+      updateProjectUi();
+      void persistProject().catch((error: unknown) => {
+        projectStatus.textContent = error instanceof Error ? error.message : 'Could not save duplicate clip.';
+      });
+    } catch (error) {
+      captureStatus.textContent = error instanceof Error ? error.message : 'Could not duplicate clip.';
+    }
+  });
+
   clipStopButton.addEventListener('click', () => {
     arrangementTransport.stop();
     for (const resources of trackResources.values()) resources.transport.stop();
@@ -1152,6 +1271,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     stopDesktopTone();
     if (recorder.isRecording) stopRecording();
     arrangementTransport.dispose();
+    if (arrangementAnimationFrame !== undefined) {
+      cancelAnimationFrame(arrangementAnimationFrame);
+      arrangementAnimationFrame = undefined;
+    }
     for (const resources of trackResources.values()) {
       resources.transport.dispose();
       resources.unsubscribeTransport();
@@ -1163,19 +1286,40 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     void rack.dispose().then(() => audioRuntime.dispose());
   }, { once: true });
 
+  let arrangementAnimationFrame: number | undefined;
+  const animateArrangementPlayhead = (): void => {
+    if (arrangementTransport.currentState !== 'playing') {
+      arrangementAnimationFrame = undefined;
+      drawArrangement();
+      return;
+    }
+    drawArrangement();
+    arrangementAnimationFrame = requestAnimationFrame(animateArrangementPlayhead);
+  };
+
   const unsubscribeArrangementTransport = arrangementTransport.subscribe((state) => {
     updateClipUi();
     if (state === 'playing') {
       captureStatus.textContent = 'Playing the multi-track arrangement…';
       updateStatus('Arrangement playing');
-    } else if (state === 'completed' && ![...trackResources.values()].some(
-      resources => resources.transport.currentState === 'playing',
-    )) {
-      captureStatus.textContent = 'Arrangement playback complete.';
-      updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
-    } else if (state === 'stopped') {
-      captureStatus.textContent = 'Arrangement stopped.';
-      updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
+      if (arrangementAnimationFrame === undefined) {
+        arrangementAnimationFrame = requestAnimationFrame(animateArrangementPlayhead);
+      }
+    } else {
+      if (arrangementAnimationFrame !== undefined) {
+        cancelAnimationFrame(arrangementAnimationFrame);
+        arrangementAnimationFrame = undefined;
+      }
+      drawArrangement();
+      if (state === 'completed' && ![...trackResources.values()].some(
+        resources => resources.transport.currentState === 'playing',
+      )) {
+        captureStatus.textContent = 'Arrangement playback complete.';
+        updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
+      } else if (state === 'stopped') {
+        captureStatus.textContent = 'Arrangement stopped.';
+        updateStatus(audioReady ? 'Audio engine running' : 'Audio is stopped');
+      }
     }
   });
 

@@ -29,7 +29,7 @@ The theremin publishes control signals to observers after routing them through t
 
 A project owns stable track records; each clip references one track by `trackId`. The runtime creates one clip-audition transport per instrument track and one project-wide arrangement transport. Recordings are appended to the active armed track, with their original clip-relative event offsets preserved.
 
-Project snapshots are versioned and stored in IndexedDB. Schema version 3 stores arrangement positions in quarter-note beats and records the capture tempo for each clip. Version 1 and 2 snapshots are migrated from seconds while preserving their existing audible start positions. The application restores the most recently updated project during startup and offers a selector for saved performances on the active track. Each completed recording is persisted automatically; clip moves and track mixer changes are also saved.
+Project snapshots are versioned and stored in IndexedDB. Schema version 4 stores arrangement positions and clip lengths in quarter-note beats, records the capture tempo for each clip, and persists a loop region. Version 1, 2, and 3 snapshots are migrated while preserving existing audible clip timing. The application restores the most recently updated project during startup and offers a selector for saved performances on the active track. Each completed recording is persisted automatically; clip moves and track mixer changes are also saved.
 
 The IndexedDB repository writes a complete project snapshot in one transaction. If IndexedDB is unavailable or fails to open, the app uses a session-only memory repository and labels this in the UI. Browser storage is local to the current browser profile and is not a backup or cloud-sync service.
 
@@ -49,7 +49,7 @@ The render loop is not used as the audio clock. XR frames update tracked input; 
 
 ## Current prototype UI
 
-The workbench exposes track selection, add instrument, arm, mute, solo, track level, stereo pan, Record, Stop recording, a saved-clip selector, Play clip, and Stop playback. The arrangement view displays one lane per instrument track. Clips can be dragged horizontally to change their start time or vertically to move them to another track. Play arrangement schedules clips from all tracks in sync; Stop arrangement releases held playback notes.
+The workbench exposes track selection, add instrument, arm, mute, solo, track level, stereo pan, Record, Stop recording, a saved-clip selector, Play clip, Duplicate clip, and Stop playback. The arrangement view displays one lane per instrument track, a musical playhead, and loop range. Clips can be dragged horizontally to move them, vertically to move them between tracks, or by the right-edge handle to resize their beat length. Play arrangement schedules clips from all tracks in sync; enabled loop regions repeat and release held notes at each boundary.
 
 The selected-clip canvas below the arrangement still displays X-axis automation, Y-axis automation, and note blocks showing pitch and held duration.
 
@@ -61,4 +61,4 @@ A future bake-automation operation can store resolved target parameter values wh
 
 ## Deferred sequencer features
 
-Arrangement placement and shared playback use musical beats and the project's BPM/time signature. The recording and clip-audition paths retain source timestamps in seconds; a clip stores its capture tempo so its events can be interpreted musically when the project tempo changes. Tempo maps, loop sections, clip resizing/trimming, duplication, multi-select, piano-roll note editing, and rendered audio recording remain future work.
+Arrangement placement and shared playback use musical beats and the project's BPM/time signature. The recording path retains source timestamps in seconds; each clip stores its capture tempo so events can be interpreted musically when the project tempo changes. The current loop model stores one fixed bar-aligned region; tempo maps, multiple loop regions, multi-select, undo/redo, piano-roll note editing, and rendered audio recording remain future work.

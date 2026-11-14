@@ -103,6 +103,28 @@ describe('SequencerTransport', () => {
     transport.dispose();
   });
 
+  it('releases notes left active when a shortened clip reaches its end', () => {
+    vi.useFakeTimers();
+    const audio = new FakeAudio();
+    const clip: RecordingClip = {
+      id: 'trimmed',
+      durationSeconds: 0.05,
+      events: [{
+        offsetSeconds: 0,
+        event: {
+          kind: 'note-on', sourceId: 'theremin', noteId: 'held',
+          pitch: 60, velocity: 1, timestamp: 1,
+        },
+      }],
+    };
+    const transport = new SequencerTransport(audio, new ParameterBus());
+    transport.play(clip);
+    vi.advanceTimersByTime(250);
+    expect(transport.currentState).toBe('completed');
+    expect(audio.notesOff).toHaveLength(1);
+    transport.dispose();
+  });
+
   it('releases queued playback notes when Stop is pressed', () => {
     vi.useFakeTimers();
     const audio = new FakeAudio();

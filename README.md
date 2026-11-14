@@ -15,9 +15,11 @@ The prototype includes:
 - Per-track clip audition and a shared arrangement transport.
 - A multi-track arrangement canvas with draggable clips and cross-track clip moves.
 - A tempo-aware beat/bar grid, BPM and time-signature controls, and configurable clip snap.
+- An animated arrangement playhead and bar-based loop regions with automatic note release at loop boundaries.
+- Non-destructive clip resizing and duplication on the beat grid.
 - Synchronized playback of clips across tracks using one AudioContext start clock.
 - Track-scoped playback of each clip's recorded controller automation.
-- A versioned project model, IndexedDB persistence, and migration from schema versions 1 and 2.
+- A versioned project model, IndexedDB persistence, and migration from schema versions 1, 2, and 3.
 - Track selection/arming, saved-clip selection, and X/Y automation + note visualization.
 
 Multiple tracks currently use the same prototype oscillator synth. Independent routing and arrangement playback are in place; instrument variety and a full piano-roll editor remain future milestones.
@@ -61,9 +63,11 @@ All instrument instances share one AudioContext but have independent voices and 
 3. Choose a snap resolution, then drag clips horizontally to move them by bars/beats; drag vertically to reassign them to another instrument lane.
 4. Press Play arrangement. All clips are scheduled against one shared AudioContext start time, so events on separate tracks stay aligned at the project tempo.
 5. Change the tempo to audition the same arrangement faster or slower without moving its beat positions.
-6. Press Stop arrangement to release any notes still held by the arrangement transport.
+6. Set Loop In and Loop Out to bar boundaries, then enable Loop arrangement to repeat that region. The playhead wraps to Loop In and active notes are released at each loop boundary.
+7. Drag a clip's right-edge handle to resize its musical length without deleting captured event data. Use Duplicate clip to create a copy placed immediately after the selected clip.
+8. Press Stop arrangement to release any notes still held by the arrangement transport.
 
-The separate Play clip button remains available for auditioning just the selected clip. Clip positions are stored in quarter-note beats. Recorded clip-relative event times retain their capture tempo and scale with the project tempo; loop sections, clip resizing/trimming, duplication, and simultaneous editing are still to come.
+The separate Play clip button remains available for auditioning just the selected clip. Resizing is non-destructive: events beyond the visible clip length are skipped during playback and can be recovered by extending the clip again. Loop and clip edits are saved with the project.
 
 ## Architecture
 

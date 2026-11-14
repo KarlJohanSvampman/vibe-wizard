@@ -2,11 +2,12 @@
 
 ## Project document
 
-A saved project is a versioned, JSON-serializable snapshot. Schema version 3 stores:
+A saved project is a versioned, JSON-serializable snapshot. Schema version 4 stores:
 - Project identity and name, creation/update timestamps, tempo, and time signature.
 - Stable track IDs, active track ID, instrument-module references, order, mute/solo, and record-arm state.
 - Per-track level (0..1) and stereo pan (-1..1).
-- Clips with stable IDs, owning track IDs, beat-based arrangement positions, capture tempo, durations, creation times, and typed musical events.
+- Clips with stable IDs, owning track IDs, beat-based start positions and lengths, capture tempo, original recorded durations, creation times, and typed musical events.
+- A project loop region with an enabled flag and start/end positions in quarter-note beats.
 
 The runtime can create multiple instrument tracks. Each track references a unique instrument module and owns an independent TrackAudioBus. All instrument instances share the project's AudioRuntime and AudioContext.
 
@@ -18,7 +19,7 @@ The global theremin controller is routed through Parameter Bus mappings to each 
 
 ## Clip ownership and arrangement position
 
-A clip belongs to exactly one track through `trackId`. Its events remain clip-relative: the first event is still at offset zero even when the clip is moved later in the arrangement. `startBeats` is its position on the project timeline in quarter-note beats, and `recordedAtTempoBpm` records the tempo at which its clip-relative seconds were captured.
+A clip belongs to exactly one track through `trackId`. Its events remain clip-relative: the first event is still at offset zero even when the clip is moved later in the arrangement. `startBeats` is its position on the project timeline in quarter-note beats; `lengthBeats` is the visible/playable extent; and `recordedAtTempoBpm` records the tempo at which its clip-relative seconds were captured.
 
 A clip can be moved horizontally to change `startBeats`, or vertically to change `trackId`. Moving it to another lane changes which instrument receives its note events and scopes its recorded controller automation to that instrument. The clip's event content and IDs remain unchanged.
 
@@ -34,13 +35,13 @@ The arrangement transport uses look-ahead scheduling and a single scheduler cloc
 
 ## Tempo and time
 
-Project tempo converts quarter-note beat positions to AudioContext seconds. Each clip's captured tempo converts its relative event seconds into musical duration and event timing. Changing BPM therefore preserves the arrangement's beat positions and note relationships while changing playback speed. Time signature determines bar length and the displayed ruler; BPM is expressed as quarter-note beats per minute. Tempo maps, loop sections, clip resizing, trimming, duplication, and multi-select remain future work.
+Project tempo converts quarter-note beat positions to AudioContext seconds. Each clip's captured tempo converts its relative event seconds into musical duration and event timing. Changing BPM therefore preserves the arrangement's beat positions and note relationships while changing playback speed. Time signature determines bar length and the displayed ruler; BPM is expressed as quarter-note beats per minute. Loop regions are stored in beats and edited using bar numbers. Resizing changes `lengthBeats` only; playback ignores events beyond that edge without deleting them. Tempo maps, multi-select, undo/redo, and piano-roll editing remain future work.
 
 ## Persistence and migration
 
-IndexedDB database: vibe-wizard-projects, version 3, object store: projects (keyPath id). Each write saves one complete project snapshot in a single read/write transaction.
+IndexedDB database: vibe-wizard-projects, version 4, object store: projects (keyPath id). Each write saves one complete project snapshot in a single read/write transaction.
 
-Existing schema version 1 and 2 projects are migrated during the IndexedDB version upgrade. Legacy second-based clip starts convert to quarter-note beats using the saved project tempo, while a capture-tempo value is added so playback remains at the same audible timing on migration. Existing track IDs, instrument IDs, clips, and events are preserved; old track mix fields default to volume 0.8 and pan 0. The data validator rejects unsupported schemas, duplicate IDs, duplicate instrument assignment, orphaned clips, and out-of-range mix values.
+Existing schema version 1, 2, and 3 projects are migrated during the IndexedDB version upgrade. Schema v1/v2 second-based clip starts convert to quarter-note beats using the saved project tempo; v3 beat positions and capture tempos are preserved. Each clip receives a `lengthBeats` value derived from its recorded duration and capture tempo. Projects without loop metadata receive a disabled default loop region. Existing track IDs, instrument IDs, clips, and events are preserved; old track mix fields default to volume 0.8 and pan 0. The data validator rejects unsupported schemas, duplicate IDs, duplicate instrument assignment, orphaned clips, and out-of-range mix values.
 
 On startup, the app loads the most recently updated project. Stopping a recording appends a clip to the armed track and saves the project automatically. Track selection filters the clip selector to clips on that track. Track mixer controls and arrangement clip moves are also saved.
 

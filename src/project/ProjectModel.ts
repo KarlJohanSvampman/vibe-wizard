@@ -1,7 +1,7 @@
 import type { MusicalEvent } from '../audio/events.js';
 import type { RecordedEvent, RecordingClip } from '../sequencer/Recorder.js';
 
-export const PROJECT_SCHEMA_VERSION = 3 as const;
+export const PROJECT_SCHEMA_VERSION = 4 as const;
 
 export interface ProjectTimeSignature {
   readonly numerator: number;
@@ -28,9 +28,17 @@ export interface ProjectClip extends RecordingClip {
   readonly trackId: string;
   /** Musical position from project start, measured in quarter-note beats. */
   readonly startBeats: number;
+  /** Musical clip length. Resizing this never deletes captured event data. */
+  readonly lengthBeats: number;
   /** Tempo at which the performance was captured; used to scale clip-relative timing. */
   readonly recordedAtTempoBpm: number;
   readonly createdAt: string;
+}
+
+export interface ProjectLoopRegion {
+  readonly enabled: boolean;
+  readonly startBeat: number;
+  readonly endBeat: number;
 }
 
 export interface ProjectSnapshot {
@@ -41,6 +49,7 @@ export interface ProjectSnapshot {
   readonly updatedAt: string;
   readonly tempoBpm: number;
   readonly timeSignature: ProjectTimeSignature;
+  readonly loopRegion: ProjectLoopRegion;
   readonly activeTrackId: string;
   readonly tracks: readonly ProjectTrack[];
   readonly clips: readonly ProjectClip[];
@@ -54,6 +63,8 @@ export interface ProjectTimingPatch {
   readonly tempoBpm?: number;
   readonly timeSignature?: ProjectTimeSignature;
 }
+
+export type ProjectLoopRegionPatch = ProjectLoopRegion;
 
 function makeId(prefix: string): string {
   return globalThis.crypto?.randomUUID?.() ??
@@ -75,6 +86,7 @@ export function createDefaultProject(
     updatedAt: timestamp,
     tempoBpm: 120,
     timeSignature: { numerator: 4, denominator: 4 },
+    loopRegion: { enabled: false, startBeat: 0, endBeat: 16 },
     activeTrackId: trackId,
     tracks: [{
       id: trackId,
@@ -201,7 +213,73 @@ export function moveProjectClip(
 }
 
 export function getClipDurationBeats(clip: ProjectClip): number {
-  return clip.durationSeconds * clip.recordedAtTempoBpm / 60;
+  return clip.lengthBeats;
+}
+
+export function resizeProjectClip(
+  snapshot: ProjectSnapshot,
+  clipId: string,
+  lengthBeats: number,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (!finiteNumber(lengthBeats) || lengthBeats <= 0) {
+    throw new Error('Clip length must be a finite positive beat value.');
+  }
+  if (!project.clips.some(clip => clip.id === clipId)) {
+    throw new Error('Cannot resize unknown clip: ' + clipId);
+  }
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    clips: project.clips.map(clip =>
+      clip.id === clipId ? { ...clip, lengthBeats } : clip,
+    ),
+  });
+}
+
+/** Duplicate a clip immediately after its source while preserving recorded events. */
+export function duplicateProjectClip(
+  snapshot: ProjectSnapshot,
+  clipId: string,
+  newClipId = makeId('clip'),
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  const source = project.clips.find(clip => clip.id === clipId);
+  if (!source) throw new Error('Cannot duplicate unknown clip: ' + clipId);
+  if (!newClipId || project.clips.some(clip => clip.id === newClipId)) {
+    throw new Error('The duplicate clip ID must be unique.');
+  }
+  const duplicate: ProjectClip = {
+    ...source,
+    id: newClipId,
+    name: source.name + ' copy',
+    startBeats: source.startBeats + source.lengthBeats,
+    createdAt: now.toISOString(),
+    events: source.events.map(recorded => ({
+      offsetSeconds: recorded.offsetSeconds,
+      event: { ...recorded.event },
+    })),
+  };
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    clips: [...project.clips, duplicate],
+  });
+}
+
+export function updateProjectLoopRegion(
+  snapshot: ProjectSnapshot,
+  loopRegion: ProjectLoopRegionPatch,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  return validateProjectSnapshot({
+    ...project,
+    loopRegion: { ...loopRegion },
+    updatedAt: now.toISOString(),
+  });
 }
 
 export function getArrangementDurationBeats(
@@ -225,11 +303,15 @@ export function projectClipToRecordingClip(
   const scale = clip.recordedAtTempoBpm / projectTempoBpm;
   return {
     id: clip.id,
-    durationSeconds: clip.durationSeconds * scale,
-    events: clip.events.map(recorded => ({
-      offsetSeconds: recorded.offsetSeconds * scale,
-      event: { ...recorded.event },
-    })),
+    durationSeconds: clip.lengthBeats * 60 / projectTempoBpm,
+    events: clip.events
+      .filter(recorded =>
+        recorded.offsetSeconds * clip.recordedAtTempoBpm / 60 <= clip.lengthBeats + 0.0001,
+      )
+      .map(recorded => ({
+        offsetSeconds: recorded.offsetSeconds * scale,
+        event: { ...recorded.event },
+      })),
   };
 }
 
@@ -253,6 +335,7 @@ export function addRecordingToProject(
       : 'Performance ' + String(clipNumber).padStart(2, '0'),
     trackId,
     startBeats: 0,
+    lengthBeats: recording.durationSeconds * project.tempoBpm / 60,
     recordedAtTempoBpm: project.tempoBpm,
     createdAt: existingIndex >= 0
       ? project.clips[existingIndex]!.createdAt
@@ -286,7 +369,10 @@ function finiteNumber(value: unknown): value is number {
 export function migrateProjectRecord(value: unknown): unknown {
   if (!isRecord(value)) throw new Error('Project data must be an object.');
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) return value;
-  if ((value.schemaVersion !== 1 && value.schemaVersion !== 2) || !Array.isArray(value.tracks)) {
+  if (
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3) ||
+    !Array.isArray(value.tracks)
+  ) {
     throw new Error('Unsupported project schema version: ' + String(value.schemaVersion) + '.');
   }
 
@@ -312,10 +398,26 @@ export function migrateProjectRecord(value: unknown): unknown {
       recordedAtTempoBpm: finiteNumber(item.recordedAtTempoBpm)
         ? item.recordedAtTempoBpm
         : tempoBpm,
+      lengthBeats: finiteNumber(item.lengthBeats)
+        ? item.lengthBeats
+        : finiteNumber(item.durationSeconds)
+          ? item.durationSeconds * (finiteNumber(item.recordedAtTempoBpm)
+            ? item.recordedAtTempoBpm
+            : tempoBpm) / 60
+          : 0,
     };
   }) : value.clips;
 
-  return { ...value, schemaVersion: PROJECT_SCHEMA_VERSION, tempoBpm, tracks, clips };
+  return {
+    ...value,
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    tempoBpm,
+    tracks,
+    clips,
+    loopRegion: isRecord(value.loopRegion)
+      ? value.loopRegion
+      : { enabled: false, startBeat: 0, endBeat: 16 },
+  };
 }
 
 function validateMusicalEvent(value: unknown): value is MusicalEvent {
@@ -350,6 +452,10 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     typeof value.createdAt !== 'string' || typeof value.updatedAt !== 'string' ||
     !finiteNumber(value.tempoBpm) || value.tempoBpm < 20 || value.tempoBpm > 300 ||
     !isRecord(value.timeSignature) ||
+    !isRecord(value.loopRegion) ||
+    typeof value.loopRegion.enabled !== 'boolean' ||
+    !finiteNumber(value.loopRegion.startBeat) || value.loopRegion.startBeat < 0 ||
+    !finiteNumber(value.loopRegion.endBeat) || value.loopRegion.endBeat <= value.loopRegion.startBeat ||
     !finiteNumber(value.timeSignature.numerator) ||
     !finiteNumber(value.timeSignature.denominator) ||
     value.timeSignature.numerator < 1 || value.timeSignature.numerator > 32 ||
@@ -401,6 +507,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       typeof item.createdAt !== 'string' ||
       !finiteNumber(durationSeconds) || durationSeconds < 0 ||
       !finiteNumber(item.startBeats) || item.startBeats < 0 ||
+      !finiteNumber(item.lengthBeats) || item.lengthBeats <= 0 ||
       !finiteNumber(item.recordedAtTempoBpm) ||
       item.recordedAtTempoBpm < 20 || item.recordedAtTempoBpm > 300 ||
       !Array.isArray(item.events)
@@ -435,6 +542,11 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     timeSignature: {
       numerator: value.timeSignature.numerator,
       denominator: value.timeSignature.denominator,
+    },
+    loopRegion: {
+      enabled: value.loopRegion.enabled,
+      startBeat: value.loopRegion.startBeat,
+      endBeat: value.loopRegion.endBeat,
     },
     activeTrackId: value.activeTrackId,
     tracks,

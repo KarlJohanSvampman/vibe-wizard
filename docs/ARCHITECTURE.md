@@ -74,6 +74,8 @@ Modules declare accepted input and output port types, supported parameter defini
 
 - Schedule audio ahead using the shared AudioContext clock; do not rely on animation-frame timing for note precision.
 - The arrangement transport converts quarter-note beat positions to AudioContext seconds using project BPM, then scales clip-relative seconds from each clip's capture tempo.
+- Enabled loop regions repeat on a shared AudioContext clock; the transport releases active voices at loop boundaries before starting the next iteration.
+- A clip's beat length controls its visible/playable extent. Editing the length does not mutate captured events.
 - All arrangement clips share one start time and scheduler, preserving alignment across instrument tracks.
 - Automation recorded into a clip is routed to the instrument assigned to that clip's track; live controllers may still fan out globally.
 - Keep rendering and audio timing independent.
@@ -84,7 +86,7 @@ Modules declare accepted input and output port types, supported parameter defini
 
 ## 7. Persistence
 
-Projects are versioned JSON documents. Schema version 3 stores instrument-track routing references, beat-based clip start positions, per-clip capture tempo, and independent level/pan/mute/solo/arm state. IndexedDB upgrades migrate schema versions 1 and 2 while preserving existing audible clip placement. Large binary assets are stored separately in IndexedDB and referenced by stable asset IDs. Presets should serialize module configuration and mapping definitions without serializing runtime AudioNode objects.
+Projects are versioned JSON documents. Schema version 4 stores instrument-track routing references, beat-based clip start positions and lengths, per-clip capture tempo, a loop region, and independent level/pan/mute/solo/arm state. IndexedDB upgrades migrate schema versions 1, 2, and 3 while preserving existing audible clip placement. Large binary assets are stored separately in IndexedDB and referenced by stable asset IDs. Presets should serialize module configuration and mapping definitions without serializing runtime AudioNode objects.
 
 ## 8. IWSDK integration
 
