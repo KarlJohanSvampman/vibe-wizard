@@ -298,7 +298,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '    </div>',
     '    <section class="ai-sample-studio">',
     '      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
-    '      <label for="ai-service-url"><span>AI SERVICE BASE URL</span><input id="ai-service-url" type="url" placeholder="http://localhost:8787/api" autocomplete="url" /></label>',
+    '      <label for="ai-service-url"><span>AI SERVICE URL</span><input id="ai-service-url" type="text" placeholder="/api (same-origin gateway)" autocomplete="url" /></label>',
     '      <label for="ai-sample-prompt"><span>SOUND PROMPT</span><textarea id="ai-sample-prompt" rows="3" maxlength="4000" placeholder="A warm, evolving analog bass with a soft attack, subtle tape saturation, and a clean low end."></textarea></label>',
     '      <div class="ai-generation-actions">',
     '        <label for="ai-sample-duration"><span>DURATION · SECONDS</span><input id="ai-sample-duration" type="number" min="1" max="30" step="1" value="3" /></label>',
@@ -427,7 +427,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const aiEndpointStorageKey = 'vibe-wizard.ai-service-url';
   try {
-    aiServiceUrlInput.value = globalThis.localStorage?.getItem(aiEndpointStorageKey) ?? 'http://localhost:8787/api';
+    aiServiceUrlInput.value = globalThis.localStorage?.getItem(aiEndpointStorageKey) ?? '/api';
   } catch {
     aiServiceUrlInput.value = '';
   }

@@ -57,7 +57,10 @@ const DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
 function ensureHttpUrl(value: string, label: string): URL {
   let url: URL;
   try {
-    url = new URL(value);
+    const pageOrigin = typeof globalThis.location !== 'undefined'
+      ? globalThis.location.origin
+      : undefined;
+    url = pageOrigin ? new URL(value, pageOrigin) : new URL(value);
   } catch {
     throw new Error(label + ' must be a valid absolute URL.');
   }

@@ -7,7 +7,7 @@ The first concrete integration uses **ElevenLabs text-to-sound generation** thro
 Workflow:
 
 1. Start the local Python gateway with a server-side `ELEVENLABS_API_KEY`.
-2. Open the **AI Sound Generation** panel in Vibe-Wizard. Its default service URL is `http://localhost:8787/api`.
+2. Open the **AI Sound Generation** panel in Vibe-Wizard. Its default service URL is the same-origin path `/api`. Vite proxies that path to the loopback-only FastAPI gateway.
 3. Describe the sound and choose a duration from 1 to 30 seconds.
 4. Vibe-Wizard submits an asynchronous job, polls progress, and downloads the generated audio.
 5. The browser validates the audio MIME type, non-empty content, and 25 MB size limit.
@@ -35,7 +35,7 @@ Copy `.env.example` to `.env` and set `ELEVENLABS_API_KEY`. The gateway loads th
 python -m uvicorn server.ai_gateway:app --reload --host 127.0.0.1 --port 8787
 ```
 
-Run Vibe-Wizard separately with `npm run dev`. The current Vite development server uses port 8081, which is included in the gateway's default CORS allow-list. The gateway binds to localhost by default and keeps job results in memory for up to 30 minutes. It is intended for a single local process; use a durable queue and authenticated reverse proxy before deploying it to a shared or public network.
+Run Vibe-Wizard separately with `npm run dev`. The Vite development server listens on port 8081 and proxies browser requests under `/api` to `http://127.0.0.1:8787`. This keeps the browser on one origin, including an HTTPS Quest session, while the gateway itself remains bound to loopback. CORS is only needed for clients that bypass the Vite proxy. The gateway keeps job results in memory for up to 30 minutes. It is intended for a single local process; use a durable queue and authenticated reverse proxy before deploying it to a shared or public network.
 
 Environment variables:
 
@@ -45,7 +45,7 @@ Environment variables:
 - `ELEVENLABS_PROMPT_INFLUENCE` — defaults to `0.35`, valid range 0..1.
 - `CORS_ORIGINS` — comma-separated browser origins; default includes localhost port 8081.
 
-The gateway uses an in-memory job queue with a 20-job cap, 30-minute retention, and 25 MB result cap. Run one worker process. It handles provider authentication, provider request formatting, and transient job state. A later production version should move jobs/assets to durable storage and add user authentication, rate limiting, per-user quotas, and cancellation.
+The gateway uses an in-memory job queue with a 20-job cap, 30-minute retention, and 25 MB result cap. Run one worker process. It handles provider authentication, provider request formatting, and transient job state. A later production version should move jobs/assets to durable storage and add user authentication, rate limiting, per-user quotas, and cancellation. Production must expose the gateway behind an authenticated same-origin HTTPS reverse proxy; Vite's development proxy is not part of the production bundle.
 
 ## Browser/provider architecture
 
