@@ -23,13 +23,23 @@ Animation frames are for visuals and tracking, not note scheduling.
 
 ## Instrument and track contracts
 
-An instrument receives typed musical events and produces audio. It owns its voices and instrument-level parameters, including the theremin expression-volume mapping.
+An instrument receives typed musical events and produces audio. The runtime currently provides four instrument families behind the same event/track contract:
+
+- **Analog Synth** — polyphonic sawtooth voice with pitch and expression-volume control.
+- **Piano** — additive struck-string approximation with a bright harmonic attack and a longer natural decay.
+- **Drum Kit** — one-shot kick, snare, tom, and cymbal synthesis. General MIDI-style percussion pitches are used (kick 35/36, snare 38/40, closed/open hi-hat 42/46).
+- **Sampler** — chromatic playback of a user-imported audio file, with MIDI note 60 as its root pitch. When no sample is loaded, a quiet triangle fallback keeps the track testable.
+
+All families implement the same note-on/note-off/parameter interface and share the project's one AudioContext. The piano and percussion sounds are generated locally from native Web Audio oscillators, filters, envelopes, and a cached noise buffer; the piano is an intentionally compact additive model rather than a large multisample library.
+
+Sampler audio bytes live in a separate IndexedDB database (`vibe-wizard-audio-assets`) so project JSON snapshots remain small. A project track stores only the sample asset ID and display filename. Imported files are decoded with `decodeAudioData` on the shared AudioContext and never uploaded.
 
 A track bus owns independent output level and stereo pan for its track. Mute and solo are resolved by the project mixer before volume is applied. This separates instrument expression from the track fader.
 
 ## Voices
 
-- Explicit maximum polyphony is still planned.
+- Explicit maximum polyphony and configurable voice stealing are still planned.
+- Drum voices are one-shots with short autonomous decays; note-off does not truncate a triggered drum hit.
 - A note instance is identified by source and unique note ID within its instrument instance.
 - Stopping playback or disposing an input source must release its owned notes.
 - A scheduled note-off can move an existing release earlier when playback is stopped.

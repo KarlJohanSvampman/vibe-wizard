@@ -4,12 +4,13 @@
 
 A saved project is a versioned, JSON-serializable snapshot. Schema version 4 stores:
 - Project identity and name, creation/update timestamps, tempo, and time signature.
-- Stable track IDs, active track ID, instrument-module references, order, mute/solo, and record-arm state.
+- Stable track IDs, active track ID, instrument-module references and instrument family (`synth`, `piano`, `drums`, or `sampler`), order, mute/solo, and record-arm state.
+- Optional sampler asset ID and original filename; binary audio bytes live separately in the local IndexedDB audio-asset database.
 - Per-track level (0..1) and stereo pan (-1..1).
 - Clips with stable IDs, owning track IDs, beat-based start positions and lengths, capture tempo, original recorded durations, creation times, and typed musical events.
 - A project loop region with an enabled flag and start/end positions in quarter-note beats.
 
-The runtime can create multiple instrument tracks. Each track references a unique instrument module and owns an independent TrackAudioBus. All instrument instances share the project's AudioRuntime and AudioContext.
+The runtime can create multiple instrument tracks and each track chooses an instrument family. Every track references a unique instrument module and owns an independent TrackAudioBus. All instrument instances share the project's AudioRuntime and AudioContext. Legacy project tracks without an `instrumentType` field are normalized to `synth` when loaded, so this addition does not require a project schema bump.
 
 ## Track routing and mixing
 
@@ -53,7 +54,8 @@ The project document stores only JSON-compatible domain data. AudioContext, Audi
 
 ## Known limitations
 
-- Multiple tracks currently instantiate the same prototype oscillator synth; an instrument type chooser and actual piano/sampler modules are future work.
+- Piano and drum voices are compact local synthesis models, not high-fidelity sampled libraries. The sampler supports one chromatic sample per track; multisampling, zones, velocity layers, looping, time-stretching, and sample trimming remain future work.
+- Sampler asset bytes are stored in a separate local IndexedDB database. Clearing browser site data removes those samples; projects retain a reference but do not embed the audio bytes.
 - The arrangement UI displays bars/beats with configurable musical snap; BPM changes affect playback speed while preserving beat placement.
 - Clip resizing, duplication, and piano-roll note editing are supported. Multi-select, clip groups, and advanced MIDI editing remain future work.
 - Parameter mappings and custom rack configuration are initialized by application code rather than persisted as editable rack state.

@@ -24,7 +24,7 @@ The prototype includes:
 - A versioned project model, IndexedDB persistence, and migration from schema versions 1, 2, and 3.
 - Track selection/arming, saved-clip selection, and X/Y automation + note visualization.
 
-Multiple tracks currently use the same prototype oscillator synth. Independent routing, arrangement playback, and basic piano-roll note editing are in place; instrument variety, piano-roll zoom, velocity lanes, and a full MIDI workflow remain future milestones.
+Instrument tracks now select from four distinct voice families: an expressive analog-style synth, an additive piano voice, a synthesized one-shot drum kit, and a chromatic sampler for imported audio. Sample bytes are stored separately in IndexedDB and projects retain a stable asset reference. The piano and drum voices are generated locally with Web Audio; the sampler plays user-provided audio without uploading it.
 
 ## Run locally
 
@@ -51,12 +51,12 @@ npm run build
 
 1. Wait for the local project status to report that storage is ready.
 2. Enable audio.
-3. Use + Add instrument to create another synth track.
+3. Choose Analog Synth, Piano, Drum Kit, or Sampler in the New Track Instrument selector, then press + Add instrument.
 4. Select a track, arm it, then record a performance. Clips are saved to the selected track.
 5. Adjust its independent Track Level and Stereo Pan. Mute and Solo operate across the project mix.
-6. Use the saved-clip selector and Play clip to audition one clip on its assigned instrument.
+6. Use the saved-clip selector and Play clip to audition one clip on its assigned instrument. Sampler tracks expose a local audio-file import control; supported files are decoded by the browser and their bytes are stored in IndexedDB.
 
-All instrument instances share one AudioContext but have independent voices and track-output buses. This avoids spawning an AudioContext for every instrument and enables the tracks to mix together.
+All instrument instances share one AudioContext but have independent voices and track-output buses. Piano and drum synthesis use native Web Audio nodes, while sampler tracks decode a user-selected audio file and play it chromatically around MIDI note 60. Imported samples remain on the device in a separate IndexedDB asset store; no audio is uploaded.
 
 ## Arrange and play a song
 

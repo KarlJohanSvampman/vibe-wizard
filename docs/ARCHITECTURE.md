@@ -54,7 +54,7 @@ AI providers --(async assets)--> validation/import --> local sample/instrument l
 
 ## 4. Rack and track model
 
-A project owns one global rack. The rack contains instruments, effects, and controllers. Each instrument track references a unique instrument instance and its independent track audio bus. All instrument instances in a project share one lazy AudioRuntime/AudioContext, but retain independent voice pools and output connections.
+A project owns one global rack. The rack contains instruments, effects, and controllers. Each instrument track references a unique instrument instance and its independent track audio bus. Track metadata selects an instrument family (`synth`, `piano`, `drums`, or `sampler`). All instrument instances in a project share one lazy AudioRuntime/AudioContext, but retain independent voice pools and output connections. Sampler tracks reference local binary assets stored separately from the JSON project snapshot.
 
 A track bus applies track level and stereo pan; project mute/solo state is applied to its bus level. Controllers are not necessarily assigned to one track and may target any compatible parameter through the global Parameter Bus.
 
@@ -79,7 +79,7 @@ Modules declare accepted input and output port types, supported parameter defini
 - All arrangement clips share one start time and scheduler, preserving alignment across instrument tracks.
 - Automation recorded into a clip is routed to the instrument assigned to that clip's track; live controllers may still fan out globally.
 - Keep rendering and audio timing independent.
-- Preload samples before playback and avoid decoding or large allocations in the audio callback.
+- Preload samples before playback and avoid decoding or large allocations in the audio callback. Sampler files are decoded asynchronously through `decodeAudioData` before note scheduling.
 - Use AudioWorklet for custom DSP only where native Web Audio nodes are insufficient.
 - Make polyphony, voice stealing, and resource budgets explicit.
 - Use feature detection for WebXR, hand tracking, MIDI, and optional browser APIs.
