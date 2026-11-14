@@ -88,7 +88,7 @@ export class ThereminSpatialAdapter {
   dispose(): void {
     this.stopXRFrame();
     this.stopVisibilitySubscription();
-    this.deactivate(this.lastXRTime);
+    this.deactivate(this.lastEventTime);
     this.world.scene.remove(this.root);
 
     this.root.traverse((object) => {
@@ -120,7 +120,7 @@ export class ThereminSpatialAdapter {
 
     const pose = frame.getPose(indexTipSpace, referenceSpace);
     if (!pose) {
-      this.deactivate(time);
+      this.deactivate(eventTime);
       return;
     }
 
@@ -139,7 +139,7 @@ export class ThereminSpatialAdapter {
 
     const point = normalizeThereminPoint(this.handLocalPosition, this.dimensions);
     if (!point) {
-      this.deactivate(time);
+      this.deactivate(eventTime);
       return;
     }
 
