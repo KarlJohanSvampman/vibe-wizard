@@ -23,9 +23,11 @@ Multiple tracks currently use the same prototype oscillator synth. Independent r
 
 ## Run locally
 
-Requirements: Node.js 20.19+ (20 line), 22.12+ (22 line), or 24+.
+Requirements: Node.js 20.19+ (20 line), 22.12+ (22 line), or 24+, with npm 11.6+.
+npm 10 has a peer-dependency resolver bug affecting some current Vite/Vitest dependency graphs; update npm before installing:
 
 ```bash
+npm install --global npm@11.19.1
 npm install
 npm run dev
 ```
