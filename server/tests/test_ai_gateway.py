@@ -79,13 +79,13 @@ class AudioGatewayTests(unittest.TestCase):
     def test_extracts_audio_from_multipart_music_response(self) -> None:
         boundary = "music-response-boundary"
         body = (
-            f"--{boundary}\\r\\n"
-            "Content-Type: application/json\\r\\n\\r\\n"
-            '{"song_id":"song-123"}\\r\\n'
-            f"--{boundary}\\r\\n"
-            "Content-Type: audio/mpeg\\r\\n"
-            "Content-Disposition: attachment; filename=variation.mp3\\r\\n\\r\\n"
-        ).encode() + b"fake-music-bytes\\r\\n" + f"--{boundary}--\\r\\n".encode()
+            f"--{boundary}\r\n"
+            "Content-Type: application/json\r\n\r\n"
+            '{"song_id":"song-123"}\r\n'
+            f"--{boundary}\r\n"
+            "Content-Type: audio/mpeg\r\n"
+            "Content-Disposition: attachment; filename=variation.mp3\r\n\r\n"
+        ).encode() + b"fake-music-bytes\r\n" + f"--{boundary}--\r\n".encode()
         response = ai_gateway.httpx.Response(
             200,
             headers={"content-type": f"multipart/mixed; boundary={boundary}"},
