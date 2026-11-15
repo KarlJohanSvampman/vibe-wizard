@@ -123,7 +123,7 @@ export class GuitarSpatialAdapter {
         this.world.player.updateMatrixWorld(true); this.world.player.localToWorld(this.rightWorld);
         const local = this.root.worldToLocal(this.rightWorld.clone());
         // Only count a swipe through the string plane, not arbitrary hand movement around the room.
-        const inStrumArea = Math.abs(local.x) < 0.25 && local.y > -0.12 && local.y < 0.24 && local.z > 0.015 && local.z < 0.28;
+        const inStrumArea = Math.abs(local.x) < 0.25 && local.y > -0.15 && local.y < 0.85 && local.z > 0.015 && local.z < 0.28;
         if (!inStrumArea) { this.previousRight = undefined; return; }
         if (this.previousRight) {
           const delta = local.distanceTo(this.previousRight);
