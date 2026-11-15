@@ -503,6 +503,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       dockContent.append(pane);
     }
     take<HTMLElement>('#sample-import-row', instrumentPane);
+    const instrumentEditor = document.createElement('section');
+    instrumentEditor.id = 'instrument-editor';
+    instrumentEditor.className = 'instrument-editor';
+    instrumentPane.prepend(instrumentEditor);
     take<HTMLElement>('#sampler-editor', instrumentPane);
     take<HTMLElement>('.track-mixer-controls', mixerPane);
     controllersPane.append(controllerPanel);
@@ -611,6 +615,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const samplerTransformStrength = get<HTMLSelectElement>('#sampler-transform-strength');
   const samplerTransformButton = get<HTMLButtonElement>('#sampler-transform');
   const samplerTransformStatus = get<HTMLElement>('#sampler-transform-status');
+  const instrumentEditor = get<HTMLElement>('#instrument-editor');
   const addTrackButton = get<HTMLButtonElement>('#add-track');
   const armTrackButton = get<HTMLButtonElement>('#arm-track');
   const muteTrackButton = get<HTMLButtonElement>('#mute-track');
@@ -1247,6 +1252,76 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     loopStartBarInput.disabled = timingControlsDisabled;
     loopEndBarInput.disabled = timingControlsDisabled;
     const selectedTrack = activeTrack();
+    if (instrumentEditor) {
+      instrumentEditor.replaceChildren();
+      if (!selectedTrack) {
+        instrumentEditor.textContent = 'Add a track to open its instrument.';
+      } else if (selectedTrack.instrumentType === 'synth') {
+        const title = document.createElement('h3'); title.textContent = 'Synth patch';
+        const description = document.createElement('p'); description.textContent = 'Shape the sound played by this track. Changes affect new notes and active filter voices.';
+        const makeSelect = (label: string, id: string, options: string[]) => {
+          const wrap = document.createElement('label'); wrap.className = 'instrument-control';
+          const caption = document.createElement('span'); caption.textContent = label;
+          const select = document.createElement('select'); select.id = id;
+          for (const value of options) { const option = document.createElement('option'); option.value = value; option.textContent = value[0]!.toUpperCase() + value.slice(1); select.append(option); }
+          wrap.append(caption, select); return { wrap, select };
+        };
+        const makeRange = (label: string, id: string, min: number, max: number, value: number, step: number, suffix: string) => {
+          const wrap = document.createElement('label'); wrap.className = 'instrument-control';
+          const caption = document.createElement('span'); caption.textContent = label;
+          const input = document.createElement('input'); input.type = 'range'; input.id = id; input.min = String(min); input.max = String(max); input.step = String(step); input.value = String(value);
+          const readout = document.createElement('output'); readout.textContent = String(value) + suffix;
+          input.addEventListener('input', () => { readout.textContent = Number(input.value).toFixed(0) + suffix; });
+          wrap.append(caption, input, readout); return { wrap, input };
+        };
+        const waveform = makeSelect('OSCILLATOR', 'synth-waveform', ['sawtooth', 'square', 'triangle', 'sine']);
+        const cutoff = makeRange('FILTER CUTOFF', 'synth-cutoff', 80, 18000, 12000, 10, ' Hz');
+        const resonance = makeRange('RESONANCE', 'synth-resonance', 0.1, 18, 0.7, 0.1, '');
+        const apply = () => resourceFor(selectedTrack.id)?.instrument.setSynthSettings({
+          waveform: waveform.select.value as OscillatorType,
+          cutoff: Number(cutoff.input.value),
+          resonance: Number(resonance.input.value),
+        });
+        waveform.select.addEventListener('change', apply);
+        cutoff.input.addEventListener('input', apply);
+        resonance.input.addEventListener('input', apply);
+        instrumentEditor.append(title, description, waveform.wrap, cutoff.wrap, resonance.wrap);
+      } else if (selectedTrack.instrumentType === 'piano' || selectedTrack.instrumentType === 'drums') {
+        const title = document.createElement('h3'); title.textContent = selectedTrack.instrumentType === 'piano' ? 'Playable keyboard' : 'Drum pads';
+        const description = document.createElement('p'); description.textContent = selectedTrack.instrumentType === 'piano' ? 'Click a key to audition a note. Hold and release to play expressively.' : 'Click a pad to trigger a one-shot drum sound.';
+        const grid = document.createElement('div'); grid.className = selectedTrack.instrumentType === 'piano' ? 'instrument-keyboard' : 'instrument-pad-grid';
+        const notes = selectedTrack.instrumentType === 'piano'
+          ? Array.from({ length: 25 }, (_, index) => ({ pitch: 60 + index, label: ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'][index % 12]! }))
+          : [{pitch:36,label:'Kick'},{pitch:38,label:'Snare'},{pitch:39,label:'Clap'},{pitch:42,label:'Closed hat'},{pitch:46,label:'Open hat'},{pitch:45,label:'Low tom'},{pitch:48,label:'High tom'},{pitch:49,label:'Crash'}];
+        for (const note of notes) {
+          const pad = document.createElement('button'); pad.type = 'button'; pad.className = 'instrument-pad';
+          pad.textContent = note.label; pad.title = 'MIDI note ' + note.pitch;
+          let noteId = '';
+          const start = async () => {
+            const resources = resourceFor(selectedTrack.id);
+            if (!resources || !audioReady) return;
+            await ensureTrackAudioReady(selectedTrack.id);
+            noteId = 'editor-' + selectedTrack.id + '-' + note.pitch;
+            resources.instrument.noteOn({ kind: 'note-on', sourceId: selectedTrack.instrumentModuleId, noteId, pitch: note.pitch, velocity: 0.8, timestamp: performance.now() / 1000 });
+            pad.classList.add('is-playing');
+          };
+          const stop = () => {
+            if (!noteId) return;
+            resourceFor(selectedTrack.id)?.instrument.noteOff({ kind: 'note-off', sourceId: selectedTrack.instrumentModuleId, noteId, timestamp: performance.now() / 1000 });
+            noteId = ''; pad.classList.remove('is-playing');
+          };
+          pad.addEventListener('pointerdown', event => { event.preventDefault(); void start(); });
+          pad.addEventListener('pointerup', stop); pad.addEventListener('pointerleave', stop); pad.addEventListener('pointercancel', stop);
+          if (selectedTrack.instrumentType === 'drums') pad.addEventListener('click', () => { void start().then(() => window.setTimeout(stop, 220)); });
+          grid.append(pad);
+        }
+        instrumentEditor.append(title, description, grid);
+      } else {
+        const title = document.createElement('h3'); title.textContent = 'Sampler instrument';
+        const description = document.createElement('p'); description.textContent = selectedTrack.sampleFileName ? 'Sample loaded: ' + selectedTrack.sampleFileName : 'Choose a sound from Assets or generate one with AI sampler.';
+        instrumentEditor.append(title, description);
+      }
+    }
     playButton.disabled = !selectedTrack;
     trackName.textContent = selectedTrack
       ? selectedTrack.name + ' · ' + getInstrumentLabel(selectedTrack.instrumentType)
