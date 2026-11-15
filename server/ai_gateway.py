@@ -162,8 +162,8 @@ def _extract_composed_audio(response: httpx.Response) -> tuple[bytes, str]:
     from email.policy import default as email_policy
 
     mime_message = BytesParser(policy=email_policy).parsebytes(
-        b"MIME-Version: 1.0\\r\\nContent-Type: " + header.encode("ascii", "replace")
-        + b"\\r\\n\\r\\n" + response.content
+        b"MIME-Version: 1.0\r\nContent-Type: " + header.encode("ascii", "replace")
+        + b"\r\n\r\n" + response.content
     )
     for part in mime_message.walk():
         part_type = (part.get_content_type() or "").lower()
@@ -213,7 +213,7 @@ async def call_elevenlabs_transform(
         duration_ms = max(3000, int(request.duration_seconds * 1000))
         composition_plan = {
             "chunks": [{
-                "text": "[Instrumental]\\n" + request.prompt,
+                "text": "[Instrumental]\n" + request.prompt,
                 "duration_ms": duration_ms,
                 "positive_styles": [],
                 "negative_styles": [],
