@@ -170,6 +170,9 @@ export function createDefaultProject(
       pan: 0,
     }],
     clips: [],
+    controllerPresets: [],
+    controllerInstances: [],
+    studioLayout: [],
   };
 }
 
