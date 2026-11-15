@@ -109,7 +109,7 @@ The Sampler editor can create a new variation from the selected sample. This wor
 4. The local gateway uploads the source audio to `POST /v1/music/upload`, then calls `POST /v1/music` with a one-chunk composition plan and a `conditioning_ref`.
 5. The returned variation is saved as a separate local audio asset and a new Sampler track. The source track and asset are not modified.
 
-This requires Eleven Music API access on the configured ElevenLabs account (the Music API is available to paid subscribers). The gateway uses the existing server-side `ELEVENLABS_API_KEY`; no additional browser secret is introduced. Uploaded audio is sent to ElevenLabs and is subject to its audio upload and copyright-screening rules. Only upload audio you have the rights to use.
+This requires Eleven Music API access on the configured ElevenLabs account (the Music API is available to paid subscribers). The gateway uses the existing server-side `ELEVENLABS_API_KEY`; no additional browser secret is introduced. Uploaded audio is sent to ElevenLabs and is subject to its audio upload and copyright-screening rules. ElevenLabs documents a charge for the upload equivalent to a song generation, in addition to the subsequent generation; check current account pricing before using this workflow. Only upload audio you have the rights to use.
 
 **Important limitation:** Audio Reference and conditioning guide a new generation's sound, production style, instrumentation, tempo, and mood. They do not copy or remix the source sample, and they are not a reliable genre-transfer tool. Treat the result as a new variation inspired by the source, not a destructive edit or exact melody-preserving transformation. The source sample remains untouched.
 
