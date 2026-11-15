@@ -525,6 +525,34 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const footer = studioCard.querySelector<HTMLElement>('.workbench-footer');
     studioCard.replaceChildren(topbar, recordingGuide, workspace, dock);
     if (footer) studioCard.append(footer);
+
+    const addDialog = document.createElement('dialog');
+    addDialog.className = 'add-track-dialog';
+    addDialog.innerHTML = [
+      '<div class="add-track-dialog-heading"><div><h2>Add a track</h2><p>Choose the instrument this track will host.</p></div><button type="button" class="dialog-close" aria-label="Close">×</button></div>',
+      '<div class="instrument-choice-grid">',
+      '<button type="button" data-instrument="sampler"><strong>〰 Sampler</strong><span>Play any sound from your asset browser, or generate a new one.</span></button>',
+      '<button type="button" data-instrument="synth"><strong>∿ Synth</strong><span>Oscillators, filter and envelope. Shape a sound from scratch.</span></button>',
+      '<button type="button" data-instrument="piano"><strong>▤ Piano</strong><span>Keyboard instrument, ready for MIDI, desktop keys or VR hands.</span></button>',
+      '<button type="button" data-instrument="drums"><strong>▦ Drum kit</strong><span>A pad grid for beats. Swap in AI-made hits.</span></button>',
+      '</div><p class="dialog-footnote">The Theremin and VR hands are controllers. Route them to a track in Controllers.</p>',
+    ].join('');
+    studioCard.append(addDialog);
+    addDialog.querySelector('.dialog-close')?.addEventListener('click', () => addDialog.close());
+    addDialog.addEventListener('click', event => {
+      if (event.target === addDialog) addDialog.close();
+    });
+    addDialog.querySelectorAll<HTMLButtonElement>('[data-instrument]').forEach(button => {
+      button.addEventListener('click', () => {
+        const select = root.querySelector<HTMLSelectElement>('#new-instrument-type');
+        const addButton = root.querySelector<HTMLButtonElement>('#add-track');
+        if (!select || !addButton) return;
+        select.value = button.dataset.instrument ?? 'synth';
+        addDialog.close();
+        addButton.dataset.confirmed = 'true';
+        addButton.click();
+      });
+    });
   }
 
   const get = <T extends HTMLElement>(selector: string): T | null =>
@@ -1910,6 +1938,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   addTrackButton.addEventListener('click', () => {
     if (recorder.isRecording) return;
+    if (addTrackButton.dataset.confirmed !== 'true') {
+      get<HTMLDialogElement>('.add-track-dialog')?.showModal();
+      return;
+    }
+    delete addTrackButton.dataset.confirmed;
     const count = project.tracks.length + 1;
     const instrumentType = newInstrumentTypeSelect.value;
     if (!isInstrumentType(instrumentType)) return;
