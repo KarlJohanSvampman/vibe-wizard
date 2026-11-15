@@ -1566,16 +1566,16 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         changed.x < item.x + item.width && changed.x + changed.width > item.x &&
         changed.y < item.y + item.height && changed.y + changed.height > item.y);
       if (overlaps) {
-        controllerStatus.textContent = 'That position is occupied. Controls cannot overlap; choose an empty area.';
         refreshControllerDesigner();
+        controllerStatus.textContent = 'That position is occupied. Controls cannot overlap; choose an empty area.';
         return;
       }
       try {
         const next = validateControllerPreset({ ...current, updatedAt: new Date().toISOString(), version: current.version + 1, components: candidate });
         project = saveControllerPreset(project, next); syncControllerRoutes(); void persistProject(); refreshControllerDesigner();
       } catch (error) {
-        controllerStatus.textContent = error instanceof Error ? error.message : 'Could not update controller layout.';
         refreshControllerDesigner();
+        controllerStatus.textContent = error instanceof Error ? error.message : 'Could not update controller layout.';
       }
     };
     for (const component of preset.components) {
