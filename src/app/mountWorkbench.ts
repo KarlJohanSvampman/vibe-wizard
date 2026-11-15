@@ -1646,6 +1646,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       });
       projectHistory.commit(beforeEdit, project);
       const resources = resourceFor(track.id);
+      resources?.instrument.clearSample();
       if (audioReady && resources) await resources.instrument.loadSample(data);
       sampleStatus.textContent = audioReady
         ? 'Loaded: ' + file.name
