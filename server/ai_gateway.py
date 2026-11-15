@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -114,6 +114,145 @@ async def call_elevenlabs(request: GenerateAudioRequest) -> tuple[bytes, str]:
     return data, mime_type
 
 
+
+
+class TransformAudioRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    prompt: str = Field(min_length=1, max_length=4000)
+    duration_seconds: float = Field(alias="durationSeconds", ge=3, le=30)
+    reference_start_ms: int = Field(alias="referenceStartMs", ge=0)
+    reference_end_ms: int = Field(alias="referenceEndMs", ge=50, le=30000)
+    condition_strength: str = Field(default="high", alias="conditionStrength")
+
+    @field_validator("prompt")
+    @classmethod
+    def transform_prompt_must_not_be_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Transformation prompt must not be blank.")
+        return cleaned
+
+    @field_validator("condition_strength")
+    @classmethod
+    def validate_condition_strength(cls, value: str) -> str:
+        if value not in {"low", "medium", "high", "xhigh"}:
+            raise ValueError("Condition strength must be low, medium, high, or xhigh.")
+        return value
+
+    @field_validator("reference_end_ms")
+    @classmethod
+    def validate_reference_range(cls, value: int, info: Any) -> int:
+        start = info.data.get("reference_start_ms", 0)
+        if value - start < 50:
+            raise ValueError("The selected reference region must be at least 50 ms.")
+        return value
+
+
+def _extract_composed_audio(response: httpx.Response) -> tuple[bytes, str]:
+    """Extract audio from ElevenLabs' multipart music response (or a raw audio response)."""
+    content_type = response.headers.get("content-type", "audio/mpeg").split(";", 1)[0].strip().lower()
+    if content_type.startswith("audio/"):
+        return response.content, content_type
+    header = response.headers.get("content-type", "")
+    if not header.lower().startswith("multipart/"):
+        raise RuntimeError("ElevenLabs Music returned an unexpected response content type.")
+
+    from email.parser import BytesParser
+    from email.policy import default as email_policy
+
+    mime_message = BytesParser(policy=email_policy).parsebytes(
+        b"MIME-Version: 1.0\\r\\nContent-Type: " + header.encode("ascii", "replace")
+        + b"\\r\\n\\r\\n" + response.content
+    )
+    for part in mime_message.walk():
+        part_type = (part.get_content_type() or "").lower()
+        if part_type.startswith("audio/") or part_type == "application/octet-stream":
+            payload = part.get_payload(decode=True)
+            if payload:
+                detected_type = part_type if part_type.startswith("audio/") else "audio/mpeg"
+                return payload, detected_type
+    raise RuntimeError("ElevenLabs Music response did not contain an audio part.")
+
+
+async def call_elevenlabs_transform(
+    request: TransformAudioRequest,
+    source_data: bytes,
+    file_name: str,
+    mime_type: str,
+) -> tuple[bytes, str]:
+    """Use Eleven Music audio upload + conditioning to create a prompted variation."""
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("ELEVENLABS_API_KEY is not configured on the AI gateway.")
+    if not source_data or len(source_data) > MAX_AUDIO_BYTES:
+        raise RuntimeError("Source audio must be non-empty and no larger than 25 MB.")
+    if not mime_type.startswith("audio/"):
+        raise RuntimeError("The source file must be an audio file.")
+
+    safe_name = Path(file_name).name[:120] or "source-audio"
+    async with httpx.AsyncClient(timeout=httpx.Timeout(240, connect=20)) as client:
+        upload = await client.post(
+            "https://api.elevenlabs.io/v1/music/upload",
+            headers={"xi-api-key": api_key},
+            files={"file": (safe_name, source_data, mime_type)},
+        )
+        if upload.status_code in {401, 403}:
+            raise RuntimeError("ElevenLabs authentication failed. Check ELEVENLABS_API_KEY and Music API access.")
+        if upload.status_code == 429:
+            raise RuntimeError("ElevenLabs rate limit or account concurrency limit reached.")
+        if upload.status_code >= 400:
+            raise RuntimeError(f"ElevenLabs music upload failed (HTTP {upload.status_code}): {upload.text[:300]}")
+        try:
+            song_id = upload.json().get("song_id")
+        except (ValueError, AttributeError):
+            song_id = None
+        if not isinstance(song_id, str) or not song_id:
+            raise RuntimeError("ElevenLabs music upload did not return a song_id.")
+
+        duration_ms = max(3000, int(request.duration_seconds * 1000))
+        composition_plan = {
+            "chunks": [{
+                "text": "[Instrumental]\\n" + request.prompt,
+                "duration_ms": duration_ms,
+                "positive_styles": [],
+                "negative_styles": [],
+                "context_adherence": "high",
+                "conditioning_ref": {
+                    "song_id": song_id,
+                    "range": {
+                        "start_ms": request.reference_start_ms,
+                        "end_ms": request.reference_end_ms,
+                    },
+                },
+                "condition_strength": request.condition_strength,
+            }],
+        }
+        composed = await client.post(
+            "https://api.elevenlabs.io/v1/music",
+            params={"output_format": "mp3_44100_128"},
+            headers={"xi-api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "composition_plan": composition_plan,
+                "model_id": "music_v2_5",
+                "store_for_inpainting": False,
+            },
+        )
+        if composed.status_code in {401, 403}:
+            raise RuntimeError("ElevenLabs Music API access was denied. Check your paid-plan API access.")
+        if composed.status_code == 429:
+            raise RuntimeError("ElevenLabs Music rate limit or account concurrency limit reached.")
+        if composed.status_code >= 400:
+            raise RuntimeError(f"ElevenLabs Music transformation failed (HTTP {composed.status_code}): {composed.text[:300]}")
+        data, output_mime = _extract_composed_audio(composed)
+
+    if not data:
+        raise RuntimeError("ElevenLabs Music returned an empty transformed sample.")
+    if len(data) > MAX_AUDIO_BYTES:
+        raise RuntimeError("Transformed audio exceeds the 25 MB gateway limit.")
+    return data, output_mime
+
+
 async def _run_generation(job_id: str, request: GenerateAudioRequest) -> None:
     job = JOBS.get(job_id)
     if not job:
@@ -189,6 +328,87 @@ async def create_generation(
     }
     background_tasks.add_task(_run_generation, job_id, request)
     return {"jobId": job_id}
+
+
+@app.post("/api/audio/transformations", status_code=202)
+async def create_transformation(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    prompt: str = Form(..., min_length=1, max_length=4000),
+    duration_seconds: float = Form(..., alias="durationSeconds", ge=3, le=30),
+    reference_start_ms: int = Form(..., alias="referenceStartMs", ge=0),
+    reference_end_ms: int = Form(..., alias="referenceEndMs", ge=50, le=30000),
+    condition_strength: str = Form("high", alias="conditionStrength"),
+) -> dict[str, str]:
+    if not os.getenv("ELEVENLABS_API_KEY", "").strip():
+        raise HTTPException(
+            status_code=503,
+            detail="Set ELEVENLABS_API_KEY in the server environment before transforming audio.",
+        )
+    if not (file.content_type or "").lower().startswith("audio/"):
+        raise HTTPException(status_code=415, detail="Upload an audio file to transform.")
+    try:
+        request = TransformAudioRequest(
+            prompt=prompt,
+            durationSeconds=duration_seconds,
+            referenceStartMs=reference_start_ms,
+            referenceEndMs=reference_end_ms,
+            conditionStrength=condition_strength,
+        )
+    except Exception as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    source_data = await file.read(MAX_AUDIO_BYTES + 1)
+    if not source_data:
+        raise HTTPException(status_code=422, detail="The source audio file is empty.")
+    if len(source_data) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Source audio exceeds the 25 MB gateway limit.")
+
+    _prune_jobs()
+    job_id = uuid.uuid4().hex
+    JOBS[job_id] = {
+        "jobId": job_id,
+        "status": "queued",
+        "progress": 0,
+        "message": "Waiting for the audio transformation service",
+        "createdAtEpoch": time.time(),
+    }
+    background_tasks.add_task(
+        _run_transformation,
+        job_id,
+        request,
+        source_data,
+        Path(file.filename or "source-audio").name,
+        (file.content_type or "audio/mpeg").split(";", 1)[0].lower(),
+    )
+    return {"jobId": job_id}
+
+
+async def _run_transformation(
+    job_id: str,
+    request: TransformAudioRequest,
+    source_data: bytes,
+    file_name: str,
+    mime_type: str,
+) -> None:
+    job = JOBS.get(job_id)
+    if not job:
+        return
+    job.update(status="running", progress=5, message="Uploading source audio to Eleven Music")
+    try:
+        job.update(progress=25, message="Conditioning a new variation on the selected sample")
+        data, output_mime = await call_elevenlabs_transform(request, source_data, file_name, mime_type)
+        job.update(
+            status="succeeded",
+            progress=100,
+            message="Audio transformation complete",
+            data=data,
+            mimeType=output_mime,
+            fileName=f"vibe-wizard-transform-{job_id}.mp3" if output_mime in {"audio/mpeg", "audio/mp3"} else f"vibe-wizard-transform-{job_id}.wav",
+        )
+    except Exception as error:
+        logger.warning("Audio transformation job %s failed: %s", job_id, error)
+        job.update(status="failed", progress=0, message=str(error)[:400] or "Audio transformation failed.")
 
 
 @app.get("/api/audio/generations/{job_id}")
