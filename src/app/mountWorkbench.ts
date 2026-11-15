@@ -1699,7 +1699,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     guitar.chords.forEach((chord, index) => {
       const slot = document.createElement('div'); slot.className = 'guitar-chord-slot';
       const select = document.createElement('select'); select.setAttribute('aria-label', 'Assign chord to guitar button ' + (index + 1));
-      for (const optionChord of guitar.chords) { const option = document.createElement('option'); option.value = optionChord.id; option.textContent = optionChord.name; select.append(option); }
+      for (const optionChord of guitar.chordLibrary) { const option = document.createElement('option'); option.value = optionChord.id; option.textContent = optionChord.name; select.append(option); }
       select.value = chord.id;
       select.addEventListener('change', () => { guitar.assignChord(index, select.value); refreshGuitar(); });
       const button = document.createElement('button'); button.type = 'button'; button.textContent = String(index + 1) + ' · ' + chord.name;
