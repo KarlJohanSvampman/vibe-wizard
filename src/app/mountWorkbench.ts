@@ -3067,15 +3067,21 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   clipPlayButton.addEventListener('click', () => {
     if (!selectedClip || !audioReady) return;
-    try {
+    const clip = selectedClip;
+    void (async () => {
       arrangementTransport.stop();
       for (const resources of trackResources.values()) resources.transport.stop();
-      const resources = resourceFor(selectedClip.trackId);
-      if (!resources) throw new Error('The clip track has no instrument runtime.');
-      resources.transport.play(projectClipToRecordingClip(selectedClip, project.tempoBpm));
-    } catch (error) {
+      const track = project.tracks.find(item => item.id === clip.trackId);
+      if (!track) throw new Error('The clip track no longer exists.');
+      const resources = ensureTrackRuntime(track);
+      await ensureTrackAudioReady(track.id);
+      if (track.instrumentType === 'sampler' && track.sampleAssetId && !resources.instrument.hasSample) {
+        throw new Error('The sample for "' + track.name + '" is missing. Re-import it before playback.');
+      }
+      resources.transport.play(projectClipToRecordingClip(clip, project.tempoBpm));
+    })().catch(error => {
       captureStatus.textContent = error instanceof Error ? error.message : 'Could not play clip';
-    }
+    });
   });
   clipDeleteButton.addEventListener('click', () => {
     if (!selectedClip || recorder.isRecording || anyTransportPlaying()) return;
