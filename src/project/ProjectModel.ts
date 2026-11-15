@@ -526,6 +526,23 @@ export function resizeProjectClip(
   });
 }
 
+/** Remove a clip from the project without affecting its source track. */
+export function deleteProjectClip(
+  snapshot: ProjectSnapshot,
+  clipId: string,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (!project.clips.some(clip => clip.id === clipId)) {
+    throw new Error('Cannot delete unknown clip: ' + clipId);
+  }
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    clips: project.clips.filter(clip => clip.id !== clipId),
+  });
+}
+
 /** Duplicate a clip immediately after its source while preserving recorded events. */
 export function duplicateProjectClip(
   snapshot: ProjectSnapshot,
