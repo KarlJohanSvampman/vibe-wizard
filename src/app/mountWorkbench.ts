@@ -20,7 +20,6 @@ import {
   addInstrumentTrack,
   addRecordingToProject,
   addProjectClipNote,
-  createDefaultProject,
   createEmptyProject,
   deleteProjectTrack,
   deleteProjectClipNote,
