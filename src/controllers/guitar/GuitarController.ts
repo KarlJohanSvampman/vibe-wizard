@@ -18,7 +18,7 @@ export interface StrumResult {
 
 /** Chord selector plus six independently pluckable strings and directional strumming. */
 export class GuitarController {
-  readonly chords: GuitarChord[] = [
+  readonly chordLibrary: readonly GuitarChord[] = [
     { id: 'open', name: 'Open', midiNotes: [40, 47, 52, 57, 62, 67] },
     { id: 'c', name: 'C', midiNotes: [48, 55, 60, 64, 67] },
     { id: 'g', name: 'G', midiNotes: [43, 50, 55, 59, 62, 67] },
@@ -26,6 +26,8 @@ export class GuitarController {
     { id: 'a', name: 'A', midiNotes: [45, 52, 57, 61, 64] },
     { id: 'e', name: 'E', midiNotes: [40, 47, 52, 56, 59, 64] },
   ];
+  /** Six independently assignable performance buttons; the library remains intact. */
+  readonly chords: GuitarChord[] = [...this.chordLibrary];
   private selectedChordId = 'open';
   private activeNotes = new Set<string>();
   private swipeStart?: { x: number; y: number; time: number };
@@ -34,10 +36,10 @@ export class GuitarController {
 
   constructor(private readonly options: GuitarControllerOptions) { this.now = options.now ?? (() => performance.now() / 1000); }
   get selectedChord(): GuitarChord { return this.chords.find(chord => chord.id === this.selectedChordId)!; }
-  selectChord(id: string): void { if (!this.chords.some(chord => chord.id === id)) throw new Error('Unknown guitar chord: ' + id); this.selectedChordId = id; }
+  selectChord(id: string): void { if (!this.chordLibrary.some(chord => chord.id === id)) throw new Error('Unknown guitar chord: ' + id); this.selectedChordId = id; }
   assignChord(buttonIndex: number, chordId: string): void {
     if (!Number.isInteger(buttonIndex) || buttonIndex < 0 || buttonIndex > 5) throw new Error('Guitar chord button must be between 0 and 5.');
-    const chord = this.chords.find(item => item.id === chordId);
+    const chord = this.chordLibrary.find(item => item.id === chordId);
     if (!chord) throw new Error('Unknown guitar chord: ' + chordId);
     this.chords[buttonIndex] = chord;
   }
