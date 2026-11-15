@@ -2,8 +2,10 @@ import type { MusicalEvent } from '../audio/events.js';
 import type { RecordedEvent, RecordingClip } from '../sequencer/Recorder.js';
 import { isInstrumentType } from '../audio/InstrumentTypes.js';
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
+import { validateControllerInstance, validateControllerPreset, validateStudioPlacement } from '../controllers/ControllerModel.js';
+import type { ControllerInstance, ControllerPreset, StudioObjectPlacement } from '../controllers/ControllerModel.js';
 
-export const PROJECT_SCHEMA_VERSION = 5 as const;
+export const PROJECT_SCHEMA_VERSION = 6 as const;
 
 export interface SamplerSettings {
   readonly startPosition: number;
@@ -91,6 +93,12 @@ export interface ProjectSnapshot {
   readonly activeTrackId: string;
   readonly tracks: readonly ProjectTrack[];
   readonly clips: readonly ProjectClip[];
+  /** Reusable controller designs included with this project snapshot. */
+  readonly controllerPresets: readonly ControllerPreset[];
+  /** Project-local instances; each can be placed and routed independently. */
+  readonly controllerInstances: readonly ControllerInstance[];
+  /** Persisted VR studio object transforms, independent of the arrangement timeline. */
+  readonly studioLayout: readonly StudioObjectPlacement[];
 }
 
 export type ProjectTrackPatch = Partial<
@@ -123,6 +131,9 @@ export function createEmptyProject(now = new Date()): ProjectSnapshot {
     activeTrackId: '',
     tracks: [],
     clips: [],
+    controllerPresets: [],
+    controllerInstances: [],
+    studioLayout: [],
   };
 }
 
@@ -675,7 +686,7 @@ export function migrateProjectRecord(value: unknown): unknown {
   if (!isRecord(value)) throw new Error('Project data must be an object.');
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) return value;
   if (
-    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5) ||
     !Array.isArray(value.tracks)
   ) {
     throw new Error('Unsupported project schema version: ' + String(value.schemaVersion) + '.');
@@ -721,6 +732,9 @@ export function migrateProjectRecord(value: unknown): unknown {
     tempoBpm,
     tracks,
     clips,
+    controllerPresets: Array.isArray(value.controllerPresets) ? value.controllerPresets : [],
+    controllerInstances: Array.isArray(value.controllerInstances) ? value.controllerInstances : [],
+    studioLayout: Array.isArray(value.studioLayout) ? value.studioLayout : [],
     loopRegion: isRecord(value.loopRegion)
       ? value.loopRegion
       : { enabled: false, startBeat: 0, endBeat: 16 },
@@ -854,6 +868,34 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     return { ...item, events } as unknown as ProjectClip;
   });
 
+  const controllerPresets = (value.controllerPresets ?? []).map(validateControllerPreset);
+  const presetIds = new Set<string>();
+  for (const preset of controllerPresets) {
+    if (presetIds.has(preset.id)) throw new Error('Project contains duplicate controller preset IDs.');
+    presetIds.add(preset.id);
+  }
+  const controllerInstances = (value.controllerInstances ?? []).map(item => validateControllerInstance(item, presetIds));
+  const instanceIds = new Set<string>();
+  for (const instance of controllerInstances) {
+    if (instanceIds.has(instance.id)) throw new Error('Project contains duplicate controller instance IDs.');
+    instanceIds.add(instance.id);
+    if (instance.targetTrackId && !trackIds.has(instance.targetTrackId)) {
+      throw new Error('Controller instance references an unknown project track.');
+    }
+  }
+  const studioLayout = (value.studioLayout ?? []).map(validateStudioPlacement);
+  const placementIds = new Set<string>();
+  for (const placement of studioLayout) {
+    if (placementIds.has(placement.id)) throw new Error('Project contains duplicate studio placement IDs.');
+    placementIds.add(placement.id);
+    if (placement.objectType === 'instrument-track' && !trackIds.has(placement.objectRefId)) {
+      throw new Error('Studio placement references an unknown instrument track.');
+    }
+    if (placement.objectType === 'controller-instance' && !instanceIds.has(placement.objectRefId)) {
+      throw new Error('Studio placement references an unknown controller instance.');
+    }
+  }
+
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     id: value.id,
@@ -873,5 +915,8 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     activeTrackId: value.activeTrackId,
     tracks,
     clips,
+    controllerPresets,
+    controllerInstances,
+    studioLayout,
   };
 }
