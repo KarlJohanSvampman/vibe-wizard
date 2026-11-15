@@ -568,3 +568,52 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
   .sampler-transform-controls { grid-template-columns: 1fr; }
   .sampler-transform-panel button { width: 100%; }
 }
+
+
+/* Track selection and empty-project controls */
+.track-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 7px;
+  margin: 10px 0 12px;
+}
+.track-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(190,171,226,.16);
+  border-radius: 9px;
+  color: #e9e1f5;
+  background: rgba(12,11,19,.72);
+  text-align: left;
+  cursor: pointer;
+}
+.track-row:hover { border-color: rgba(190,171,226,.4); background: rgba(95,72,130,.18); }
+.track-row.is-selected {
+  border-color: rgba(190,151,255,.8);
+  background: rgba(119,82,172,.24);
+  box-shadow: inset 3px 0 #ba91ff;
+}
+.track-row:disabled { opacity: .55; cursor: default; }
+.track-row-main { display: grid; gap: 4px; min-width: 0; }
+.track-row-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.track-row-main small { color: #9d94ad; font-size: 9px; }
+.track-row-state { flex: 0 0 auto; color: #a99bbd; font-size: 8px; font-weight: 800; letter-spacing: .06em; }
+.track-row.is-selected .track-row-state { color: #d9c2ff; }
+.legacy-track-select { display: none !important; }
+.danger-button { border-color: rgba(237,105,124,.38); color: #ffcbd4; background: rgba(137,42,59,.18); }
+.danger-button:disabled { opacity: .35; }
+.track-list:empty::after {
+  content: "No tracks yet. Choose an instrument above and click Add track.";
+  display: block;
+  grid-column: 1 / -1;
+  padding: 18px;
+  border: 1px dashed rgba(190,171,226,.22);
+  border-radius: 9px;
+  color: #91899f;
+  font-size: 11px;
+  text-align: center;
+}
