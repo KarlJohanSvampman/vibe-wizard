@@ -20,11 +20,12 @@ export class StudioSpatialAdapter {
   private placements: StudioObjectPlacement[] = [];
   private draggingId?: string;
   private pinching = false;
-  private scratchActive = false;
+  private lastScratchNormalized = -1;
+  private lastScratchAt = 0;
   private readonly stopFrame: () => void;
   private readonly stopVisibility: () => void;
 
-  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void) {
+  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined) {
     this.root.name = 'vibe-wizard-spatial-studio';
     this.root.visible = world.visibilityState.value !== VisibilityState.NonImmersive;
     this.buildTurntable();
@@ -101,9 +102,11 @@ export class StudioSpatialAdapter {
     this.root.rotation.set(0,Math.atan2(-this.forward.x,-this.forward.z),0);this.root.updateMatrixWorld(true);
     const source=this.world.input.xr.getPrimaryInputSource('right')??this.world.input.xr.getPrimaryInputSource('left');
     const index=source?.hand?.get('index-finger-tip'),thumb=source?.hand?.get('thumb-tip'),reference=this.world.xrReferenceSpace;
-    if(!index||!thumb||!reference){this.finishDrag();this.scratchActive=false;return;}
+    const playbackPosition = this.getPlaybackPosition?.();
+    if (playbackPosition !== undefined && Number.isFinite(playbackPosition)) this.record.rotation.y = playbackPosition * Math.PI * 8;
+    if(!index||!thumb||!reference){this.finishDrag();this.lastScratchNormalized=-1;return;}
     const indexPose=frame.getPose(index,reference),thumbPose=frame.getPose(thumb,reference);
-    if(!indexPose||!thumbPose){this.finishDrag();this.scratchActive=false;return;}
+    if(!indexPose||!thumbPose){this.finishDrag();this.lastScratchNormalized=-1;return;}
     this.handWorld.set(indexPose.transform.position.x,indexPose.transform.position.y,indexPose.transform.position.z);
     this.world.player.updateMatrixWorld(true);this.world.player.localToWorld(this.handWorld);this.handLocal.copy(this.handWorld);this.root.worldToLocal(this.handLocal);
     const thumbWorld=new Vector3(thumbPose.transform.position.x,thumbPose.transform.position.y,thumbPose.transform.position.z);this.world.player.localToWorld(thumbWorld);
@@ -111,8 +114,15 @@ export class StudioSpatialAdapter {
     // Scratch by pinching and moving the index finger across the vinyl surface.
     const deckLocal=this.turntable.worldToLocal(this.handWorld.clone());
     const overRecord=Math.abs(deckLocal.x)<0.3&&Math.abs(deckLocal.z)<0.3&&deckLocal.y>0.08&&deckLocal.y<0.22;
-    if(pinching&&overRecord){this.scratchActive=true;this.onScratch?.(Math.max(0,Math.min(1,(deckLocal.x+0.3)/0.6)));}
-    else if(!pinching)this.scratchActive=false;
+    if(pinching&&overRecord){
+      const normalized=Math.max(0,Math.min(1,(deckLocal.x+0.3)/0.6));
+      const now=performance.now();
+      // Avoid restarting the audio source on every XR frame; update the scrub position
+      // only after a meaningful platter movement and at a bounded rate.
+      if(Math.abs(normalized-this.lastScratchNormalized)>0.012 && now-this.lastScratchAt>=40){
+        this.onScratch?.(normalized);this.lastScratchNormalized=normalized;this.lastScratchAt=now;
+      }
+    } else if(!pinching) this.lastScratchNormalized=-1;
     if(pinching&&!this.pinching){
       let nearest:{id:string;distance:number}|undefined;
       for(const [id,group] of this.meshes){const distance=group.position.distanceTo(this.handLocal);if(distance<0.24&&(!nearest||distance<nearest.distance))nearest={id,distance};}
