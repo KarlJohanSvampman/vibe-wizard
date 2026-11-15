@@ -357,6 +357,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      </div>',
     '      <p class="ai-generation-status" id="ai-generation-status" role="status">ElevenLabs currently lists 40 credits per second when a duration is specified. Check your account pricing before generating. The API key stays on the local server, never in this browser.</p>',
     '    </section>',
+    '    <section class="asset-browser-panel">',
+    '      <div class="section-heading"><div><p class="eyebrow">LOCAL SOUND LIBRARY</p><h3>Audio assets</h3></div><button class="transport-button" id="asset-refresh" type="button">↻ Refresh</button></div>',
+    '      <div class="asset-browser-toolbar"><input id="asset-search" type="search" placeholder="Search sounds…" aria-label="Search audio assets" /><select id="asset-filter" aria-label="Filter audio assets"><option value="all">All sounds</option><option value="ai-generated">AI generated</option><option value="ai-transformed">AI transformed</option><option value="user-import">Imported</option></select></div>',
+    '      <div id="asset-browser-list" class="asset-browser-list" role="list" aria-live="polite"><p class="asset-empty">Loading local audio assets…</p></div>',
+    '      <p class="asset-browser-hint">Audio assets are stored in this browser on this device, separately from projects. They remain available across projects in this browser.</p>',
+    '    </section>',
     '    <div class="track-mixer-controls">',
     '      <label for="track-volume"><span>TRACK LEVEL</span><input id="track-volume" type="range" min="0" max="1" step="0.01" value="0.8" /></label>',
     '      <label for="track-pan"><span>STEREO PAN</span><input id="track-pan" type="range" min="-1" max="1" step="0.01" value="0" /></label>',
@@ -440,6 +446,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const aiGenerateButton = get<HTMLButtonElement>('#ai-generate-sample');
   const aiCancelButton = get<HTMLButtonElement>('#ai-cancel-generation');
   const aiGenerationStatus = get<HTMLElement>('#ai-generation-status');
+  const assetRefreshButton = get<HTMLButtonElement>('#asset-refresh');
+  const assetSearchInput = get<HTMLInputElement>('#asset-search');
+  const assetFilterSelect = get<HTMLSelectElement>('#asset-filter');
+  const assetBrowserList = get<HTMLElement>('#asset-browser-list');
   const samplerTransformPrompt = get<HTMLTextAreaElement>('#sampler-transform-prompt');
   const samplerTransformDuration = get<HTMLInputElement>('#sampler-transform-duration');
   const samplerTransformStrength = get<HTMLSelectElement>('#sampler-transform-strength');
@@ -488,6 +498,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !samplerLoopStartInput || !samplerLoopEndInput || !samplerRootNoteInput ||
     !samplerStartTime || !samplerEndTime || !samplerLoopStartTime || !samplerLoopEndTime || !aiServiceUrlInput || !aiSamplePromptInput || !aiSampleDurationInput ||
     !aiGenerateButton || !aiCancelButton || !aiGenerationStatus ||
+    !assetRefreshButton || !assetSearchInput || !assetFilterSelect || !assetBrowserList ||
     !samplerTransformPrompt || !samplerTransformDuration || !samplerTransformStrength ||
     !samplerTransformButton || !samplerTransformStatus ||
     !addTrackButton || !armTrackButton || !muteTrackButton ||
