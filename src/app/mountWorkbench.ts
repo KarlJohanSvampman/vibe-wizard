@@ -1616,6 +1616,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const file = sampleFileInput.files?.[0];
     const track = activeTrack();
     if (!file) return;
+    if (recorder.isRecording || anyTransportPlaying()) {
+      sampleStatus.textContent = 'Stop recording and playback before replacing a sample.';
+      sampleFileInput.value = '';
+      return;
+    }
     if (track.instrumentType !== 'sampler') {
       sampleStatus.textContent = 'Select a Sampler track before importing audio.';
       sampleFileInput.value = '';
