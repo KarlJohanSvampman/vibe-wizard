@@ -728,8 +728,8 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
         !finiteNumber(item.samplerSettings.startPosition) || item.samplerSettings.startPosition < 0 || item.samplerSettings.startPosition >= 1 ||
         !finiteNumber(item.samplerSettings.endPosition) || item.samplerSettings.endPosition > 1 || item.samplerSettings.endPosition <= item.samplerSettings.startPosition ||
         typeof item.samplerSettings.loopEnabled !== 'boolean' ||
-        !finiteNumber(item.samplerSettings.loopStart) || item.samplerSettings.loopStart < 0 || item.samplerSettings.loopStart >= 1 ||
-        !finiteNumber(item.samplerSettings.loopEnd) || item.samplerSettings.loopEnd > 1 || item.samplerSettings.loopEnd <= item.samplerSettings.loopStart ||
+        !finiteNumber(item.samplerSettings.loopStart) || item.samplerSettings.loopStart < item.samplerSettings.startPosition || item.samplerSettings.loopStart >= 1 ||
+        !finiteNumber(item.samplerSettings.loopEnd) || item.samplerSettings.loopEnd > item.samplerSettings.endPosition || item.samplerSettings.loopEnd <= item.samplerSettings.loopStart ||
         !finiteNumber(item.samplerSettings.rootNote) || !Number.isInteger(item.samplerSettings.rootNote) || item.samplerSettings.rootNote < 0 || item.samplerSettings.rootNote > 127 ||
         (item.samplerSettings.playbackMode !== 'one-shot' && item.samplerSettings.playbackMode !== 'gate'))) ||
       !finiteNumber(item.order) ||
