@@ -80,8 +80,8 @@ export class StudioSpatialAdapter {
     this.turntable.name = 'vibe-wizard-vr-turntable';
     this.add(this.turntable,new BoxGeometry(0.9,0.11,0.68),0x34383e,[0,0,0]);
     this.add(this.turntable,new CylinderGeometry(0.36,0.36,0.025,48),0x111316,[0,0.075,0]);
-    this.record.position.set(0,0.096,0); this.record.rotation.x=Math.PI/2; this.record.castShadow=true; this.turntable.add(this.record);
-    const label=this.add(this.turntable,new CylinderGeometry(0.09,0.09,0.008,32),0xb58a52,[0,0.111,0]); label.rotation.x=Math.PI/2;
+    this.record.position.set(0,0.096,0);  this.record.castShadow=true; this.turntable.add(this.record);
+    const label=this.add(this.turntable,new CylinderGeometry(0.09,0.09,0.008,32),0xb58a52,[0,0.111,0]); 
     for(let r=0.13;r<0.29;r+=0.035){const groove=new Mesh(new RingGeometry(r,r+0.002,48),this.material(0x55585c,0.2,0.65));groove.rotation.x=-Math.PI/2;groove.position.y=0.111;this.turntable.add(groove);}
     this.tonearm.position.set(0.34,0.12,-0.22);
     const arm=this.add(this.tonearm,new CylinderGeometry(0.012,0.012,0.42,12),0xbfc4ca,[0,0.18,0]);arm.rotation.z=-0.55;
