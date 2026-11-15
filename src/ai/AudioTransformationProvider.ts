@@ -121,8 +121,9 @@ export class HttpAudioTransformationProvider {
     if (
       !Number.isFinite(request.durationSeconds) || request.durationSeconds < 3 || request.durationSeconds > 30 ||
       !Number.isInteger(request.referenceStartMs) || request.referenceStartMs < 0 ||
-      !Number.isInteger(request.referenceEndMs) || request.referenceEndMs > 30000 ||
-      request.referenceEndMs - request.referenceStartMs < 50
+      !Number.isInteger(request.referenceEndMs) || request.referenceEndMs > 600000 ||
+      request.referenceEndMs - request.referenceStartMs < 50 ||
+      request.referenceEndMs - request.referenceStartMs > 30000
     ) {
       throw new Error('Transformation duration or selected reference region is outside the supported range.');
     }
