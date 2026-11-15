@@ -181,11 +181,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     await Promise.all([instrumentStart, busStart]);
     if (track.instrumentType === 'sampler' && track.sampleAssetId && !resources.instrument.hasSample) {
       const asset = await sampleAssets.load(track.sampleAssetId);
-      if (!asset) {
-        throw new Error('Audio asset "' + (track.sampleFileName ?? track.sampleAssetId) +
-          '" is missing for sampler track "' + track.name + '". Restore or re-import the sample before playback.');
-      }
-      await resources.instrument.loadSample(asset.data);
+      if (asset) await resources.instrument.loadSample(asset.data);
+      else console.warn('Missing audio asset "' + track.sampleAssetId + '" for sampler track "' + track.name + '".');
     }
     applyTrackMix();
   };
@@ -3124,6 +3121,15 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       ensureTrackRuntime(track);
       await ensureTrackAudioReady(track.id);
     }));
+    const missingSampleTrack = project.tracks.find(track =>
+      track.instrumentType === 'sampler' && track.sampleAssetId &&
+      project.clips.some(clip => clip.trackId === track.id) &&
+      !resourceFor(track.id)?.instrument.hasSample,
+    );
+    if (missingSampleTrack) {
+      throw new Error('Missing audio asset "' + (missingSampleTrack.sampleFileName ?? missingSampleTrack.sampleAssetId) +
+        '" for sampler track "' + missingSampleTrack.name + '". Re-import the sample before playback.');
+    }
     const sinks = new Map(
       project.tracks.map(track => [track.id, resourceFor(track.id)!.instrument] as const),
     );
