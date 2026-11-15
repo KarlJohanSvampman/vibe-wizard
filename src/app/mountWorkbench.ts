@@ -11,6 +11,10 @@ import { Rack } from '../rack/Rack.js';
 import { ParameterBus } from '../rack/ParameterBus.js';
 import { TrackAudioBus } from '../rack/TrackAudioBus.js';
 import { ThereminController } from '../controllers/theremin/ThereminController.js';
+import { ControllerRuntime } from '../controllers/ControllerRuntime.js';
+import { createControllerPreset, createControllerInstance, validateControllerPreset, type ControllerComponentDefinition, type ControllerPreset, type ControllerInstance } from '../controllers/ControllerModel.js';
+import { GuitarController } from '../controllers/guitar/GuitarController.js';
+import { TurntableDeck } from '../controllers/turntable/TurntableDeck.js';
 import { ThereminSpatialAdapter } from '../controllers/theremin/ThereminSpatialAdapter.js';
 import { EventRecorder, type RecordingClip } from '../sequencer/Recorder.js';
 import { ArrangementTransport } from '../sequencer/ArrangementTransport.js';
@@ -39,6 +43,10 @@ import {
   DEFAULT_SAMPLER_SETTINGS,
   type SamplerSettings,
   updateProjectLoopRegion,
+  saveControllerPreset,
+  addControllerInstance,
+  updateControllerInstance,
+  updateStudioLayout,
   type ProjectClip,
   type ProjectSnapshot,
   type ProjectTrack,
@@ -511,6 +519,23 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     take<HTMLElement>('#sampler-editor', instrumentPane);
     take<HTMLElement>('.track-mixer-controls', mixerPane);
     controllersPane.append(controllerPanel);
+    const controllerStudio = document.createElement('section');
+    controllerStudio.className = 'controller-studio';
+    controllerStudio.innerHTML = `
+      <div class="section-heading"><div><p class="eyebrow">UNIVERSAL CONTROLLER DESIGNER</p><h3>Build a control surface</h3></div><span class="module-chip">REUSABLE PRESETS</span></div>
+      <div class="controller-designer-toolbar"><input id="controller-preset-name" aria-label="Controller preset name" value="My Controller" maxlength="60"><button id="controller-new-preset" class="transport-button" type="button">＋ New preset</button><select id="controller-preset-select" aria-label="Controller preset"></select><button id="controller-add-instance" class="transport-button" type="button">＋ Add to studio</button></div>
+      <div class="controller-component-tools"><button type="button" data-add-component="knob">＋ Knob</button><button type="button" data-add-component="slider">＋ Slider</button><button type="button" data-add-component="button">＋ Button</button><button type="button" data-add-component="toggle">＋ Toggle</button><button type="button" data-add-component="xy-pad">＋ XY pad</button><button type="button" data-add-component="keyboard">＋ Keyboard</button><button type="button" data-add-component="drum-pad">＋ Drum pad</button><button type="button" data-add-component="guitar-fret">＋ Guitar fret</button><button type="button" data-add-component="turntable">＋ Turntable</button></div>
+      <div id="controller-board" class="controller-board" aria-label="Controller layout"></div><p id="controller-status" class="controller-status" role="status">Create a preset, add controls, then assign each control to a track parameter.</p>
+      <div class="section-heading"><div><p class="eyebrow">GUITAR HERO INSTRUMENT</p><h3>Virtual chord guitar</h3></div><span class="module-chip">LEFT HAND · CHORDS / RIGHT HAND · STRUM</span></div>
+      <div id="guitar-chords" class="guitar-chords"></div><div id="guitar-strum" class="guitar-strum" role="button" tabindex="0" aria-label="Swipe here to strum guitar">Swipe across the strings to strum</div><p id="guitar-status" class="controller-status">Choose a chord, then swipe down or up across the strings. Six chord slots include an open/no-fret chord.</p>
+      <div class="section-heading"><div><p class="eyebrow">TURNTABLE DECK</p><h3>Scratch and manipulate a sample</h3></div><span class="module-chip">PITCH · SPEED · SCRATCH</span></div>
+      <div class="turntable-controls"><select id="turntable-asset" aria-label="Turntable audio asset"><option value="">Choose a local audio asset…</option></select><button id="turntable-load" class="transport-button" type="button">Load deck</button><button id="turntable-play" class="transport-button" type="button" disabled>▶ Play</button><button id="turntable-stop" class="transport-button" type="button" disabled>■ Stop</button><label>Speed <input id="turntable-speed" type="range" min="-2" max="2" step="0.01" value="1"></label><output id="turntable-speed-value">1.00×</output></div>
+      <div id="turntable-platter" class="turntable-platter" role="slider" tabindex="0" aria-label="Scratch platter"><span>VINYL</span><small>Drag horizontally to scratch</small></div>
+      <div class="section-heading"><div><p class="eyebrow">SPATIAL STUDIO EDITOR</p><h3>Arrange your VR room</h3></div><span class="module-chip">POSITION · ROTATION · SCALE</span></div>
+      <div class="studio-editor-toolbar"><select id="studio-object-select" aria-label="Studio object"></select><label>X <input id="studio-x" type="number" step="0.1" value="0"></label><label>Y <input id="studio-y" type="number" step="0.1" value="0"></label><label>Z <input id="studio-z" type="number" step="0.1" value="0"></label><label>Yaw <input id="studio-yaw" type="number" step="5" value="0"></label><label>Scale <input id="studio-scale" type="number" min="0.1" max="20" step="0.1" value="1"></label><button id="studio-save-placement" class="transport-button" type="button">Save placement</button></div>
+      <div id="studio-room" class="studio-room" aria-label="Spatial studio layout editor"><div class="studio-room-floor"></div></div><p id="studio-status" class="controller-status">Drag objects around the room preview, then save their spatial transforms. These placements are stored in the project.</p>
+    `;
+    controllersPane.append(controllerStudio);
     take<HTMLElement>('.clip-library-row', editorPane);
     take<HTMLElement>('.transport-controls', editorPane);
     take<HTMLElement>('.timeline-wrap', editorPane);
