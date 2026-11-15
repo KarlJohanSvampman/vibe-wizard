@@ -260,8 +260,7 @@ export class AudioEngine implements RackModule {
       sources.push(sample);
       nodes.push(sample);
       pitchControls.push({ parameter: sample.playbackRate, multiplier: 1 });
-      if (sample.loop) sample.start(startTime, offset);
-      else sample.start(startTime, offset, Math.max(0.001, end - offset));
+
     } else {
       // Keep an unloaded sampler track responsive, while the UI asks for a file.
       addOscillator('triangle', 1);
@@ -291,7 +290,14 @@ export class AudioEngine implements RackModule {
           if (this.voices.get(event.noteId) === voice) this.voices.delete(event.noteId);
         }
       };
-      if (!(source instanceof AudioBufferSourceNode && this.instrumentType === 'sampler')) source.start(startTime);
+      if (this.instrumentType === 'sampler' && source === sources[0]) {
+        const sample = source as AudioBufferSourceNode;
+        const duration = this.sampleBuffer?.duration ?? 0;
+        const offset = clamp(this.samplerSettings.startPosition, 0, 0.999) * duration;
+        const end = clamp(this.samplerSettings.endPosition, this.samplerSettings.startPosition + 0.001, 1) * duration;
+        if (sample.loop) sample.start(startTime, offset);
+        else sample.start(startTime, offset, Math.max(0.001, end - offset));
+      } else source.start(startTime);
       const stopAt = sourceStopTimes.get(source);
       if (stopAt !== undefined) source.stop(stopAt);
     }
