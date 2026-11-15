@@ -8,9 +8,15 @@ export interface GuitarControllerOptions {
   readonly minimumSwipeDistance?: number;
   readonly maximumSwipeMs?: number;
 }
-export interface StrumResult { readonly direction: 'down' | 'up'; readonly intensity: number; readonly velocity: number; readonly chord: GuitarChord; }
+export interface StrumResult {
+  readonly direction: 'down' | 'up';
+  readonly intensity: number;
+  readonly velocity: number;
+  readonly chord: GuitarChord;
+  readonly stringPitches: readonly number[];
+}
 
-/** Six virtual chord buttons (five frets plus the open/no-fret chord) and a swipe strummer. */
+/** Chord selector plus six independently pluckable strings and directional strumming. */
 export class GuitarController {
   readonly chords: GuitarChord[] = [
     { id: 'open', name: 'Open', midiNotes: [40, 47, 52, 57, 62, 67] },
@@ -40,28 +46,46 @@ export class GuitarController {
     const start = this.swipeStart; this.swipeStart = undefined; if (!start) return;
     const dx = x - start.x, dy = y - start.y;
     const distance = Math.hypot(dx, dy), elapsed = Math.max(0.001, time - start.time);
-    const minimum = this.options.minimumSwipeDistance ?? 0.08;
-    const maxMs = this.options.maximumSwipeMs ?? 700;
-    if (distance < minimum || elapsed * 1000 > maxMs) return;
+    if (distance < (this.options.minimumSwipeDistance ?? 0.08) || elapsed * 1000 > (this.options.maximumSwipeMs ?? 700)) return;
     const intensity = Math.min(1, distance / 0.55);
     const velocity = Math.min(1, Math.max(0.12, intensity * (0.22 / elapsed)));
     const chord = this.selectedChord;
     const direction = dy >= 0 ? 'down' : 'up';
     this.strum(chord, velocity, time, direction);
-    return { direction, intensity, velocity, chord };
+    return { direction, intensity, velocity, chord, stringPitches: chord.midiNotes };
   }
-  strum(chord = this.selectedChord, velocity = 0.75, timestamp = this.now(), _direction: 'down' | 'up' = 'down'): void {
-    const safeVelocity = Math.min(1, Math.max(0, velocity));
-    for (const pitch of chord.midiNotes) {
-      const noteId = 'strum-' + (++this.noteSequence);
-      this.activeNotes.add(noteId);
-      this.options.emit({ kind: 'note-on', sourceId: this.options.sourceId, noteId, pitch, velocity: safeVelocity, timestamp });
-      this.options.emit({ kind: 'note-off', sourceId: this.options.sourceId, noteId, timestamp: timestamp + 0.28 });
-      this.activeNotes.delete(noteId);
-    }
+
+  /** Pluck a single string (0 = lowest-pitched/low-E string). */
+  pluckString(stringIndex: number, intensity = 0.7, timestamp = this.now()): number | undefined {
+    const pitch = this.selectedChord.midiNotes[stringIndex];
+    if (pitch === undefined) return undefined;
+    this.emitPluck(pitch, Math.min(1, Math.max(0.05, intensity)), timestamp, 0.34);
+    return pitch;
   }
+
+  /** Down-strums play low-to-high; up-strums play high-to-low with a velocity contour. */
+  strum(chord = this.selectedChord, intensity = 0.75, timestamp = this.now(), direction: 'down' | 'up' = 'down'): void {
+    const safe = Math.min(1, Math.max(0, intensity));
+    const pitches = direction === 'down' ? [...chord.midiNotes] : [...chord.midiNotes].reverse();
+    const spread = 0.009 + (1 - safe) * 0.018;
+    pitches.forEach((pitch, index) => {
+      const contour = direction === 'down' ? 1 - index * 0.055 : 1 - index * 0.055;
+      const velocity = Math.max(0.04, Math.min(1, safe * contour));
+      this.emitPluck(pitch, velocity, timestamp + index * spread, 0.24 + safe * 0.12);
+    });
+  }
+
   stopAll(timestamp = this.now()): void {
     for (const noteId of this.activeNotes) this.options.emit({ kind: 'note-off', sourceId: this.options.sourceId, noteId, timestamp });
     this.activeNotes.clear();
+  }
+
+  private emitPluck(pitch: number, velocity: number, timestamp: number, duration: number): void {
+    const noteId = 'guitar-string-' + (++this.noteSequence);
+    this.activeNotes.add(noteId);
+    this.options.emit({ kind: 'note-on', sourceId: this.options.sourceId, noteId, pitch, velocity, timestamp });
+    // Emit note-off with its intended musical timestamp; the audio event consumer schedules it.
+    this.options.emit({ kind: 'note-off', sourceId: this.options.sourceId, noteId, timestamp: timestamp + duration });
+    this.activeNotes.delete(noteId);
   }
 }
