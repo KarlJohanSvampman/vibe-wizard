@@ -108,6 +108,24 @@ describe('project model', () => {
     })).toThrow(/invalid track/i);
   });
 
+  it('preserves turntable audio asset references through project validation and reopen serialization', () => {
+    const base = createEmptyProject();
+    const withSampler = addInstrumentTrack(base, 'Recorded turntable', 'turntable-sampler-1', new Date(), 'sampler');
+    const track = withSampler.tracks[0]!;
+    const linked = updateProjectTrack(withSampler, track.id, {
+      sampleAssetId: 'audio-asset-turntable-1',
+      sampleFileName: 'Turntable Performance.wav',
+      samplerSettings: { ...track.samplerSettings!, playbackMode: 'one-shot' },
+    });
+    const restored = validateProjectSnapshot(JSON.parse(JSON.stringify(linked)));
+    expect(restored.tracks[0]).toMatchObject({
+      instrumentType: 'sampler',
+      sampleAssetId: 'audio-asset-turntable-1',
+      sampleFileName: 'Turntable Performance.wav',
+      samplerSettings: { playbackMode: 'one-shot' },
+    });
+  });
+
   it('adds an independently identified instrument track and switches record arm', () => {
     const project = createDefaultProject('synth-main');
     const second = addInstrumentTrack(project, 'Piano Layer', 'synth-piano');
