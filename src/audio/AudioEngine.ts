@@ -97,8 +97,12 @@ export class AudioEngine implements RackModule {
 
   setSamplerSettings(settings: SamplerPlaybackSettings): void {
     if (this.instrumentType !== 'sampler') return;
-    this.samplerSettings = { ...settings };
+    const changed = Object.keys(settings).some(key =>
+      settings[key as keyof SamplerPlaybackSettings] !== this.samplerSettings[key as keyof SamplerPlaybackSettings],
+    );
+    if (!changed) return;
     this.stopAudition();
+    this.samplerSettings = { ...settings };
   }
 
   /** Decode one user-provided sample on the shared project AudioContext. */
