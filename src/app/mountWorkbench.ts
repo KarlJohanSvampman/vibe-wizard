@@ -284,7 +284,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     void persistProject().catch(error => { if (projectStatus) projectStatus.textContent = error instanceof Error ? error.message : 'Could not save VR studio placement.'; });
   }, normalizedPosition => {
     if (turntable.isLoaded) turntable.scratch(normalizedPosition * turntable.duration);
-  });
+  }, () => turntable.isPlaying ? turntable.currentPosition() : undefined);
 
   const spatialAdapter = new ThereminSpatialAdapter(world, theremin, {
     handedness: 'right',
