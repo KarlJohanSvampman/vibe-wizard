@@ -75,6 +75,26 @@ class AudioGatewayTests(unittest.TestCase):
         self.assertEqual(blank.status_code, 422)
 
 
+
+    def test_extracts_audio_from_multipart_music_response(self) -> None:
+        boundary = "music-response-boundary"
+        body = (
+            f"--{boundary}\\r\\n"
+            "Content-Type: application/json\\r\\n\\r\\n"
+            '{"song_id":"song-123"}\\r\\n'
+            f"--{boundary}\\r\\n"
+            "Content-Type: audio/mpeg\\r\\n"
+            "Content-Disposition: attachment; filename=variation.mp3\\r\\n\\r\\n"
+        ).encode() + b"fake-music-bytes\\r\\n" + f"--{boundary}--\\r\\n".encode()
+        response = ai_gateway.httpx.Response(
+            200,
+            headers={"content-type": f"multipart/mixed; boundary={boundary}"},
+            content=body,
+        )
+        data, mime_type = ai_gateway._extract_composed_audio(response)
+        self.assertEqual(data, b"fake-music-bytes")
+        self.assertEqual(mime_type, "audio/mpeg")
+
     def test_transformation_requires_server_side_api_key(self) -> None:
         with patch.dict(os.environ, {"ELEVENLABS_API_KEY": ""}, clear=False):
             response = self.client.post(
