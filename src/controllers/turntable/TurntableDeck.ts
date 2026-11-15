@@ -14,15 +14,28 @@ export class TurntableDeck {
   get isLoaded(): boolean { return !!this.buffer; }
   get isPlaying(): boolean { return this.playing; }
   get playbackSpeed(): number { return this.speed; }
+  get duration(): number { return this.buffer?.duration ?? 0; }
   play(offset = this.offset): void {
     if (!this.buffer) throw new Error('Load a sample before playing the turntable.');
     this.stop();
     const context = this.runtime.prepareContext();
     const gain = context.createGain(); gain.gain.value = 0.9; gain.connect(context.destination);
-    const source = context.createBufferSource(); source.buffer = this.buffer; source.playbackRate.value = Math.abs(this.speed);
+    const source = context.createBufferSource();
+    if (this.speed < 0) {
+      const reversed = context.createBuffer(this.buffer.numberOfChannels, this.buffer.length, this.buffer.sampleRate);
+      for (let channel = 0; channel < this.buffer.numberOfChannels; channel++) {
+        const input = this.buffer.getChannelData(channel);
+        const output = reversed.getChannelData(channel);
+        for (let index = 0; index < input.length; index++) output[index] = input[input.length - index - 1]!;
+      }
+      source.buffer = reversed;
+    } else {
+      source.buffer = this.buffer;
+    }
+    source.playbackRate.value = Math.max(0.01, Math.abs(this.speed));
     source.connect(gain);
     const safeOffset = Math.max(0, Math.min(this.buffer.duration - 0.01, offset));
-    source.start(0, safeOffset);
+    source.start(0, this.speed < 0 ? Math.max(0, this.buffer.duration - safeOffset) : safeOffset);
     this.source = source; this.gain = gain; this.startedAt = context.currentTime; this.offset = safeOffset; this.playing = true;
     source.onended = () => { if (this.source === source) { this.playing = false; this.source = undefined; this.gain?.disconnect(); this.gain = undefined; } };
   }
