@@ -6,6 +6,7 @@ import { createAudioAssetStore } from '../audio/AudioAssetStore.js';
 import { getInstrumentLabel, isInstrumentType } from '../audio/InstrumentTypes.js';
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
 import { HttpAudioGenerationProvider } from '../ai/AudioGenerationProvider.js';
+import { HttpAudioTransformationProvider } from '../ai/AudioTransformationProvider.js';
 import { Rack } from '../rack/Rack.js';
 import { ParameterBus } from '../rack/ParameterBus.js';
 import { TrackAudioBus } from '../rack/TrackAudioBus.js';
@@ -331,6 +332,16 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <label class="control-row" for="sampler-loop-end"><span><strong>Loop end</strong><small id="sampler-loop-end-time">100%</small></span><input id="sampler-loop-end" type="range" min="0.001" max="1" step="0.001" value="1" /></label>',
     '      <label for="sampler-root-note"><span>ROOT NOTE · MIDI</span><input id="sampler-root-note" type="number" min="0" max="127" step="1" value="60" /></label>',
     '      <p class="sampler-hint">The root note plays the sample at its original pitch. Notes above and below transpose it chromatically.</p>',
+    '      <section class="sampler-transform-panel">',
+    '        <div class="section-heading"><div><p class="eyebrow">AI SOUND TRANSFORMATION</p><h3>Create a variation</h3></div><span class="module-chip">AUDIO REFERENCE</span></div>',
+    '        <label for="sampler-transform-prompt"><span>HOW SHOULD IT CHANGE?</span><textarea id="sampler-transform-prompt" rows="2" maxlength="4000" placeholder="Turn this into a dark ambient texture with deeper low end, evolving granular layers, and a slow cinematic atmosphere."></textarea></label>',
+    '        <div class="sampler-transform-controls">',
+    '          <label for="sampler-transform-duration"><span>OUTPUT · SECONDS</span><input id="sampler-transform-duration" type="number" min="3" max="30" step="1" value="8" /></label>',
+    '          <label for="sampler-transform-strength"><span>SOURCE INFLUENCE</span><select id="sampler-transform-strength"><option value="high">High · stay close</option><option value="medium">Medium · balanced</option><option value="low">Low · explore</option><option value="xhigh">Very high · strongest match</option></select></label>',
+    '        </div>',
+    '        <button class="transport-button" id="sampler-transform" type="button" disabled>✧ Transform selected sample</button>',
+    '        <p class="ai-generation-status" id="sampler-transform-status" role="status">Enable audio and select a Sampler track with a loaded sample. Requires Eleven Music API access on your ElevenLabs account.</p>',
+    '      </section>',
     '    </section>',
     '    <section class="ai-sample-studio">',
     '      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
@@ -424,6 +435,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const aiGenerateButton = get<HTMLButtonElement>('#ai-generate-sample');
   const aiCancelButton = get<HTMLButtonElement>('#ai-cancel-generation');
   const aiGenerationStatus = get<HTMLElement>('#ai-generation-status');
+  const samplerTransformPrompt = get<HTMLTextAreaElement>('#sampler-transform-prompt');
+  const samplerTransformDuration = get<HTMLInputElement>('#sampler-transform-duration');
+  const samplerTransformStrength = get<HTMLSelectElement>('#sampler-transform-strength');
+  const samplerTransformButton = get<HTMLButtonElement>('#sampler-transform');
+  const samplerTransformStatus = get<HTMLElement>('#sampler-transform-status');
   const addTrackButton = get<HTMLButtonElement>('#add-track');
   const armTrackButton = get<HTMLButtonElement>('#arm-track');
   const muteTrackButton = get<HTMLButtonElement>('#mute-track');
@@ -1097,6 +1113,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     samplerLoopInput.disabled = !samplerLoaded;
     samplerPlaybackMode.disabled = !samplerLoaded;
     samplerRootNoteInput.disabled = !samplerLoaded;
+    samplerTransformButton.disabled = !selectedTrack.sampleAssetId || !audioReady ||
+      recorder.isRecording || anyTransportPlaying() || generationAbortController !== undefined;
+    samplerTransformPrompt.disabled = samplerTransformButton.disabled;
+    samplerTransformDuration.disabled = samplerTransformButton.disabled;
+    samplerTransformStrength.disabled = samplerTransformButton.disabled;
     const seconds = (position: number) => (position * sampleDuration).toFixed(2) + ' s';
     samplerStartTime.textContent = seconds(samplerSettings.startPosition);
     samplerEndTime.textContent = seconds(samplerSettings.endPosition);
@@ -1804,6 +1825,121 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       aiGenerationStatus.textContent = controller.signal.aborted
         ? 'Stopped waiting. No track was added; the provider job may still finish remotely.'
         : error instanceof Error ? 'AI generation failed: ' + error.message : 'AI generation failed.';
+    }).finally(() => {
+      if (generationAbortController === controller) generationAbortController = undefined;
+      updateProjectUi();
+    });
+  });
+
+
+  samplerTransformButton.addEventListener('click', () => {
+    const sourceTrack = activeTrack();
+    if (
+      sourceTrack.instrumentType !== 'sampler' || !sourceTrack.sampleAssetId ||
+      !audioReady || recorder.isRecording || anyTransportPlaying() || generationAbortController
+    ) return;
+
+    const endpoint = aiServiceUrlInput.value.trim();
+    const prompt = samplerTransformPrompt.value.trim();
+    const durationSeconds = Number(samplerTransformDuration.value);
+    const conditionStrength = samplerTransformStrength.value as 'low' | 'medium' | 'high' | 'xhigh';
+    if (!endpoint) {
+      samplerTransformStatus.textContent = 'Enter the AI service URL in the AI Sound Generation panel first.';
+      aiServiceUrlInput.focus();
+      return;
+    }
+    if (!prompt || prompt.length > 4000) {
+      samplerTransformStatus.textContent = 'Describe the transformation in 1–4000 characters.';
+      samplerTransformPrompt.focus();
+      return;
+    }
+    if (!Number.isInteger(durationSeconds) || durationSeconds < 3 || durationSeconds > 30) {
+      samplerTransformStatus.textContent = 'Choose an output duration between 3 and 30 seconds.';
+      samplerTransformDuration.focus();
+      return;
+    }
+
+    const controller = new AbortController();
+    generationAbortController = controller;
+    updateProjectUi();
+    samplerTransformStatus.textContent = 'Preparing the selected sample as an audio reference…';
+    void (async () => {
+      const asset = await sampleAssets.load(sourceTrack.sampleAssetId!);
+      if (!asset) throw new Error('The selected sample could not be found in local audio storage.');
+      const context = audioRuntime.requireContext();
+      const decoded = await context.decodeAudioData(asset.data.slice(0));
+      const settings = sourceTrack.samplerSettings ?? DEFAULT_SAMPLER_SETTINGS;
+      const regionStartSeconds = Math.max(0, Math.min(decoded.duration, settings.startPosition * decoded.duration));
+      const regionEndSeconds = Math.max(regionStartSeconds, Math.min(decoded.duration, settings.endPosition * decoded.duration));
+      const referenceEndSeconds = Math.min(regionEndSeconds, regionStartSeconds + 30);
+      const referenceStartMs = Math.round(regionStartSeconds * 1000);
+      const referenceEndMs = Math.round(referenceEndSeconds * 1000);
+      if (referenceEndMs - referenceStartMs < 50) {
+        throw new Error('The selected sample region must be at least 50 ms long.');
+      }
+      if (referenceEndMs > 600000) {
+        throw new Error('The selected reference region must start within the first 10 minutes of the source file.');
+      }
+
+      const sourceFile = new File([asset.data], asset.name, { type: asset.mimeType || 'audio/mpeg' });
+      const provider = new HttpAudioTransformationProvider(endpoint);
+      samplerTransformStatus.textContent = 'Uploading the selected sample to Eleven Music…';
+      const transformed = await provider.transformSample({
+        prompt,
+        durationSeconds,
+        referenceStartMs,
+        referenceEndMs,
+        conditionStrength,
+      }, sourceFile, progress => {
+        const percent = progress.progress === undefined ? '' : ' · ' + Math.round(progress.progress) + '%';
+        samplerTransformStatus.textContent = (progress.message || 'Transforming sample ' + progress.status) + percent;
+      }, controller.signal);
+
+      const assetId = 'ai-transform-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+      const createdAt = new Date().toISOString();
+      await sampleAssets.save({
+        id: assetId,
+        name: transformed.fileName,
+        mimeType: transformed.mimeType,
+        data: transformed.data,
+        updatedAt: createdAt,
+        origin: {
+          kind: 'ai-transformed',
+          providerId: transformed.providerId,
+          jobId: transformed.jobId,
+          prompt,
+          sourceAssetId: asset.id,
+          createdAt,
+        },
+      });
+
+      const beforeEdit = project;
+      const trackNumber = project.tracks.length + 1;
+      const moduleId = 'sampler-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+      project = addInstrumentTrack(
+        project,
+        'AI Variation ' + String(trackNumber).padStart(2, '0'),
+        moduleId,
+        new Date(),
+        'sampler',
+      );
+      const generatedTrack = activeTrack();
+      project = updateProjectTrack(project, generatedTrack.id, {
+        sampleAssetId: assetId,
+        sampleFileName: transformed.fileName,
+        samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS },
+      });
+      projectHistory.commit(beforeEdit, project);
+      ensureTrackRuntime(generatedTrack, false);
+      if (audioReady) await ensureTrackAudioReady(generatedTrack.id);
+      await persistProject();
+      updateProjectUi();
+      samplerTransformStatus.textContent = 'Created ' + transformed.fileName + ' on ' + generatedTrack.name +
+        '. Your original sample remains unchanged; the variation is saved as a new Sampler track.';
+    })().catch((error: unknown) => {
+      samplerTransformStatus.textContent = controller.signal.aborted
+        ? 'Stopped waiting. The provider job may still finish remotely.'
+        : error instanceof Error ? 'Transformation failed: ' + error.message : 'Transformation failed.';
     }).finally(() => {
       if (generationAbortController === controller) generationAbortController = undefined;
       updateProjectUi();
