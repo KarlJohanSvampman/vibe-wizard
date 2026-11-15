@@ -2301,7 +2301,15 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       const nextTimestamp = new Date(Number.isFinite(previousUpdatedAt)
         ? Math.max(Date.now(), previousUpdatedAt + 1)
         : Date.now());
-      project = createDefaultProject('synth-main', nextTimestamp);
+      const existingProjectIds = new Set(savedProjects.map(saved => saved.id));
+      let freshProject = createDefaultProject('synth-main', nextTimestamp);
+      // New-project creation is insert-only. Guard against even an unexpected ID collision.
+      while (existingProjectIds.has(freshProject.id)) {
+        const uniqueId = globalThis.crypto?.randomUUID?.() ??
+          'project-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+        freshProject = { ...freshProject, id: uniqueId };
+      }
+      project = freshProject;
       projectHistory.clear();
       selectedClipId = undefined;
       selectedClip = undefined;
@@ -2313,7 +2321,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       ensureTrackRuntime(activeTrack(), false);
       if (audioReady) await ensureTrackAudioReady(project.activeTrackId);
       updateProjectUi();
-      await persistProject();
+      const newSnapshot = project;
+      const createOperation = saveQueue.then(() => repository.saveAsNew(newSnapshot));
+      saveQueue = createOperation.catch(() => undefined);
+      await createOperation;
+      await refreshSavedProjects();
 
       projectStatus.textContent = repository.durability === 'persistent'
         ? 'New project saved · previous project kept on this device'
