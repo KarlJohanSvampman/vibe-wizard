@@ -24,7 +24,7 @@ import {
 describe('project model', () => {
   it('creates a project with a ready-to-mix instrument track', () => {
     const project = createDefaultProject('synth-main', new Date('2026-11-14T12:00:00.000Z'));
-    expect(project.schemaVersion).toBe(4);
+    expect(project.schemaVersion).toBe(5);
     expect(project.tempoBpm).toBe(120);
     expect(project.tracks).toHaveLength(1);
     expect(project.activeTrackId).toBe(project.tracks[0]?.id);
@@ -38,6 +38,37 @@ describe('project model', () => {
       volume: 0.8,
       pan: 0,
     });
+  });
+
+  it('creates sampler defaults, persists edited settings, and migrates version 4 samplers', () => {
+    const base = createDefaultProject('synth-main');
+    const sampler = addInstrumentTrack(base, 'Sampler', 'sampler-main', new Date(), 'sampler');
+    const track = sampler.tracks.find(item => item.id === sampler.activeTrackId)!;
+    expect(track.samplerSettings).toEqual({
+      startPosition: 0, endPosition: 1, loopEnabled: false,
+      loopStart: 0, loopEnd: 1, rootNote: 60, playbackMode: 'gate',
+    });
+    const edited = updateProjectTrack(sampler, track.id, {
+      samplerSettings: {
+        startPosition: 0.1, endPosition: 0.9, loopEnabled: true,
+        loopStart: 0.2, loopEnd: 0.8, rootNote: 48, playbackMode: 'one-shot',
+      },
+    });
+    expect(validateProjectSnapshot(edited).tracks[1]?.samplerSettings).toMatchObject({
+      startPosition: 0.1, endPosition: 0.9, loopEnabled: true,
+      loopStart: 0.2, loopEnd: 0.8, rootNote: 48, playbackMode: 'one-shot',
+    });
+    const version4 = { ...sampler, schemaVersion: 4,
+      tracks: sampler.tracks.map(({ samplerSettings: _settings, ...item }) => item),
+    };
+    const migrated = validateProjectSnapshot(migrateProjectRecord(version4));
+    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.tracks[1]?.samplerSettings).toMatchObject({
+      startPosition: 0, endPosition: 1, rootNote: 60, playbackMode: 'gate',
+    });
+    expect(() => updateProjectTrack(sampler, track.id, {
+      samplerSettings: { ...track.samplerSettings!, startPosition: 1 },
+    })).toThrow(/invalid track/i);
   });
 
   it('adds an independently identified instrument track and switches record arm', () => {
@@ -190,7 +221,7 @@ describe('project model', () => {
       tracks: project.tracks.map(({ volume: _volume, pan: _pan, ...track }) => track),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version1));
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.tracks[0]).toMatchObject({ volume: 0.8, pan: 0 });
     expect(migrated.id).toBe(project.id);
   });
