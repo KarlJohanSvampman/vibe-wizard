@@ -1,5 +1,6 @@
 export interface AudioAssetOrigin {
-  readonly kind: 'user-import' | 'ai-generated';
+  readonly kind: 'user-import' | 'ai-generated' | 'ai-transformed';
+  readonly sourceAssetId?: string;
   readonly providerId?: string;
   readonly jobId?: string;
   readonly prompt?: string;
