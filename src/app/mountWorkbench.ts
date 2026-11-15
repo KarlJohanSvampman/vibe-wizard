@@ -12,8 +12,10 @@ import { ParameterBus } from '../rack/ParameterBus.js';
 import { TrackAudioBus } from '../rack/TrackAudioBus.js';
 import { ThereminController } from '../controllers/theremin/ThereminController.js';
 import { ControllerRuntime } from '../controllers/ControllerRuntime.js';
+import { StudioSpatialAdapter } from '../controllers/StudioSpatialAdapter.js';
 import { createControllerPreset, createControllerInstance, validateControllerPreset, type ControllerComponentDefinition, type ControllerPreset, type ControllerInstance } from '../controllers/ControllerModel.js';
 import { GuitarController } from '../controllers/guitar/GuitarController.js';
+import { GuitarSpatialAdapter } from '../controllers/guitar/GuitarSpatialAdapter.js';
 import { TurntableDeck } from '../controllers/turntable/TurntableDeck.js';
 import { ThereminSpatialAdapter } from '../controllers/theremin/ThereminSpatialAdapter.js';
 import { EventRecorder, type RecordingClip } from '../sequencer/Recorder.js';
@@ -276,6 +278,11 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     },
   });
   const turntable = new TurntableDeck(audioRuntime);
+  const guitarSpatialAdapter = new GuitarSpatialAdapter(world, guitar);
+  const studioSpatialAdapter = new StudioSpatialAdapter(world, placements => {
+    project = updateStudioLayout(project, placements);
+    void persistProject().catch(error => { projectStatus.textContent = error instanceof Error ? error.message : 'Could not save VR studio placement.'; });
+  });
 
   const spatialAdapter = new ThereminSpatialAdapter(world, theremin, {
     handedness: 'right',
@@ -1687,6 +1694,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       position: { x: (ref.index % 4) * 1.5 - 2.25, y: 0.6, z: -1 - Math.floor(ref.index / 4) * 1.2 },
       rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 },
     });
+    studioSpatialAdapter.setLayout(studioDraftPlacements);
     studioObjectSelect.replaceChildren();
     refs.forEach(ref => { const option = document.createElement('option'); option.value = ref.id; option.textContent = ref.label; studioObjectSelect.append(option); });
     studioRoom.querySelectorAll('.studio-object').forEach(node => node.remove());
