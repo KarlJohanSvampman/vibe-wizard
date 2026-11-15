@@ -1163,3 +1163,78 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
 @media (max-width: 650px) {
   .studio-topbar .project-toolbar #project-open { display: inline-flex; }
 }
+
+
+/* Instrument-specific editors in the lower dock */
+.instrument-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  min-height: 100px;
+  padding: 8px 4px 14px;
+}
+.instrument-editor h3 { flex: 0 0 100%; margin: 0; font-size: 16px; }
+.instrument-editor > p { flex: 0 0 100%; margin: -6px 0 4px; color: #aaa; font-size: 11px; }
+.instrument-control {
+  display: grid;
+  gap: 7px;
+  min-width: 150px;
+  max-width: 240px;
+  padding: 10px;
+  border: 1px solid #414141;
+  background: #1d1d1d;
+}
+.instrument-control > span { color: #bdbdbd; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.instrument-control select { width: 100%; min-height: 32px; }
+.instrument-control output { color: #ffb000; font-size: 11px; }
+.instrument-pad-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(90px, 130px));
+  gap: 8px;
+  width: 100%;
+}
+.instrument-pad {
+  min-height: 64px;
+  border: 1px solid #555;
+  border-radius: 5px;
+  color: #eee;
+  background: linear-gradient(145deg, #343434, #202020);
+  font: inherit;
+  cursor: pointer;
+  touch-action: none;
+}
+.instrument-pad:hover,
+.instrument-pad.is-playing {
+  border-color: #ffad00;
+  color: #171717;
+  background: #ffad00;
+}
+.instrument-keyboard {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  width: 100%;
+  min-height: 110px;
+  overflow-x: auto;
+}
+.instrument-keyboard .instrument-pad {
+  flex: 1 0 34px;
+  min-width: 34px;
+  min-height: 100px;
+  color: #222;
+  background: #eee;
+}
+.instrument-keyboard .instrument-pad:nth-child(12n + 2),
+.instrument-keyboard .instrument-pad:nth-child(12n + 4),
+.instrument-keyboard .instrument-pad:nth-child(12n + 7),
+.instrument-keyboard .instrument-pad:nth-child(12n + 9),
+.instrument-keyboard .instrument-pad:nth-child(12n + 11) {
+  align-self: flex-start;
+  min-height: 66px;
+  margin-bottom: 34px;
+  color: #fff;
+  background: #171717;
+}
+.instrument-keyboard .instrument-pad.is-playing,
+.instrument-keyboard .instrument-pad:hover { border-color: #ffad00; background: #ffad00; color: #171717; }
