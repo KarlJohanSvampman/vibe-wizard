@@ -1550,6 +1550,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
     for (const track of project.tracks) ensureTrackRuntime(track);
     await refreshSavedProjects();
+    await refreshAssetBrowser();
     enableButton.disabled = false;
     enterVrButton.disabled = false;
     playButton.disabled = false;
@@ -1783,6 +1784,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     project = addInstrumentTrack(project, trackName, moduleId, new Date(), instrumentType);
     projectHistory.commit(beforeEdit, project);
     const track = activeTrack();
+    if (!track) return;
     ensureTrackRuntime(track);
     selectedClipId = undefined;
     selectedClip = undefined;
@@ -1824,6 +1826,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         data,
         updatedAt: new Date().toISOString(),
       });
+      await refreshAssetBrowser();
       const beforeEdit = project;
       project = updateProjectTrack(project, track.id, {
         sampleAssetId: assetId,
@@ -1957,6 +1960,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         },
       });
 
+      await refreshAssetBrowser();
+      await refreshAssetBrowser();
       const beforeEdit = project;
       const trackNumber = project.tracks.length + 1;
       const moduleId = 'sampler-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
@@ -2649,6 +2654,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     unsubscribeController();
     spatialAdapter.dispose();
     window.removeEventListener('resize', resizeHandler);
+    if (activeAssetPreview) { activeAssetPreview.pause(); activeAssetPreview = undefined; }
+    if (activeAssetPreviewUrl) { URL.revokeObjectURL(activeAssetPreviewUrl); activeAssetPreviewUrl = undefined; }
     void rack.dispose().then(() => audioRuntime.dispose());
   }, { once: true });
 
