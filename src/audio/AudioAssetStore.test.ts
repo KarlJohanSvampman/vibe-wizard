@@ -20,5 +20,11 @@ describe('memory audio asset store', () => {
     expect(loaded?.origin).toMatchObject({ kind: 'ai-generated', jobId: 'job-1', prompt: 'warm pad' });
     expect([...new Uint8Array(loaded!.data)]).toEqual([1, 2, 3, 4]);
     expect(await store.load('missing')).toBeUndefined();
+    const listed = await store.list();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.id).toBe('sample-1');
+    await store.delete('sample-1');
+    expect(await store.load('sample-1')).toBeUndefined();
+    expect(await store.list()).toHaveLength(0);
   });
 });
