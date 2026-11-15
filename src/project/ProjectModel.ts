@@ -3,7 +3,22 @@ import type { RecordedEvent, RecordingClip } from '../sequencer/Recorder.js';
 import { isInstrumentType } from '../audio/InstrumentTypes.js';
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
 
-export const PROJECT_SCHEMA_VERSION = 4 as const;
+export const PROJECT_SCHEMA_VERSION = 5 as const;
+
+export interface SamplerSettings {
+  readonly startPosition: number;
+  readonly endPosition: number;
+  readonly loopEnabled: boolean;
+  readonly loopStart: number;
+  readonly loopEnd: number;
+  readonly rootNote: number;
+  readonly playbackMode: 'one-shot' | 'gate';
+}
+
+export const DEFAULT_SAMPLER_SETTINGS: SamplerSettings = {
+  startPosition: 0, endPosition: 1, loopEnabled: false,
+  loopStart: 0, loopEnd: 1, rootNote: 60, playbackMode: 'gate',
+};
 
 export interface ProjectTimeSignature {
   readonly numerator: number;
@@ -19,6 +34,7 @@ export interface ProjectTrack {
   /** Stable binary sample reference; the audio bytes live in the separate asset store. */
   readonly sampleAssetId?: string;
   readonly sampleFileName?: string;
+  readonly samplerSettings?: SamplerSettings;
   readonly order: number;
   readonly muted: boolean;
   readonly solo: boolean;
@@ -78,7 +94,7 @@ export interface ProjectSnapshot {
 }
 
 export type ProjectTrackPatch = Partial<
-  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan' | 'sampleAssetId' | 'sampleFileName'>
+  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan' | 'sampleAssetId' | 'sampleFileName' | 'samplerSettings'>
 >;
 
 export interface ProjectTimingPatch {
@@ -146,6 +162,7 @@ export function addInstrumentTrack(
     kind: 'instrument',
     instrumentModuleId,
     instrumentType,
+    ...(instrumentType === 'sampler' ? { samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
     order: project.tracks.reduce((highest, item) => Math.max(highest, item.order), -1) + 1,
     muted: false,
     solo: false,
@@ -598,7 +615,7 @@ export function migrateProjectRecord(value: unknown): unknown {
   if (!isRecord(value)) throw new Error('Project data must be an object.');
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) return value;
   if (
-    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4) ||
     !Array.isArray(value.tracks)
   ) {
     throw new Error('Unsupported project schema version: ' + String(value.schemaVersion) + '.');
@@ -613,6 +630,8 @@ export function migrateProjectRecord(value: unknown): unknown {
       ...track,
       volume: finiteNumber(track.volume) ? track.volume : 0.8,
       pan: finiteNumber(track.pan) ? track.pan : 0,
+      ...(track.instrumentType === 'sampler' && !isRecord(track.samplerSettings)
+        ? { samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
     };
   });
   const clips = Array.isArray(value.clips) ? value.clips.map((item) => {
@@ -704,6 +723,14 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       (item.instrumentType !== undefined && !isInstrumentType(item.instrumentType)) ||
       (item.sampleAssetId !== undefined && typeof item.sampleAssetId !== 'string') ||
       (item.sampleFileName !== undefined && typeof item.sampleFileName !== 'string') ||
+      (item.samplerSettings !== undefined && (!isRecord(item.samplerSettings) ||
+        !finiteNumber(item.samplerSettings.startPosition) || item.samplerSettings.startPosition < 0 || item.samplerSettings.startPosition >= 1 ||
+        !finiteNumber(item.samplerSettings.endPosition) || item.samplerSettings.endPosition > 1 || item.samplerSettings.endPosition <= item.samplerSettings.startPosition ||
+        typeof item.samplerSettings.loopEnabled !== 'boolean' ||
+        !finiteNumber(item.samplerSettings.loopStart) || item.samplerSettings.loopStart < 0 || item.samplerSettings.loopStart >= 1 ||
+        !finiteNumber(item.samplerSettings.loopEnd) || item.samplerSettings.loopEnd > 1 || item.samplerSettings.loopEnd <= item.samplerSettings.loopStart ||
+        !finiteNumber(item.samplerSettings.rootNote) || !Number.isInteger(item.samplerSettings.rootNote) || item.samplerSettings.rootNote < 0 || item.samplerSettings.rootNote > 127 ||
+        (item.samplerSettings.playbackMode !== 'one-shot' && item.samplerSettings.playbackMode !== 'gate'))) ||
       !finiteNumber(item.order) ||
       typeof item.muted !== 'boolean' || typeof item.solo !== 'boolean' ||
       typeof item.armed !== 'boolean' ||
@@ -718,7 +745,10 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     }
     trackIds.add(item.id);
     moduleIds.add(item.instrumentModuleId);
-    return { ...item, instrumentType: item.instrumentType ?? 'synth' } as unknown as ProjectTrack;
+    const instrumentType = item.instrumentType ?? 'synth';
+    return { ...item, instrumentType,
+      ...(instrumentType === 'sampler' ? { samplerSettings: item.samplerSettings ?? { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
+    } as unknown as ProjectTrack;
   });
 
   if (tracks.length === 0 || !trackIds.has(value.activeTrackId)) {
