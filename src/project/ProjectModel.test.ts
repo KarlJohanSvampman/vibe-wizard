@@ -25,6 +25,17 @@ import {
 } from './ProjectModel.js';
 
 describe('project model', () => {
+  it('migrates schema v5 projects with empty controller and studio collections', () => {
+    const project = createDefaultProject('synth-main');
+    const { controllerPresets: _presets, controllerInstances: _instances, studioLayout: _layout, ...version5 } = project;
+    const migrated = validateProjectSnapshot(migrateProjectRecord({ ...version5, schemaVersion: 5 }));
+    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.controllerPresets).toEqual([]);
+    expect(migrated.controllerInstances).toEqual([]);
+    expect(migrated.studioLayout).toEqual([]);
+  });
+
+
   it('creates a genuinely empty project and supports adding the first instrument', () => {
     const empty = createEmptyProject(new Date('2026-11-15T12:00:00.000Z'));
     expect(empty.tracks).toHaveLength(0);
@@ -50,7 +61,7 @@ describe('project model', () => {
 
   it('creates a project with a ready-to-mix instrument track', () => {
     const project = createDefaultProject('synth-main', new Date('2026-11-14T12:00:00.000Z'));
-    expect(project.schemaVersion).toBe(5);
+    expect(project.schemaVersion).toBe(6);
     expect(project.tempoBpm).toBe(120);
     expect(project.tracks).toHaveLength(1);
     expect(project.activeTrackId).toBe(project.tracks[0]?.id);
@@ -88,7 +99,7 @@ describe('project model', () => {
       tracks: sampler.tracks.map(({ samplerSettings: _settings, ...item }) => item),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version4));
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.tracks[1]?.samplerSettings).toMatchObject({
       startPosition: 0, endPosition: 1, rootNote: 60, playbackMode: 'gate',
     });
