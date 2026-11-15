@@ -668,3 +668,63 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
   .asset-browser-toolbar select { flex: 1 1 100%; }
   .asset-browser-list { grid-template-columns: 1fr; }
 }
+
+
+/* Desktop workstation layout: keep controller and arrangement side by side. */
+@media (min-width: 1050px) {
+  .workbench-card {
+    width: min(1480px, 100%);
+    display: grid;
+    grid-template-columns: minmax(280px, .32fr) minmax(0, .68fr);
+    align-content: start;
+    align-items: start;
+    gap: 12px;
+  }
+  .workbench-header, .signal-row, .project-toolbar, .workbench-footer {
+    grid-column: 1 / -1;
+  }
+  .workbench-header { margin-bottom: 4px; }
+  .controller-panel { grid-column: 1; align-self: start; }
+  .sequencer-panel { grid-column: 2; min-width: 0; margin-top: 16px; }
+  .controller-panel, .asset-browser-panel, .sampler-editor, .ai-sample-studio {
+    resize: both;
+    overflow: auto;
+    min-width: 0;
+    min-height: 140px;
+  }
+  .sequencer-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+  }
+  .sequencer-panel > .section-heading,
+  .sequencer-panel > .arrangement-toolbar,
+  .sequencer-panel > .timing-toolbar,
+  .sequencer-panel > .loop-toolbar,
+  .sequencer-panel > .arrangement-wrap,
+  .sequencer-panel > .track-list,
+  .sequencer-panel > .track-toolbar,
+  .sequencer-panel > .instrument-asset-row,
+  .sequencer-panel > .asset-browser-panel,
+  .sequencer-panel > .transport-controls,
+  .sequencer-panel > .timeline-wrap,
+  .sequencer-panel > .timeline-legend,
+  .sequencer-panel > .piano-roll-heading,
+  .sequencer-panel > .piano-roll-toolbar,
+  .sequencer-panel > .piano-roll-wrap,
+  .sequencer-panel > .capture-hint {
+    grid-column: 1 / -1;
+  }
+  .sequencer-panel > .sampler-editor,
+  .sequencer-panel > .ai-sample-studio,
+  .sequencer-panel > .track-mixer-controls,
+  .sequencer-panel > .clip-library-row {
+    grid-column: auto;
+    min-width: 0;
+  }
+  .sequencer-panel > .track-mixer-controls { align-self: stretch; }
+}
+@media (max-width: 1049px) {
+  .workbench-card { display: block; }
+}
