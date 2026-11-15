@@ -401,6 +401,132 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '</section>',
   ].join('');
 
+  // Recompose the existing functional controls into a DAW-style workstation.
+  // Moving nodes (rather than cloning them) preserves their event handlers and IDs.
+  const studioCard = root.querySelector<HTMLElement>('.workbench-card');
+  const sequencerPanel = root.querySelector<HTMLElement>('.sequencer-panel');
+  const workbenchHeader = studioCard?.querySelector<HTMLElement>('.workbench-header');
+  const signalRow = studioCard?.querySelector<HTMLElement>('.signal-row');
+  const projectToolbar = studioCard?.querySelector<HTMLElement>('.project-toolbar');
+  const controllerPanel = studioCard?.querySelector<HTMLElement>('.controller-panel:not(.sequencer-panel)');
+  if (studioCard && sequencerPanel && workbenchHeader && signalRow && projectToolbar && controllerPanel) {
+    const makePanel = (className: string, title: string): HTMLElement => {
+      const panel = document.createElement('section');
+      panel.className = className;
+      if (title) {
+        const heading = document.createElement('div');
+        heading.className = 'studio-panel-heading';
+        heading.textContent = title;
+        panel.append(heading);
+      }
+      return panel;
+    };
+    const take = <T extends HTMLElement>(selector: string, target: HTMLElement): T | null => {
+      const node = sequencerPanel.querySelector<T>(selector);
+      if (node) target.append(node);
+      return node;
+    };
+
+    const topbar = document.createElement('header');
+    topbar.className = 'studio-topbar';
+    topbar.append(workbenchHeader, projectToolbar, signalRow);
+    const workspace = document.createElement('div');
+    workspace.className = 'studio-workspace';
+    const trackSidebar = makePanel('studio-track-sidebar', 'TRACKS');
+    const arrangementPanel = makePanel('studio-arrangement', 'ARRANGEMENT');
+    const browserPanel = document.createElement('aside');
+    browserPanel.className = 'studio-browser';
+
+    const trackList = take<HTMLElement>('#track-list', trackSidebar);
+    const trackToolbar = take<HTMLElement>('.track-toolbar', trackSidebar);
+    const arrangementToolbar = take<HTMLElement>('.arrangement-toolbar', arrangementPanel);
+    const timingToolbar = take<HTMLElement>('.timing-toolbar', arrangementPanel);
+    const loopToolbar = take<HTMLElement>('.loop-toolbar', arrangementPanel);
+    const arrangementWrap = take<HTMLElement>('.arrangement-wrap', arrangementPanel);
+    const assetBrowser = take<HTMLElement>('.asset-browser-panel', browserPanel);
+    const aiStudio = take<HTMLElement>('.ai-sample-studio', browserPanel);
+
+    const browserTabs = document.createElement('div');
+    browserTabs.className = 'studio-tabs studio-browser-tabs';
+    const assetsTab = document.createElement('button');
+    assetsTab.type = 'button';
+    assetsTab.className = 'studio-tab is-active';
+    assetsTab.textContent = 'Assets';
+    const aiTab = document.createElement('button');
+    aiTab.type = 'button';
+    aiTab.className = 'studio-tab';
+    aiTab.textContent = '✧ AI sampler';
+    browserTabs.append(assetsTab, aiTab);
+    browserPanel.prepend(browserTabs);
+    const setBrowserTab = (tab: 'assets' | 'ai') => {
+      if (assetBrowser) assetBrowser.hidden = tab !== 'assets';
+      if (aiStudio) aiStudio.hidden = tab !== 'ai';
+      assetsTab.classList.toggle('is-active', tab === 'assets');
+      aiTab.classList.toggle('is-active', tab === 'ai');
+    };
+    assetsTab.addEventListener('click', () => setBrowserTab('assets'));
+    aiTab.addEventListener('click', () => setBrowserTab('ai'));
+    setBrowserTab('assets');
+
+    const dock = document.createElement('section');
+    dock.className = 'studio-dock';
+    const dockTabs = document.createElement('nav');
+    dockTabs.className = 'studio-tabs studio-dock-tabs';
+    const dockContent = document.createElement('div');
+    dockContent.className = 'studio-dock-content';
+    const instrumentPane = makePanel('studio-dock-pane', '');
+    const mixerPane = makePanel('studio-dock-pane', '');
+    const controllersPane = makePanel('studio-dock-pane', '');
+    const editorPane = makePanel('studio-dock-pane', '');
+    const dockDefinitions = [
+      ['Instrument', instrumentPane],
+      ['Mixer', mixerPane],
+      ['Controllers', controllersPane],
+      ['Editor', editorPane],
+    ] as const;
+    const setDockTab = (name: string) => {
+      for (const [label, pane] of dockDefinitions) {
+        pane.hidden = label !== name;
+        dockTabs.querySelectorAll<HTMLButtonElement>('button').forEach(button =>
+          button.classList.toggle('is-active', button.dataset.dockTab === name && button.textContent === label),
+        );
+      }
+    };
+    for (const [label, pane] of dockDefinitions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'studio-tab';
+      button.textContent = label;
+      button.dataset.dockTab = label;
+      button.addEventListener('click', () => setDockTab(label));
+      dockTabs.append(button);
+      dockContent.append(pane);
+    }
+    take<HTMLElement>('#sample-import-row', instrumentPane);
+    take<HTMLElement>('#sampler-editor', instrumentPane);
+    take<HTMLElement>('.track-mixer-controls', mixerPane);
+    controllersPane.append(controllerPanel);
+    take<HTMLElement>('.clip-library-row', editorPane);
+    take<HTMLElement>('.transport-controls', editorPane);
+    take<HTMLElement>('.timeline-wrap', editorPane);
+    take<HTMLElement>('.timeline-legend', editorPane);
+    take<HTMLElement>('.piano-roll-heading', editorPane);
+    take<HTMLElement>('.piano-roll-toolbar', editorPane);
+    take<HTMLElement>('.piano-roll-wrap', editorPane);
+    take<HTMLElement>('#capture-status', editorPane);
+    dock.append(dockTabs, dockContent);
+    setDockTab('Instrument');
+
+    const recordingGuide = document.createElement('div');
+    recordingGuide.className = 'recording-guide';
+    recordingGuide.innerHTML = '<span>RECORDING</span><b>1 Add a track</b><i>›</i><b>2 Select it</b><i>›</i><b>3 Arm it</b><i>›</i><b>4 Press Record</b><i>›</i><b>5 Perform</b><i>›</i><b>6 Press Stop</b>';
+
+    workspace.append(trackSidebar, arrangementPanel, browserPanel);
+    const footer = studioCard.querySelector<HTMLElement>('.workbench-footer');
+    studioCard.replaceChildren(topbar, recordingGuide, workspace, dock);
+    if (footer) studioCard.append(footer);
+  }
+
   const get = <T extends HTMLElement>(selector: string): T | null =>
     root.querySelector<T>(selector);
   const enableButton = get<HTMLButtonElement>('#enable-audio');
