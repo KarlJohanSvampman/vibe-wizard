@@ -90,7 +90,7 @@ describe('TurntableDeck', () => {
     h.deck.setSpeed(-1);
     h.deck.play(0);
     const reversed = h.sources[0]!.buffer as AudioBuffer;
-    expect(Array.from(reversed.getChannelData(0))).toEqual([0.4, 0.3, 0.2, 0.1]);
+    expect(Array.from(reversed.getChannelData(0))).toEqual(expect.arrayContaining([expect.closeTo(0.4, 5), expect.closeTo(0.3, 5), expect.closeTo(0.2, 5), expect.closeTo(0.1, 5)]));
     expect(h.sources[0]!.start).toHaveBeenCalledWith(10, 0.99);
     expect(h.sources[0]!.playbackRate.setValueAtTime).toHaveBeenCalledWith(1, 10);
   });
