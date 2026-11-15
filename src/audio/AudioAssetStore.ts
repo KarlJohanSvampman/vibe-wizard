@@ -19,6 +19,8 @@ export interface AudioSampleAsset {
 export interface AudioAssetStore {
   save(asset: AudioSampleAsset): Promise<void>;
   load(id: string): Promise<AudioSampleAsset | undefined>;
+  list(): Promise<AudioSampleAsset[]>;
+  delete(id: string): Promise<void>;
 }
 
 const DATABASE_NAME = 'vibe-wizard-audio-assets';
@@ -67,6 +69,28 @@ export class IndexedDbAudioAssetStore implements AudioAssetStore {
     });
   }
 
+  async list(): Promise<AudioSampleAsset[]> {
+    const database = await this.database;
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction(SAMPLE_STORE, 'readonly');
+      const request = transaction.objectStore(SAMPLE_STORE).getAll();
+      request.onsuccess = () => resolve((request.result as AudioSampleAsset[]).map(cloneAsset));
+      request.onerror = () => reject(request.error ?? new Error('Could not list audio samples.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Sample listing was aborted.'));
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    const database = await this.database;
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction(SAMPLE_STORE, 'readwrite');
+      transaction.objectStore(SAMPLE_STORE).delete(id);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error('Could not delete the audio sample.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Sample deletion was aborted.'));
+    });
+  }
+
   async load(id: string): Promise<AudioSampleAsset | undefined> {
     const database = await this.database;
     return new Promise((resolve, reject) => {
@@ -87,6 +111,14 @@ export class MemoryAudioAssetStore implements AudioAssetStore {
 
   async save(asset: AudioSampleAsset): Promise<void> {
     this.assets.set(asset.id, cloneAsset(asset));
+  }
+
+  async list(): Promise<AudioSampleAsset[]> {
+    return [...this.assets.values()].map(cloneAsset);
+  }
+
+  async delete(id: string): Promise<void> {
+    this.assets.delete(id);
   }
 
   async load(id: string): Promise<AudioSampleAsset | undefined> {
