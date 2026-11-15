@@ -145,6 +145,10 @@ export class TurntableDeck {
     this.playing = true;
     source.onended = () => {
       if (this.source !== source) return;
+      // BufferSource completion is the authoritative end-of-media signal. Keep
+      // the platter position at the corresponding end instead of snapping back
+      // to the last manually selected offset.
+      this.offset = this.speed < 0 ? 0 : this.clampPosition(this.buffer?.duration ?? 0);
       this.playing = false;
       this.source = undefined;
       this.gain = undefined;
