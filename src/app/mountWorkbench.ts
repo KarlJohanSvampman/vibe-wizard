@@ -21,6 +21,8 @@ import {
   addRecordingToProject,
   addProjectClipNote,
   createDefaultProject,
+  createEmptyProject,
+  deleteProjectTrack,
   deleteProjectClipNote,
   duplicateProjectClip,
   getArrangementDurationBeats,
@@ -62,7 +64,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     unsubscribeTransport: () => void;
   }>();
   const noteOwners = new Map<string, AudioEngine>();
-  let project: ProjectSnapshot = createDefaultProject('synth-main');
+  let project: ProjectSnapshot = createEmptyProject();
   const projectHistory = new ProjectHistory();
   let selectedClipId: string | undefined;
   let selectedClip: ProjectClip | undefined;
@@ -88,8 +90,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   let savedProjects: ProjectSnapshot[] = [];
   const desktopNoteId = 'theremin-desktop-note';
 
-  const activeTrack = (): ProjectTrack =>
-    project.tracks.find(track => track.id === project.activeTrackId) ?? project.tracks[0]!;
+  const activeTrack = (): ProjectTrack | undefined =>
+    project.tracks.find(track => track.id === project.activeTrackId) ?? project.tracks[0];
 
   const resourceFor = (trackId: string) => trackResources.get(trackId);
 
@@ -309,13 +311,15 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <span class="arrangement-hint">Enabled loops repeat between the selected bar boundaries.</span>',
     '    </div>',
     '    <div class="arrangement-wrap"><canvas id="arrangement-timeline" width="1000" height="220" aria-label="Multi-track arrangement. Drag clips to reposition or move them to another instrument track."></canvas></div>',
+    '    <div class="track-list" id="track-list" role="list" aria-label="Project tracks"></div>',
     '    <div class="track-toolbar">',
-    '      <label for="track-select"><span>ACTIVE TRACK</span><select id="track-select"></select></label>',
+    '      <label class="legacy-track-select" for="track-select"><span>SELECTED TRACK</span><select id="track-select"></select></label>',
     '      <label for="new-instrument-type"><span>NEW TRACK INSTRUMENT</span><select id="new-instrument-type"><option value="synth">Analog Synth</option><option value="piano">Piano</option><option value="drums">Drum Kit</option><option value="sampler">Sampler</option></select></label>',
-    '      <button class="transport-button" id="add-track" type="button">+ Add instrument</button>',
-    '      <button class="transport-button" id="arm-track" type="button">● Armed</button>',
-    '      <button class="transport-button" id="mute-track" type="button">Mute</button>',
-    '      <button class="transport-button" id="solo-track" type="button">Solo</button>',
+    '      <button class="transport-button" id="add-track" type="button">＋ Add track</button>',
+    '      <button class="transport-button danger-button" id="delete-track" type="button" disabled>Delete track</button>',
+    '      <button class="transport-button" id="arm-track" type="button" disabled>Arm for recording</button>',
+    '      <button class="transport-button" id="mute-track" type="button" disabled>Mute</button>',
+    '      <button class="transport-button" id="solo-track" type="button" disabled>Solo</button>',
     '    </div>',
     '    <div class="instrument-asset-row" id="sample-import-row" hidden>',
     '      <label for="sample-file"><span>SAMPLER AUDIO FILE</span><input id="sample-file" type="file" accept="audio/*" /></label>',
@@ -410,6 +414,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const projectStatus = get<HTMLElement>('#project-status');
   const trackName = get<HTMLElement>('#active-track-name');
   const trackSelect = get<HTMLSelectElement>('#track-select');
+  const trackList = get<HTMLElement>('#track-list');
+  const deleteTrackButton = get<HTMLButtonElement>('#delete-track');
   const newInstrumentTypeSelect = get<HTMLSelectElement>('#new-instrument-type');
   const sampleImportRow = get<HTMLElement>('#sample-import-row');
   const sampleFileInput = get<HTMLInputElement>('#sample-file');
@@ -1073,7 +1079,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     loopStartBarInput.disabled = timingControlsDisabled;
     loopEndBarInput.disabled = timingControlsDisabled;
     const selectedTrack = activeTrack();
-    trackName.textContent = selectedTrack.name + ' · ' + getInstrumentLabel(selectedTrack.instrumentType);
+    trackName.textContent = selectedTrack
+      ? selectedTrack.name + ' · ' + getInstrumentLabel(selectedTrack.instrumentType)
+      : 'No instrument track selected';
 
     trackSelect.replaceChildren();
     for (const track of [...project.tracks].sort((a, b) => a.order - b.order)) {
@@ -1082,19 +1090,51 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       option.textContent = track.name + ' · ' + getInstrumentLabel(track.instrumentType);
       trackSelect.append(option);
     }
-    trackSelect.value = selectedTrack.id;
-    recordStartButton.disabled = !persistenceReady || !selectedTrack.armed || recorder.isRecording;
-    armTrackButton.textContent = selectedTrack.armed ? '● Armed' : 'Arm track';
-    muteTrackButton.textContent = selectedTrack.muted ? 'Unmute' : 'Mute';
-    soloTrackButton.textContent = selectedTrack.solo ? 'Unsolo' : 'Solo';
-    trackVolumeInput.value = String(selectedTrack.volume);
-    trackPanInput.value = String(selectedTrack.pan);
-    trackSelect.disabled = recorder.isRecording;
+    trackSelect.value = selectedTrack?.id ?? '';
+    trackList.replaceChildren();
+    for (const track of [...project.tracks].sort((a, b) => a.order - b.order)) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'track-row' + (track.id === project.activeTrackId ? ' is-selected' : '');
+      row.setAttribute('role', 'listitem');
+      row.setAttribute('aria-pressed', String(track.id === project.activeTrackId));
+      const main = document.createElement('span'); main.className = 'track-row-main';
+      const name = document.createElement('strong'); name.textContent = track.name;
+      const type = document.createElement('small'); type.textContent = getInstrumentLabel(track.instrumentType);
+      main.append(name, type);
+      const state = document.createElement('span'); state.className = 'track-row-state';
+      state.textContent = track.armed ? '● REC ARMED' : track.muted ? 'MUTED' : track.solo ? 'SOLO' : 'READY';
+      row.append(main, state);
+      row.disabled = recorder.isRecording;
+      row.addEventListener('click', () => {
+        if (recorder.isRecording || track.id === project.activeTrackId) return;
+        resourceFor(project.activeTrackId)?.instrument.stopAudition();
+        project = setActiveProjectTrack(project, track.id);
+        selectedClipId = undefined; selectedClip = undefined; selectedPianoNote = undefined;
+        updateProjectUi(); void persistProject();
+      });
+      trackList.append(row);
+    }
+    const hasTrack = Boolean(selectedTrack);
+    recordStartButton.disabled = !persistenceReady || !selectedTrack?.armed || recorder.isRecording;
+    deleteTrackButton.disabled = !hasTrack || recorder.isRecording || anyTransportPlaying();
+    trackSelect.disabled = recorder.isRecording || !hasTrack;
+    armTrackButton.textContent = selectedTrack?.armed ? '● Record armed' : 'Arm for recording';
+    muteTrackButton.textContent = selectedTrack?.muted ? 'Unmute' : 'Mute';
+    soloTrackButton.textContent = selectedTrack?.solo ? 'Unsolo' : 'Solo';
+    trackVolumeInput.value = String(selectedTrack?.volume ?? 0.8);
+    trackPanInput.value = String(selectedTrack?.pan ?? 0);
+    armTrackButton.disabled = !hasTrack || recorder.isRecording;
+    muteTrackButton.disabled = !hasTrack || recorder.isRecording;
+    soloTrackButton.disabled = !hasTrack || recorder.isRecording;
+    trackVolumeInput.disabled = !hasTrack || recorder.isRecording;
+    trackPanInput.disabled = !hasTrack || recorder.isRecording;
+    trackSelect.disabled = recorder.isRecording || !hasTrack;
     newInstrumentTypeSelect.disabled = recorder.isRecording;
-    sampleImportRow.hidden = selectedTrack.instrumentType !== 'sampler';
-    samplerEditor.hidden = selectedTrack.instrumentType !== 'sampler';
-    const samplerSettings = selectedTrack.samplerSettings ?? DEFAULT_SAMPLER_SETTINGS;
-    const samplerResources = resourceFor(selectedTrack.id);
+    sampleImportRow.hidden = selectedTrack?.instrumentType !== 'sampler';
+    samplerEditor.hidden = selectedTrack?.instrumentType !== 'sampler';
+    const samplerSettings = selectedTrack?.samplerSettings ?? DEFAULT_SAMPLER_SETTINGS;
+    const samplerResources = selectedTrack ? resourceFor(selectedTrack.id) : undefined;
     const samplerLoaded = samplerResources?.instrument.hasSample === true;
     samplerResources?.instrument.setSamplerSettings(samplerSettings);
     const sampleDuration = samplerResources?.instrument.sampleDuration ?? 0;
@@ -1115,7 +1155,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     samplerLoopInput.disabled = !samplerLoaded;
     samplerPlaybackMode.disabled = !samplerLoaded;
     samplerRootNoteInput.disabled = !samplerLoaded;
-    samplerTransformButton.disabled = !selectedTrack.sampleAssetId || !audioReady ||
+    samplerTransformButton.disabled = !selectedTrack?.sampleAssetId || !audioReady ||
       recorder.isRecording || anyTransportPlaying() || generationAbortController !== undefined;
     samplerTransformPrompt.disabled = samplerTransformButton.disabled;
     samplerTransformDuration.disabled = samplerTransformButton.disabled;
@@ -1126,9 +1166,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     samplerLoopStartTime.textContent = seconds(samplerSettings.loopStart);
     samplerLoopEndTime.textContent = seconds(samplerSettings.loopEnd);
     sampleFileInput.disabled = recorder.isRecording;
-    sampleStatus.textContent = selectedTrack.instrumentType !== 'sampler'
+    sampleStatus.textContent = selectedTrack?.instrumentType !== 'sampler'
       ? 'Choose a Sampler track to import audio.'
-      : selectedTrack.sampleFileName
+      : selectedTrack?.sampleFileName
         ? (resourceFor(selectedTrack.id)?.instrument.hasSample
           ? 'Loaded: ' + selectedTrack.sampleFileName
           : 'Stored: ' + selectedTrack.sampleFileName + ' · click Enable audio to load')
@@ -1331,6 +1371,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     selectedClip = undefined;
     selectedPianoNote = undefined;
     const track = activeTrack();
+    if (!track) { captureStatus.textContent = 'Add an instrument track before recording.'; return; }
     if (!track.armed) {
       captureStatus.textContent = 'Arm this track before recording.';
       return;
@@ -1395,7 +1436,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       if (!saved) await repository.save(project);
     } catch (error) {
       repository = new MemoryProjectRepository();
-      project = createDefaultProject('synth-main');
+      project = createEmptyProject();
       projectStatus.textContent = 'Session only · local storage unavailable';
       captureStatus.textContent = error instanceof Error
         ? 'Could not open saved projects: ' + error.message
@@ -1403,7 +1444,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
 
     persistenceReady = true;
-    recordStartButton.disabled = !activeTrack().armed;
+    recordStartButton.disabled = !activeTrack()?.armed;
     projectSaveButton.disabled = false;
     if (repository.durability === 'persistent') {
       projectStatus.textContent = 'Local project storage ready';
@@ -1600,6 +1641,25 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   loopStartBarInput.addEventListener('change', commitLoopRegion);
   loopEndBarInput.addEventListener('change', commitLoopRegion);
 
+  deleteTrackButton.addEventListener('click', () => {
+    const selected = activeTrack();
+    if (!selected || recorder.isRecording || anyTransportPlaying()) return;
+    if (!window.confirm('Delete track "' + selected.name + '" and all clips on it? This cannot be undone.')) return;
+    void (async () => {
+      const resources = resourceFor(selected.id);
+      if (resources) {
+        resources.transport.dispose(); resources.unsubscribeTransport();
+        parameterBus.unregisterTarget(resources.instrument.id); parameterBus.unregisterTarget(resources.bus.id);
+        await rack.remove(resources.instrument.id); await rack.remove(resources.bus.id);
+        trackResources.delete(selected.id);
+      }
+      project = deleteProjectTrack(project, selected.id);
+      projectHistory.clear(); selectedClipId = undefined; selectedClip = undefined; selectedPianoNote = undefined;
+      updateProjectUi(); await persistProject();
+      captureStatus.textContent = 'Deleted ' + selected.name + ' and its clips.';
+    })().catch((error: unknown) => { projectStatus.textContent = error instanceof Error ? error.message : 'Could not delete track.'; });
+  });
+
   trackSelect.addEventListener('change', () => {
     if (recorder.isRecording) return;
     const beforeEdit = project;
@@ -1639,6 +1699,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const file = sampleFileInput.files?.[0];
     const track = activeTrack();
     if (!file) return;
+    if (!track) { sampleStatus.textContent = 'Add a Sampler track before importing audio.'; sampleFileInput.value = ''; return; }
     if (recorder.isRecording || anyTransportPlaying()) {
       sampleStatus.textContent = 'Stop recording and playback before replacing a sample.';
       sampleFileInput.value = '';
@@ -1691,7 +1752,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const saveSamplerSettings = (patch: Partial<SamplerSettings>): void => {
     const track = activeTrack();
-    if (track.instrumentType !== 'sampler') return;
+    if (!track || track.instrumentType !== 'sampler') return;
     const current = track.samplerSettings ?? DEFAULT_SAMPLER_SETTINGS;
     const next: SamplerSettings = {
       ...current,
@@ -1716,7 +1777,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   };
 
   sampleAuditionButton.addEventListener('click', () => {
-    const resources = resourceFor(activeTrack().id);
+    const selected = activeTrack();
+    const resources = selected ? resourceFor(selected.id) : undefined;
     if (!audioReady || !resources?.instrument.hasSample) {
       sampleStatus.textContent = 'Enable audio and load a sample before auditioning.';
       return;
@@ -1724,7 +1786,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     resources.instrument.auditionSample();
     sampleAuditionStopButton.disabled = false;
   });
-  sampleAuditionStopButton.addEventListener('click', () => resourceFor(activeTrack().id)?.instrument.stopAudition());
+  sampleAuditionStopButton.addEventListener('click', () => { const selected = activeTrack(); if (selected) resourceFor(selected.id)?.instrument.stopAudition(); });
   samplerPlaybackMode.addEventListener('change', () =>
     saveSamplerSettings({ playbackMode: samplerPlaybackMode.value as SamplerSettings['playbackMode'] }));
   samplerStartInput.addEventListener('input', () =>
@@ -1837,7 +1899,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   samplerTransformButton.addEventListener('click', () => {
     const sourceTrack = activeTrack();
     if (
-      sourceTrack.instrumentType !== 'sampler' || !sourceTrack.sampleAssetId ||
+      !sourceTrack || sourceTrack.instrumentType !== 'sampler' || !sourceTrack.sampleAssetId ||
       !audioReady || recorder.isRecording || anyTransportPlaying() || generationAbortController
     ) return;
 
@@ -1952,7 +2014,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (recorder.isRecording) return;
     const beforeEdit = project;
     const trackId = project.activeTrackId;
-    const shouldArm = !activeTrack().armed;
+    const selected = activeTrack();
+    if (!selected) return;
+    const shouldArm = !selected.armed;
     for (const track of project.tracks) {
       project = updateProjectTrack(project, track.id, { armed: track.id === trackId && shouldArm });
     }
@@ -1964,7 +2028,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   muteTrackButton.addEventListener('click', () => {
     if (recorder.isRecording) return;
     const beforeEdit = project;
-    project = updateProjectTrack(project, project.activeTrackId, { muted: !activeTrack().muted });
+    const selected = activeTrack(); if (!selected) return;
+    project = updateProjectTrack(project, selected.id, { muted: !selected.muted });
     projectHistory.commit(beforeEdit, project);
     updateProjectUi();
     void persistProject();
@@ -1973,7 +2038,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   soloTrackButton.addEventListener('click', () => {
     if (recorder.isRecording) return;
     const beforeEdit = project;
-    project = updateProjectTrack(project, project.activeTrackId, { solo: !activeTrack().solo });
+    const selected = activeTrack(); if (!selected) return;
+    project = updateProjectTrack(project, selected.id, { solo: !selected.solo });
     projectHistory.commit(beforeEdit, project);
     updateProjectUi();
     void persistProject();
@@ -2302,7 +2368,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         ? Math.max(Date.now(), previousUpdatedAt + 1)
         : Date.now());
       const existingProjectIds = new Set(savedProjects.map(saved => saved.id));
-      let freshProject = createDefaultProject('synth-main', nextTimestamp);
+      let freshProject = createEmptyProject(nextTimestamp);
       // New-project creation is insert-only. Guard against even an unexpected ID collision.
       while (existingProjectIds.has(freshProject.id)) {
         const uniqueId = globalThis.crypto?.randomUUID?.() ??
@@ -2318,8 +2384,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       recordingTrackId = undefined;
 
       projectNameInput.value = project.name;
-      ensureTrackRuntime(activeTrack(), false);
-      if (audioReady) await ensureTrackAudioReady(project.activeTrackId);
+      // Empty projects do not instantiate an instrument until the user adds a track.
       updateProjectUi();
       const newSnapshot = project;
       const createOperation = saveQueue.then(() => repository.saveAsNew(newSnapshot));
