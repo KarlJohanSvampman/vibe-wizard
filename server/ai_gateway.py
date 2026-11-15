@@ -122,7 +122,7 @@ class TransformAudioRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     duration_seconds: float = Field(alias="durationSeconds", ge=3, le=30)
     reference_start_ms: int = Field(alias="referenceStartMs", ge=0)
-    reference_end_ms: int = Field(alias="referenceEndMs", ge=50, le=30000)
+    reference_end_ms: int = Field(alias="referenceEndMs", ge=50, le=600000)
     condition_strength: str = Field(default="high", alias="conditionStrength")
 
     @field_validator("prompt")
@@ -144,8 +144,8 @@ class TransformAudioRequest(BaseModel):
     @classmethod
     def validate_reference_range(cls, value: int, info: Any) -> int:
         start = info.data.get("reference_start_ms", 0)
-        if value - start < 50:
-            raise ValueError("The selected reference region must be at least 50 ms.")
+        if value - start < 50 or value - start > 30000:
+            raise ValueError("The selected reference region must be between 50 ms and 30 seconds.")
         return value
 
 
@@ -337,7 +337,7 @@ async def create_transformation(
     prompt: str = Form(..., min_length=1, max_length=4000),
     duration_seconds: float = Form(..., alias="durationSeconds", ge=3, le=30),
     reference_start_ms: int = Form(..., alias="referenceStartMs", ge=0),
-    reference_end_ms: int = Form(..., alias="referenceEndMs", ge=50, le=30000),
+    reference_end_ms: int = Form(..., alias="referenceEndMs", ge=50, le=600000),
     condition_strength: str = Form("high", alias="conditionStrength"),
 ) -> dict[str, str]:
     if not os.getenv("ELEVENLABS_API_KEY", "").strip():
