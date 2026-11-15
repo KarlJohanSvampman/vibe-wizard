@@ -1410,6 +1410,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (!clip) return;
     const originalProject = project;
     const originalActiveTrackId = project.activeTrackId;
+    resourceFor(originalActiveTrackId)?.instrument.stopAudition();
     project = setActiveProjectTrack(project, hit.trackId);
     selectedClipId = clip.id;
     selectedClip = clip;
@@ -1579,6 +1580,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   trackSelect.addEventListener('change', () => {
     if (recorder.isRecording) return;
     const beforeEdit = project;
+    resourceFor(project.activeTrackId)?.instrument.stopAudition();
     project = setActiveProjectTrack(project, trackSelect.value);
     projectHistory.commit(beforeEdit, project);
     selectedClipId = undefined;
