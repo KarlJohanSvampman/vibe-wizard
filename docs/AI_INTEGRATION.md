@@ -98,6 +98,23 @@ Completed:
 
 Failed jobs return `status: "failed"` and a user-readable `message`. The browser polls every 1.5 seconds for up to 10 minutes. It sends no provider credentials and uses `credentials: omit`.
 
+
+## Prompt-conditioned sample transformation
+
+The Sampler editor can create a new variation from the selected sample. This workflow uses the Eleven Music API (Music v2.5), not the text-to-sound SFX endpoint:
+
+1. Select a Sampler track and enable audio.
+2. Set the sample start/end region in the Sampler editor. That region is used as the conditioning reference (up to 30 seconds).
+3. Describe the desired variation, choose an output duration (3–30 seconds), and choose source influence.
+4. The local gateway uploads the source audio to `POST /v1/music/upload`, then calls `POST /v1/music` with a one-chunk composition plan and a `conditioning_ref`.
+5. The returned variation is saved as a separate local audio asset and a new Sampler track. The source track and asset are not modified.
+
+This requires Eleven Music API access on the configured ElevenLabs account (the Music API is available to paid subscribers). The gateway uses the existing server-side `ELEVENLABS_API_KEY`; no additional browser secret is introduced. Uploaded audio is sent to ElevenLabs and is subject to its audio upload and copyright-screening rules. Only upload audio you have the rights to use.
+
+**Important limitation:** Audio Reference and conditioning guide a new generation's sound, production style, instrumentation, tempo, and mood. They do not copy or remix the source sample, and they are not a reliable genre-transfer tool. Treat the result as a new variation inspired by the source, not a destructive edit or exact melody-preserving transformation. The source sample remains untouched.
+
+The current gateway accepts source files up to 25 MB and conditions on a selected region no longer than 30 seconds. The generated result is capped at 25 MB and is retained locally in IndexedDB after download. The gateway's temporary job result remains in memory for 30 minutes.
+
 ## Sample storage and provenance
 
 Generated sample bytes live in the separate IndexedDB database `vibe-wizard-audio-assets`, not in project JSON. The project stores a stable asset ID and filename. Each generated sample also stores its prompt, provider ID, job ID, and creation time so it can later be searched, regenerated, or transformed. Clearing browser site data removes local sample assets.
