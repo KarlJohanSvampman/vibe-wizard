@@ -9,6 +9,8 @@ export interface ProjectRepository {
   loadLatest(): Promise<ProjectSnapshot | undefined>;
   list(): Promise<ProjectSnapshot[]>;
   save(snapshot: ProjectSnapshot): Promise<void>;
+  /** Insert a new project without ever replacing an existing project with the same ID. */
+  saveAsNew(snapshot: ProjectSnapshot): Promise<void>;
 }
 
 const DATABASE_NAME = 'vibe-wizard-projects';
@@ -100,6 +102,18 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       transaction.onabort = () => reject(transaction.error ?? new Error('Project save was aborted.'));
     });
   }
+  async saveAsNew(snapshot: ProjectSnapshot): Promise<void> {
+    const safeSnapshot = validateProjectSnapshot(snapshot);
+    const database = await this.database;
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction(PROJECT_STORE, 'readwrite');
+      transaction.objectStore(PROJECT_STORE).add(cloneSnapshot(safeSnapshot));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error('Could not create the new project.'));
+      transaction.onabort = () => reject(transaction.error ?? new Error('Project creation was aborted.'));
+    });
+  }
+
 }
 
 export class MemoryProjectRepository implements ProjectRepository {
@@ -120,6 +134,14 @@ export class MemoryProjectRepository implements ProjectRepository {
     const safeSnapshot = validateProjectSnapshot(snapshot);
     this.projects.set(safeSnapshot.id, cloneSnapshot(safeSnapshot));
   }
+  async saveAsNew(snapshot: ProjectSnapshot): Promise<void> {
+    const safeSnapshot = validateProjectSnapshot(snapshot);
+    if (this.projects.has(safeSnapshot.id)) {
+      throw new Error('A project with this ID already exists. A new project ID is required.');
+    }
+    this.projects.set(safeSnapshot.id, cloneSnapshot(safeSnapshot));
+  }
+
 }
 
 export function createProjectRepository(
