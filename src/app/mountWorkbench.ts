@@ -1810,6 +1810,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         selectedClipId = recording.id;
         await persistProject();
         await refreshTurntableAssets();
+        await refreshAssetBrowser();
         updateProjectUi();
         updateClipUi();
         studioStatus.textContent = 'Saved ' + duration.toFixed(2) + ' seconds as an audio asset and arrangement clip on a new sampler track.';
