@@ -20,7 +20,7 @@ describe('HTTP audio transformation provider', () => {
         headers: { 'Content-Type': 'audio/mpeg', 'Content-Length': '4' },
       }));
     const progress: Array<{ status: string; progress?: number }> = [];
-    const provider = new HttpAudioTransformationProvider('/api', {
+    const provider = new HttpAudioTransformationProvider('http://localhost/api', {
       fetcher,
       pollIntervalMs: 0,
       maxWaitMs: 1000,
@@ -58,7 +58,7 @@ describe('HTTP audio transformation provider', () => {
   });
 
   it('rejects a source that is not audio', async () => {
-    const provider = new HttpAudioTransformationProvider('/api', {
+    const provider = new HttpAudioTransformationProvider('http://localhost/api', {
       fetcher: vi.fn<typeof fetch>(),
     });
     const source = new File(['not audio'], 'notes.txt', { type: 'text/plain' });
@@ -72,7 +72,7 @@ describe('HTTP audio transformation provider', () => {
   });
 
   it('rejects a reference region shorter than 50 ms', async () => {
-    const provider = new HttpAudioTransformationProvider('/api', {
+    const provider = new HttpAudioTransformationProvider('http://localhost/api', {
       fetcher: vi.fn<typeof fetch>(),
     });
     const source = new File([new Uint8Array([1])], 'source.wav', { type: 'audio/wav' });
@@ -91,7 +91,7 @@ describe('HTTP audio transformation provider', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({
         status: 'failed', message: 'Music API access is not enabled',
       })));
-    const provider = new HttpAudioTransformationProvider('/api', {
+    const provider = new HttpAudioTransformationProvider('http://localhost/api', {
       fetcher,
       pollIntervalMs: 0,
       maxWaitMs: 1000,
