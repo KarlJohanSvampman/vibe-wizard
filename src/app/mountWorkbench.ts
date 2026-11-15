@@ -1258,6 +1258,93 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   savedProjectsSelect.addEventListener('change', updateProjectBrowserControls);
 
+  let activeAssetPreview: HTMLAudioElement | undefined;
+  let activeAssetPreviewUrl: string | undefined;
+
+  const refreshAssetBrowser = async (): Promise<void> => {
+    assetBrowserList.replaceChildren();
+    try {
+      const assets = await sampleAssets.list();
+      const query = assetSearchInput.value.trim().toLowerCase();
+      const filter = assetFilterSelect.value;
+      const visible = assets.filter(asset => {
+        const origin = asset.origin?.kind ?? 'user-import';
+        return (filter === 'all' || origin === filter) &&
+          (!query || asset.name.toLowerCase().includes(query) || (asset.origin?.prompt ?? '').toLowerCase().includes(query));
+      }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      if (visible.length === 0) {
+        const empty = document.createElement('p'); empty.className = 'asset-empty';
+        empty.textContent = assets.length ? 'No sounds match this search.' : 'No sounds saved yet. Generate or import audio to build your library.';
+        assetBrowserList.append(empty); return;
+      }
+      const referencedIds = new Set<string>();
+      for (const saved of savedProjects) for (const track of saved.tracks) if (track.sampleAssetId) referencedIds.add(track.sampleAssetId);
+      for (const asset of visible) {
+        const card = document.createElement('article'); card.className = 'asset-card'; card.setAttribute('role', 'listitem');
+        const heading = document.createElement('div'); heading.className = 'asset-card-heading';
+        const title = document.createElement('strong'); title.textContent = asset.name;
+        const origin = document.createElement('span'); origin.textContent = asset.origin?.kind === 'ai-generated' ? 'AI GENERATED' : asset.origin?.kind === 'ai-transformed' ? 'AI TRANSFORMED' : 'IMPORTED';
+        heading.append(title, origin);
+        const meta = document.createElement('p'); meta.className = 'asset-meta';
+        meta.textContent = (asset.data.byteLength / 1024 / 1024).toFixed(2) + ' MB · ' + new Date(asset.updatedAt).toLocaleString();
+        const diagnostics = document.createElement('p'); diagnostics.className = 'asset-diagnostics'; diagnostics.textContent = 'Analysing signal…';
+        const actions = document.createElement('div'); actions.className = 'asset-card-actions';
+        const preview = document.createElement('button'); preview.type = 'button'; preview.className = 'transport-button'; preview.textContent = '▶ Preview';
+        preview.addEventListener('click', () => {
+          if (activeAssetPreview) activeAssetPreview.pause();
+          if (activeAssetPreviewUrl) URL.revokeObjectURL(activeAssetPreviewUrl);
+          activeAssetPreviewUrl = URL.createObjectURL(new Blob([asset.data], { type: asset.mimeType || 'audio/mpeg' }));
+          activeAssetPreview = new Audio(activeAssetPreviewUrl);
+          void activeAssetPreview.play().catch(() => { diagnostics.textContent = 'Preview playback is unavailable.'; });
+        });
+        const load = document.createElement('button'); load.type = 'button'; load.className = 'transport-button'; load.textContent = 'Load into selected sampler';
+        const selected = activeTrack(); const canLoad = selected?.instrumentType === 'sampler' && !recorder.isRecording && !anyTransportPlaying();
+        load.disabled = !canLoad; load.title = canLoad ? 'Replace the selected sampler source with this sound' : 'Select a Sampler track first';
+        load.addEventListener('click', () => {
+          void (async () => {
+            const track = activeTrack(); if (!track || track.instrumentType !== 'sampler' || recorder.isRecording || anyTransportPlaying()) return;
+            ensureTrackRuntime(track); if (audioReady) await ensureTrackAudioReady(track.id);
+            const resources = resourceFor(track.id); if (!resources) throw new Error('Selected sampler is not ready.');
+            const loaded = await sampleAssets.load(asset.id); if (!loaded) throw new Error('This sound is no longer available.');
+            await resources.instrument.loadSample(loaded.data);
+            project = updateProjectTrack(project, track.id, { sampleAssetId: loaded.id, sampleFileName: loaded.name });
+            await persistProject(); updateProjectUi(); sampleStatus.textContent = 'Loaded from library: ' + loaded.name;
+          })().catch((error: unknown) => { sampleStatus.textContent = error instanceof Error ? error.message : 'Could not load this sound.'; });
+        });
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'transport-button danger-button'; remove.textContent = 'Delete';
+        remove.disabled = referencedIds.has(asset.id); remove.title = remove.disabled ? 'Used by a saved project; remove its sampler reference first.' : 'Delete from this browser';
+        remove.addEventListener('click', () => {
+          if (referencedIds.has(asset.id) || !window.confirm('Delete "' + asset.name + '" from the local sound library?')) return;
+          void sampleAssets.delete(asset.id).then(refreshAssetBrowser);
+        });
+        actions.append(preview, load, remove); card.append(heading, meta, diagnostics, actions); assetBrowserList.append(card);
+        void (async () => {
+          try {
+            const decoded = await audioRuntime.prepareContext().decodeAudioData(asset.data.slice(0));
+            let peak = 0; let sumSquares = 0; let count = 0;
+            for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) {
+              const samples = decoded.getChannelData(channel);
+              for (let i = 0; i < samples.length; i += 1) { const value = samples[i] ?? 0; peak = Math.max(peak, Math.abs(value)); sumSquares += value * value; count += 1; }
+            }
+            const rms = count ? Math.sqrt(sumSquares / count) : 0;
+            const db = (value: number) => value > 0 ? (20 * Math.log10(value)).toFixed(1) + ' dBFS' : '−∞ dBFS';
+            const warning = peak < 0.001 ? ' · ⚠ Nearly silent' : peak < 0.03 ? ' · ⚠ Very quiet source' : peak > 0.999 ? ' · ⚠ Near full scale / possible clipping' : ' · Signal level looks normal';
+            diagnostics.textContent = decoded.duration.toFixed(2) + ' s · Peak ' + db(peak) + ' · RMS ' + db(rms) + warning;
+            diagnostics.classList.toggle('has-warning', peak < 0.03 || peak > 0.999);
+          } catch { diagnostics.textContent = 'Could not decode this file for level analysis.'; }
+        })();
+      }
+    } catch (error) {
+      const message = document.createElement('p'); message.className = 'asset-empty';
+      message.textContent = error instanceof Error ? 'Sound library unavailable: ' + error.message : 'Sound library unavailable.'; assetBrowserList.append(message);
+    }
+  };
+
+  assetRefreshButton.addEventListener('click', () => void refreshAssetBrowser());
+  assetSearchInput.addEventListener('input', () => void refreshAssetBrowser());
+  assetFilterSelect.addEventListener('change', () => void refreshAssetBrowser());
+
+
   const persistProject = (): Promise<void> => {
     const name = projectNameInput.value.trim();
     const nextName = name || 'Untitled Session';
