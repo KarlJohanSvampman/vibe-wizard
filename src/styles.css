@@ -728,3 +728,356 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
 @media (max-width: 1049px) {
   .workbench-card { display: block; }
 }
+
+
+/* Resonance-style full-screen workstation layout */
+#workbench-root {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  background: #171717;
+}
+.workbench-card {
+  display: grid;
+  grid-template-columns: minmax(150px, 16%) minmax(360px, 1fr) minmax(270px, 22%);
+  grid-template-rows: auto auto minmax(260px, 1fr) minmax(220px, 36vh);
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #202020;
+  box-shadow: none;
+  backdrop-filter: none;
+  gap: 0;
+}
+.studio-topbar {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(300px, auto) minmax(180px, auto);
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 7px 14px;
+  border-bottom: 1px solid #414141;
+  background: #242424;
+}
+.studio-topbar .workbench-header,
+.studio-topbar .project-toolbar,
+.studio-topbar .signal-row {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.studio-topbar .workbench-header { gap: 8px; }
+.studio-topbar .workbench-header .eyebrow,
+.studio-topbar .subtitle,
+.studio-topbar .prototype-tag { display: none; }
+.studio-topbar h1 { font-size: 16px; letter-spacing: 0; }
+.studio-topbar .project-toolbar { gap: 6px; }
+.studio-topbar .project-name-field { flex: 1 1 110px; }
+.studio-topbar .project-name-field > span,
+.studio-topbar .saved-project-field,
+.studio-topbar #project-open,
+.studio-topbar #project-save,
+.studio-topbar .project-status { display: none; }
+.studio-topbar .project-name-field input {
+  width: 100%;
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+  font-size: 11px;
+}
+.studio-topbar .signal-row { justify-content: end; gap: 8px; min-height: 0; }
+.studio-topbar #audio-status { display: none; }
+.studio-topbar .action-button { min-height: 32px; padding: 6px 10px; }
+.studio-topbar #enable-audio { display: none; }
+.studio-topbar .enter-vr-button {
+  color: #171717;
+  border-color: #f5a000;
+  background: #f5a000;
+}
+.recording-guide {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 34px;
+  overflow-x: auto;
+  padding: 4px 14px;
+  border-bottom: 1px solid #3b3b3b;
+  color: #c7c7c7;
+  background: #191919;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.recording-guide > span { margin-right: 10px; color: #9e9e9e; font-weight: 800; letter-spacing: .08em; }
+.recording-guide b { font-weight: 500; }
+.recording-guide b:first-of-type { color: #ffb000; }
+.recording-guide i { color: #777; font-style: normal; }
+.studio-workspace { display: contents; }
+.studio-track-sidebar,
+.studio-arrangement,
+.studio-browser,
+.studio-dock {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #242424;
+}
+.studio-track-sidebar {
+  grid-column: 1;
+  grid-row: 3;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #444;
+}
+.studio-panel-heading {
+  flex: 0 0 auto;
+  min-height: 39px;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid #414141;
+  color: #bdbdbd;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.studio-track-sidebar .track-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 8px 0;
+}
+.studio-track-sidebar .track-list:empty::after {
+  content: "An empty project\A\A Choose an instrument to create your first track.";
+  white-space: pre-wrap;
+  padding: 26px 12px;
+  border: 0;
+  color: #aaa;
+  line-height: 1.7;
+}
+.studio-track-sidebar .track-row {
+  border: 0;
+  border-radius: 0;
+  border-left: 4px solid transparent;
+  padding: 13px 10px;
+  background: transparent;
+}
+.studio-track-sidebar .track-row.is-selected {
+  border-left-color: #ffad00;
+  background: #87400f;
+  box-shadow: none;
+}
+.studio-track-sidebar .track-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border-top: 1px solid #414141;
+}
+.studio-track-sidebar .track-toolbar > label { display: none; }
+.studio-track-sidebar .track-toolbar #add-track {
+  order: -1;
+  width: 100%;
+  color: #171717;
+  border-color: #f5a000;
+  background: #f5a000;
+}
+.studio-track-sidebar .track-toolbar button { width: 100%; }
+.studio-arrangement {
+  grid-column: 2;
+  grid-row: 3;
+  display: flex;
+  flex-direction: column;
+  border-right: 4px solid #171717;
+  background: #222;
+}
+.studio-arrangement .studio-panel-heading { display: none; }
+.studio-arrangement .arrangement-toolbar {
+  order: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 7px 10px;
+  border-top: 1px solid #3b3b3b;
+}
+.studio-arrangement .arrangement-label,
+.studio-arrangement .arrangement-hint { display: none; }
+.studio-arrangement .timing-toolbar,
+.studio-arrangement .loop-toolbar {
+  order: 3;
+  margin: 0;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 0;
+  background: #242424;
+}
+.studio-arrangement .loop-toolbar { display: none; }
+.studio-arrangement .timing-toolbar > label > span { font-size: 8px; }
+.studio-arrangement .arrangement-wrap {
+  order: 1;
+  flex: 1 1 auto;
+  min-height: 160px;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 4px solid #171717;
+  background: #222;
+}
+.studio-arrangement #arrangement-timeline { min-height: 100%; }
+.studio-browser {
+  grid-column: 3;
+  grid-row: 3 / 5;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #444;
+  background: #242424;
+}
+.studio-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 9px;
+  border-bottom: 1px solid #414141;
+  background: #242424;
+}
+.studio-tab {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #d0d0d0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.studio-tab:hover,
+.studio-tab.is-active {
+  border-bottom-color: #f5a000;
+  color: #fff;
+  background: #303030;
+}
+.studio-browser > .asset-browser-panel,
+.studio-browser > .ai-sample-studio {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #242424;
+}
+.studio-browser .asset-browser-panel .section-heading { display: none; }
+.studio-browser .asset-browser-toolbar {
+  display: grid;
+  gap: 0;
+  padding: 10px;
+  border-bottom: 1px solid #414141;
+}
+.studio-browser .asset-browser-toolbar select { min-height: 32px; }
+.studio-browser .asset-browser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.studio-browser .asset-card {
+  padding: 12px 10px;
+  border: 0;
+  border-bottom: 1px solid #414141;
+  border-radius: 0;
+  background: transparent;
+}
+.studio-browser .asset-browser-hint { padding: 10px; }
+.studio-dock {
+  grid-column: 1 / 3;
+  grid-row: 4;
+  display: flex;
+  flex-direction: column;
+  border-top: 4px solid #171717;
+  background: #222;
+}
+.studio-dock-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+}
+.studio-dock-pane { min-height: 100%; }
+.studio-dock-pane[hidden],
+.studio-browser [hidden] { display: none !important; }
+.studio-dock .controller-panel {
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.studio-dock .controller-panel .section-heading { margin-bottom: 8px; }
+.studio-dock .controller-panel h2 { font-size: 14px; }
+.studio-dock .controller-panel .spatial-hint { max-width: 760px; }
+.studio-dock .track-mixer-controls {
+  display: flex;
+  gap: 24px;
+  max-width: 720px;
+}
+.studio-dock .track-mixer-controls label { flex: 1; }
+.studio-dock .sampler-editor { max-width: 900px; }
+.studio-dock .sampler-editor .control-row { margin: 10px 0; }
+.studio-dock .clip-library-row,
+.studio-dock .transport-controls { margin: 0 0 10px; }
+.studio-dock .timeline-wrap { max-height: 160px; }
+.studio-dock #clip-timeline { height: 150px; }
+.studio-dock .piano-roll-wrap { max-height: 340px; }
+.studio-dock .capture-hint { margin-top: 8px; }
+.workbench-footer { display: none; }
+@media (max-width: 1000px) {
+  .workbench-card {
+    grid-template-columns: minmax(125px, 20%) minmax(300px, 1fr);
+    grid-template-rows: auto auto minmax(240px, 1fr) minmax(200px, 34vh) minmax(180px, 28vh);
+  }
+  .studio-browser { grid-column: 1 / -1; grid-row: 5; border-left: 0; border-top: 3px solid #171717; }
+  .studio-dock { grid-column: 1 / -1; grid-row: 4; }
+  .studio-track-sidebar { grid-row: 3; }
+  .studio-arrangement { grid-row: 3; }
+}
+@media (max-width: 650px) {
+  #workbench-root { overflow: auto; }
+  .workbench-card {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+  .studio-topbar { display: flex; flex-wrap: wrap; }
+  .studio-topbar .project-toolbar { flex: 1 1 100%; }
+  .recording-guide { min-height: 38px; }
+  .studio-workspace { display: flex; flex-direction: column; }
+  .studio-track-sidebar { min-height: 160px; border-right: 0; }
+  .studio-track-sidebar .track-list { min-height: 90px; }
+  .studio-arrangement { min-height: 280px; border-right: 0; }
+  .studio-browser { min-height: 260px; }
+  .studio-dock { min-height: 280px; }
+  .studio-dock .track-mixer-controls { flex-direction: column; gap: 10px; }
+}
