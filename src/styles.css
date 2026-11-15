@@ -617,3 +617,54 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
   font-size: 11px;
   text-align: center;
 }
+
+
+/* Local audio asset browser and signal diagnostics */
+.asset-browser-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid rgba(190,171,226,.14);
+  border-radius: 14px;
+  background: rgba(7,7,13,.28);
+}
+.asset-browser-panel .section-heading { margin: 0; }
+.asset-browser-panel h3 { margin: 0; font-size: 14px; }
+.asset-browser-toolbar { display: flex; gap: 8px; }
+.asset-browser-toolbar input, .asset-browser-toolbar select {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(179,151,226,.22);
+  border-radius: 7px;
+  color: #f3eefb;
+  background: #171420;
+  font: inherit;
+  font-size: 11px;
+}
+.asset-browser-toolbar input { flex: 1; }
+.asset-browser-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+.asset-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(190,171,226,.14);
+  border-radius: 9px;
+  background: rgba(12,11,19,.72);
+}
+.asset-card-heading { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+.asset-card-heading strong { overflow-wrap: anywhere; color: #e9e1f5; font-size: 11px; }
+.asset-card-heading span { flex: 0 0 auto; color: #a998ca; font-size: 8px; font-weight: 800; letter-spacing: .08em; }
+.asset-meta { margin: 7px 0; color: #81798f; font-size: 9px; }
+.asset-diagnostics { margin: 7px 0 10px; color: #9bc8b4; font-size: 9px; line-height: 1.5; }
+.asset-diagnostics.has-warning { color: #f0bd79; }
+.asset-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.asset-card-actions .transport-button { min-width: 0; flex: 1 1 auto; padding: 7px 9px; font-size: 9px; }
+.asset-card-actions .transport-button:disabled { opacity: .35; }
+.asset-empty, .asset-browser-hint { margin: 0; color: #92899f; font-size: 10px; line-height: 1.55; }
+.asset-browser-hint { padding-top: 2px; }
+@media (max-width: 560px) {
+  .asset-browser-panel { padding: 13px; }
+  .asset-browser-toolbar { flex-wrap: wrap; }
+  .asset-browser-toolbar select { flex: 1 1 100%; }
+  .asset-browser-list { grid-template-columns: 1fr; }
+}
