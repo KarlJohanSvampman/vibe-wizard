@@ -1562,7 +1562,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       if (component.kind === 'button' || component.kind === 'toggle' || component.kind === 'guitar-fret' || component.kind === 'drum-pad') {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = component.kind === 'toggle' ? 'Toggle' : 'Press';
         let active = false;
-        const down = () => { active = true; button.classList.add('is-playing'); controllerRuntime.setGate(project.controllerInstances.find(i => i.presetId === preset.id) ?? createControllerInstance(preset.id), component, true); };
+        const down = () => { const instance = project.controllerInstances.find(i => i.presetId === preset.id); if (!instance) { controllerStatus.textContent = 'Add this controller to the studio before playing it.'; return; } active = true; button.classList.add('is-playing'); controllerRuntime.setGate(instance, component, true); };
         const up = () => { if (!active) return; active = false; button.classList.remove('is-playing'); const instance = project.controllerInstances.find(i => i.presetId === preset.id); if (instance) controllerRuntime.setGate(instance, component, false); };
         button.addEventListener('pointerdown', down); button.addEventListener('pointerup', up); button.addEventListener('pointerleave', up); control = button;
       } else {
@@ -1671,7 +1671,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (platterPointer !== event.pointerId || !turntable.isLoaded) return;
     const rect = turntablePlatter.getBoundingClientRect();
     const position = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    turntable.scratch(position * (turntable.currentPosition() > 0 ? Math.max(turntable.currentPosition(), 1) : 1));
+    turntable.scratch(position * turntable.duration);
   });
   turntablePlatter.addEventListener('pointerup', () => { platterPointer = undefined; });
   turntablePlatter.addEventListener('pointercancel', () => { platterPointer = undefined; });
@@ -1872,7 +1872,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
   };
 
-  assetRefreshButton.addEventListener('click', () => void refreshAssetBrowser());
+  assetRefreshButton.addEventListener('click', () => { void refreshAssetBrowser(); void refreshTurntableAssets(); });
   assetSearchInput.addEventListener('input', () => void refreshAssetBrowser());
   assetFilterSelect.addEventListener('change', () => void refreshAssetBrowser());
 
