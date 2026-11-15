@@ -74,6 +74,79 @@ class AudioGatewayTests(unittest.TestCase):
         self.assertEqual(too_long.status_code, 422)
         self.assertEqual(blank.status_code, 422)
 
+
+    def test_transformation_requires_server_side_api_key(self) -> None:
+        with patch.dict(os.environ, {"ELEVENLABS_API_KEY": ""}, clear=False):
+            response = self.client.post(
+                "/api/audio/transformations",
+                data={
+                    "prompt": "Turn this into a dark ambient texture",
+                    "durationSeconds": "5",
+                    "referenceStartMs": "0",
+                    "referenceEndMs": "1000",
+                    "conditionStrength": "high",
+                },
+                files={"file": ("source.wav", b"source-audio", "audio/wav")},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("ELEVENLABS_API_KEY", response.json()["detail"])
+
+    def test_transforms_uploaded_audio_and_reuses_job_download_contract(self) -> None:
+        async def fake_transform(
+            request: ai_gateway.TransformAudioRequest,
+            source_data: bytes,
+            file_name: str,
+            mime_type: str,
+        ) -> tuple[bytes, str]:
+            self.assertEqual(request.prompt, "Dark ambient piano texture")
+            self.assertEqual(request.duration_seconds, 5)
+            self.assertEqual(request.reference_start_ms, 250)
+            self.assertEqual(request.reference_end_ms, 2250)
+            self.assertEqual(request.condition_strength, "high")
+            self.assertEqual(source_data, b"source-audio")
+            self.assertEqual(file_name, "source.wav")
+            self.assertEqual(mime_type, "audio/wav")
+            return b"transformed-audio", "audio/mpeg"
+
+        with (
+            patch.dict(os.environ, {"ELEVENLABS_API_KEY": "server-test-key"}, clear=False),
+            patch.object(ai_gateway, "call_elevenlabs_transform", side_effect=fake_transform),
+        ):
+            submitted = self.client.post(
+                "/api/audio/transformations",
+                data={
+                    "prompt": "  Dark ambient piano texture  ",
+                    "durationSeconds": "5",
+                    "referenceStartMs": "250",
+                    "referenceEndMs": "2250",
+                    "conditionStrength": "high",
+                },
+                files={"file": ("source.wav", b"source-audio", "audio/wav")},
+            )
+            self.assertEqual(submitted.status_code, 202)
+            job_id = submitted.json()["jobId"]
+            status = self.client.get(f"/api/audio/generations/{job_id}")
+            self.assertEqual(status.status_code, 200)
+            self.assertEqual(status.json()["status"], "succeeded")
+            download = self.client.get(status.json()["result"]["downloadUrl"])
+            self.assertEqual(download.status_code, 200)
+            self.assertEqual(download.content, b"transformed-audio")
+
+    def test_transformation_rejects_invalid_reference_range(self) -> None:
+        with patch.dict(os.environ, {"ELEVENLABS_API_KEY": "server-test-key"}, clear=False):
+            response = self.client.post(
+                "/api/audio/transformations",
+                data={
+                    "prompt": "Transform",
+                    "durationSeconds": "5",
+                    "referenceStartMs": "1000",
+                    "referenceEndMs": "1020",
+                    "conditionStrength": "high",
+                },
+                files={"file": ("source.wav", b"source-audio", "audio/wav")},
+            )
+        self.assertEqual(response.status_code, 422)
+
     def test_provider_failure_remains_visible_as_a_failed_job(self) -> None:
         async def fail_provider_call(_request: ai_gateway.GenerateAudioRequest) -> tuple[bytes, str]:
             raise RuntimeError("ElevenLabs account limit reached")
