@@ -13,6 +13,39 @@ describe('MemoryProjectRepository', () => {
     expect(repository.durability).toBe('ephemeral');
   });
 
+
+  it('creates a new project without overwriting an existing project', async () => {
+    const repository = new MemoryProjectRepository();
+    const original = createDefaultProject('synth-main');
+    await repository.save(original);
+
+    const fresh = {
+      ...createDefaultProject('synth-main'),
+      name: 'A separate project',
+    };
+    await repository.saveAsNew(fresh);
+
+    const projects = await repository.list();
+    expect(projects).toHaveLength(2);
+    expect(projects.map(project => project.id)).toContain(original.id);
+    expect(projects.map(project => project.id)).toContain(fresh.id);
+    expect(projects.find(project => project.id === original.id)?.name).toBe(original.name);
+  });
+
+  it('refuses to create a project with an existing ID rather than replacing it', async () => {
+    const repository = new MemoryProjectRepository();
+    const original = createDefaultProject('synth-main');
+    await repository.save(original);
+
+    await expect(repository.saveAsNew({
+      ...original,
+      name: 'This must not replace the original',
+    })).rejects.toThrow(/already exists/i);
+
+    expect(await repository.list()).toHaveLength(1);
+    expect((await repository.loadLatest())?.name).toBe(original.name);
+  });
+
   it('returns the most recently updated project', async () => {
     const repository = new MemoryProjectRepository();
     const older = {
