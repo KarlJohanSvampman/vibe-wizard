@@ -45,6 +45,9 @@ export class AudioEngine implements RackModule {
   private outputNode: AudioNode | undefined;
   private readonly voices = new Map<string, InstrumentVoice>();
   private masterVolume = 0.35;
+  private synthWaveform: OscillatorType = 'sawtooth';
+  private synthCutoff = 12000;
+  private synthResonance = 0.7;
   private sampleBuffer: AudioBuffer | undefined;
   private samplerSettings: SamplerPlaybackSettings = {
     startPosition: 0, endPosition: 1, loopEnabled: false,
@@ -94,6 +97,22 @@ export class AudioEngine implements RackModule {
   }
 
   get sampleDuration(): number { return this.sampleBuffer?.duration ?? 0; }
+
+  setSynthSettings(settings: { waveform?: OscillatorType; cutoff?: number; resonance?: number }): void {
+    if (this.instrumentType !== 'synth') return;
+    if (settings.waveform && ['sine', 'triangle', 'sawtooth', 'square'].includes(settings.waveform)) this.synthWaveform = settings.waveform;
+    if (Number.isFinite(settings.cutoff)) this.synthCutoff = clamp(settings.cutoff!, 80, 18000);
+    if (Number.isFinite(settings.resonance)) this.synthResonance = clamp(settings.resonance!, 0.1, 18);
+    const at = this.runtime.currentTime;
+    for (const voice of this.voices.values()) {
+      for (const node of voice.nodes) {
+        if (node instanceof BiquadFilterNode) {
+          node.frequency.setTargetAtTime(this.synthCutoff, at, 0.02);
+          node.Q.setTargetAtTime(this.synthResonance, at, 0.02);
+        }
+      }
+    }
+  }
 
   setSamplerSettings(settings: SamplerPlaybackSettings): void {
     if (this.instrumentType !== 'sampler') return;
@@ -166,6 +185,14 @@ export class AudioEngine implements RackModule {
       (this.instrumentType === 'sampler' && this.samplerSettings.playbackMode === 'one-shot' && event.noteId !== this.auditionNoteId);
     const sourceStopTimes = new Map<AudioScheduledSourceNode, number>();
     const amplitude = Math.max(0.0001, velocity);
+    const synthFilter = this.instrumentType === 'synth' ? context.createBiquadFilter() : undefined;
+    if (synthFilter) {
+      synthFilter.type = 'lowpass';
+      synthFilter.frequency.setValueAtTime(this.synthCutoff, startTime);
+      synthFilter.Q.setValueAtTime(this.synthResonance, startTime);
+      synthFilter.connect(envelope);
+      nodes.push(synthFilter);
+    }
 
     envelope.gain.setValueAtTime(0.0001, startTime);
     envelope.gain.linearRampToValueAtTime(amplitude, startTime + 0.008);
@@ -182,7 +209,7 @@ export class AudioEngine implements RackModule {
       oscillator.frequency.setValueAtTime(midiToFrequency(pitch) * harmonic, startTime);
       if (detuneCents !== 0) oscillator.detune.setValueAtTime(detuneCents, startTime);
       if (partialLevel === 1) {
-        oscillator.connect(envelope);
+        oscillator.connect(synthFilter ?? envelope);
       } else {
         const partialGain = context.createGain();
         partialGain.gain.value = partialLevel;
@@ -197,7 +224,7 @@ export class AudioEngine implements RackModule {
     };
 
     if (this.instrumentType === 'synth') {
-      addOscillator('sawtooth', 1);
+      addOscillator(this.synthWaveform, 1);
     } else if (this.instrumentType === 'piano') {
       // A compact additive piano model: the fundamental dominates while
       // upper harmonics provide the bright attack of a struck string.
