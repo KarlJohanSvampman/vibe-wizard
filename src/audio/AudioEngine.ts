@@ -109,6 +109,7 @@ export class AudioEngine implements RackModule {
   async loadSample(data: ArrayBuffer): Promise<void> {
     const context = this.runtime.requireContext();
     this.stopAudition();
+    this.sampleBuffer = undefined;
     this.sampleBuffer = await context.decodeAudioData(data.slice(0));
   }
 
