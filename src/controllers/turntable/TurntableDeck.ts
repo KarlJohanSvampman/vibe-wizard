@@ -38,6 +38,10 @@ export class TurntableDeck {
   play(offset = this.offset): void {
     if (!this.buffer) throw new Error('Load a sample before playing the turntable.');
     this.offset = this.clampPosition(offset);
+    if (Math.abs(this.speed) < 0.015) {
+      this.playing = false;
+      return;
+    }
     this.startAt(this.offset, false);
   }
 
