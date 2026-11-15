@@ -1299,10 +1299,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         });
         const load = document.createElement('button'); load.type = 'button'; load.className = 'transport-button'; load.textContent = 'Load into selected sampler';
         const selected = activeTrack(); const canLoad = selected?.instrumentType === 'sampler' && !recorder.isRecording && !anyTransportPlaying();
-        load.disabled = !canLoad; load.title = canLoad ? 'Replace the selected sampler source with this sound' : 'Select a Sampler track first';
+        load.disabled = recorder.isRecording || anyTransportPlaying(); load.title = canLoad ? 'Replace the selected sampler source with this sound' : 'Select a Sampler track first';
         load.addEventListener('click', () => {
           void (async () => {
-            const track = activeTrack(); if (!track || track.instrumentType !== 'sampler' || recorder.isRecording || anyTransportPlaying()) return;
+            const track = activeTrack();
+            if (!track || track.instrumentType !== 'sampler') { sampleStatus.textContent = 'Add and select a Sampler track before loading a library sound.'; return; }
+            if (recorder.isRecording || anyTransportPlaying()) return;
             ensureTrackRuntime(track); if (audioReady) await ensureTrackAudioReady(track.id);
             const resources = resourceFor(track.id); if (!resources) throw new Error('Selected sampler is not ready.');
             const loaded = await sampleAssets.load(asset.id); if (!loaded) throw new Error('This sound is no longer available.');
@@ -1844,6 +1846,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         : 'Stored: ' + file.name + ' · enable audio to decode';
       updateProjectUi();
       await persistProject();
+      await refreshAssetBrowser();
     })().catch((error: unknown) => {
       sampleStatus.textContent = error instanceof Error
         ? 'Sample import failed: ' + error.message
