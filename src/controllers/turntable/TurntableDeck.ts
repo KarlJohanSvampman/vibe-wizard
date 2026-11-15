@@ -10,6 +10,7 @@ export class TurntableDeck {
   private offset = 0;
   private speed = 1;
   private playing = false;
+  private outputNode: AudioNode | undefined;
 
   constructor(private readonly runtime: AudioRuntime) {}
 
@@ -24,6 +25,15 @@ export class TurntableDeck {
   get isPlaying(): boolean { return this.playing; }
   get playbackSpeed(): number { return this.speed; }
   get duration(): number { return this.buffer?.duration ?? 0; }
+
+  /** Route deck audio into a track bus (or another AudioNode) instead of the master output. */
+  connectOutput(destination: AudioNode): void {
+    this.outputNode = destination;
+    if (this.gain) {
+      this.gain.disconnect();
+      this.gain.connect(destination);
+    }
+  }
 
   play(offset = this.offset): void {
     if (!this.buffer) throw new Error('Load a sample before playing the turntable.');
@@ -117,7 +127,7 @@ export class TurntableDeck {
     source.buffer = reverse ? this.getReversedBuffer(context) : this.buffer;
     source.playbackRate.setValueAtTime(Math.max(0.015, Math.abs(this.speed)), now);
     source.connect(gain);
-    gain.connect(context.destination);
+    gain.connect(this.outputNode ?? context.destination);
     const safePosition = this.clampPosition(position);
     const sourceOffset = reverse ? Math.max(0, this.buffer.duration - safePosition - 0.01) : safePosition;
     const startAt = now + (crossfade ? 0.006 : 0);
