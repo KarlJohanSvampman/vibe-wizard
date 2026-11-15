@@ -1,24 +1,33 @@
 import { VisibilityState, type World } from '@iwsdk/core';
-import { BoxGeometry, Group, Mesh, MeshStandardMaterial, Vector3 } from 'three';
+import {
+  BoxGeometry, CircleGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial,
+  RingGeometry, SphereGeometry, Vector3,
+} from 'three';
 import type { StudioObjectPlacement } from './ControllerModel.js';
 
-/** Renders project placements in the immersive room and supports pinch-to-move with either hand. */
+/** Recognisable procedural studio props, plus a hand-scratchable VR turntable. */
 export class StudioSpatialAdapter {
   private readonly root = new Group();
-  private readonly meshes = new Map<string, Mesh>();
+  private readonly meshes = new Map<string, Group>();
   private readonly head = new Vector3();
   private readonly forward = new Vector3();
   private readonly handWorld = new Vector3();
   private readonly handLocal = new Vector3();
+  private readonly turntable = new Group();
+  private readonly record = new Mesh(new CylinderGeometry(0.31, 0.31, 0.018, 48), new MeshStandardMaterial({ color: 0x202124, roughness: 0.42 }));
+  private readonly tonearm = new Group();
+  private readonly turntablePosition = new Vector3(0.72, -0.26, -0.82);
   private placements: StudioObjectPlacement[] = [];
   private draggingId?: string;
   private pinching = false;
+  private scratchActive = false;
   private readonly stopFrame: () => void;
   private readonly stopVisibility: () => void;
 
-  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void) {
+  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void) {
     this.root.name = 'vibe-wizard-spatial-studio';
     this.root.visible = world.visibilityState.value !== VisibilityState.NonImmersive;
+    this.buildTurntable();
     world.scene.add(this.root);
     this.stopVisibility = world.visibilityState.subscribe(state => { this.root.visible = state !== VisibilityState.NonImmersive; });
     this.stopFrame = world.onXRFrame(frame => this.update(frame));
@@ -27,66 +36,91 @@ export class StudioSpatialAdapter {
   setLayout(placements: readonly StudioObjectPlacement[]): void {
     this.placements = placements.map(item => ({ ...item, position: { ...item.position }, rotation: { ...item.rotation }, scale: { ...item.scale } }));
     const active = new Set(this.placements.map(item => item.id));
-    for (const [id, mesh] of this.meshes) if (!active.has(id)) { this.root.remove(mesh); mesh.geometry.dispose(); (mesh.material as MeshStandardMaterial).dispose(); this.meshes.delete(id); }
+    for (const [id, group] of this.meshes) if (!active.has(id)) { this.root.remove(group); this.disposeGroup(group); this.meshes.delete(id); }
     for (const placement of this.placements) {
-      let mesh = this.meshes.get(placement.id);
-      if (!mesh) {
-        const color = placement.objectType === 'instrument-track' ? 0x6b8dd6 : 0xd99b42;
-        mesh = new Mesh(new BoxGeometry(0.34, 0.16, 0.24), new MeshStandardMaterial({ color, roughness: 0.6 }));
-        mesh.name = placement.id; this.meshes.set(placement.id, mesh); this.root.add(mesh);
-      }
-      mesh.position.set(placement.position.x, placement.position.y, placement.position.z);
-      mesh.rotation.set(placement.rotation.x, placement.rotation.y, placement.rotation.z);
-      mesh.scale.set(placement.scale.x, placement.scale.y, placement.scale.z);
+      let group = this.meshes.get(placement.id);
+      if (!group) { group = this.createStudioObject(placement.objectType); group.name = placement.id; this.meshes.set(placement.id, group); this.root.add(group); }
+      group.position.set(placement.position.x, placement.position.y, placement.position.z);
+      group.rotation.set(placement.rotation.x, placement.rotation.y, placement.rotation.z);
+      group.scale.set(placement.scale.x, placement.scale.y, placement.scale.z);
     }
   }
 
   dispose(): void {
     this.stopFrame(); this.stopVisibility(); this.world.scene.remove(this.root);
-    for (const mesh of this.meshes.values()) { mesh.geometry.dispose(); (mesh.material as MeshStandardMaterial).dispose(); }
-    this.meshes.clear();
+    for (const group of this.meshes.values()) this.disposeGroup(group);
+    this.meshes.clear(); this.disposeGroup(this.turntable);
+  }
+
+  private material(color: number, metalness = 0.08, roughness = 0.55): MeshStandardMaterial {
+    return new MeshStandardMaterial({ color, metalness, roughness });
+  }
+  private add(group: Group, geometry: BoxGeometry | CylinderGeometry | CircleGeometry | RingGeometry | SphereGeometry, color: number, position: [number,number,number], scale?: [number,number,number]): Mesh {
+    const mesh = new Mesh(geometry, this.material(color)); mesh.position.set(...position); if (scale) mesh.scale.set(...scale); group.add(mesh); return mesh;
+  }
+  private createStudioObject(type: StudioObjectPlacement['objectType']): Group {
+    const group = new Group();
+    if (type === 'instrument-track') {
+      // Compact keyboard/workstation: chassis, keybed, alternating black keys and control panel.
+      this.add(group, new BoxGeometry(0.72,0.12,0.28), 0x34383e, [0,0,0]);
+      this.add(group, new BoxGeometry(0.58,0.018,0.14), 0xe4e1d8, [0,-0.018,0.055]);
+      for (let i=0;i<14;i++) this.add(group,new BoxGeometry(0.034,0.025,0.11),0xf4f1e9,[-0.27+i*0.041,-0.002,0.055]);
+      for (let i=0;i<13;i++) if (i%7!==2 && i%7!==6) this.add(group,new BoxGeometry(0.022,0.035,0.075),0x17191d,[-0.25+i*0.041,0.012,0.02]);
+      for (let i=0;i<4;i++) this.add(group,new CylinderGeometry(0.022,0.022,0.018,16),0xc38e4b,[0.19+i*0.075,0.075,-0.075]);
+    } else if (type === 'controller-instance') {
+      this.add(group,new BoxGeometry(0.62,0.07,0.38),0x262a31,[0,0,0]);
+      for(let row=0;row<2;row++) for(let col=0;col<4;col++) this.add(group,new BoxGeometry(0.095,0.025,0.11),0x4d5968,[-0.21+col*0.14,0.048,-0.08+row*0.15]);
+      for(let i=0;i<3;i++) this.add(group,new CylinderGeometry(0.035,0.035,0.035,20),0xc38e4b,[0.19,0.06,-0.11+i*0.1]);
+    } else {
+      this.add(group,new BoxGeometry(0.34,0.16,0.24),0x657080,[0,0,0]);
+    }
+    return group;
+  }
+  private buildTurntable(): void {
+    this.turntable.name = 'vibe-wizard-vr-turntable';
+    this.add(this.turntable,new BoxGeometry(0.9,0.11,0.68),0x34383e,[0,0,0]);
+    this.add(this.turntable,new CylinderGeometry(0.36,0.36,0.025,48),0x111316,[0,0.075,0]);
+    this.record.position.set(0,0.096,0); this.record.rotation.x=Math.PI/2; this.record.castShadow=true; this.turntable.add(this.record);
+    const label=this.add(this.turntable,new CylinderGeometry(0.09,0.09,0.008,32),0xb58a52,[0,0.111,0]); label.rotation.x=Math.PI/2;
+    for(let r=0.13;r<0.29;r+=0.035){const groove=new Mesh(new RingGeometry(r,r+0.002,48),this.material(0x55585c,0.2,0.65));groove.rotation.x=-Math.PI/2;groove.position.y=0.111;this.turntable.add(groove);}
+    this.tonearm.position.set(0.34,0.12,-0.22);
+    const arm=this.add(this.tonearm,new CylinderGeometry(0.012,0.012,0.42,12),0xbfc4ca,[0,0.18,0]);arm.rotation.z=-0.55;
+    this.add(this.tonearm,new SphereGeometry(0.035,16,12),0x9ea4ab,[0,0.39,0]);
+    this.add(this.tonearm,new BoxGeometry(0.07,0.035,0.06),0x24272c,[-0.18,0.02,0.02]);
+    this.turntable.add(this.tonearm); this.turntable.position.copy(this.turntablePosition); this.root.add(this.turntable);
+  }
+  private disposeGroup(group: Group): void {
+    group.traverse(object => { const mesh=object as Mesh; if(mesh.geometry) mesh.geometry.dispose(); const material=mesh.material; if(Array.isArray(material)) material.forEach(item=>item.dispose()); else if(material) material.dispose(); });
   }
 
   private update(frame: XRFrame): void {
     this.world.player.head.getWorldPosition(this.head);
-    this.world.player.head.getWorldDirection(this.forward); this.forward.y = 0;
-    if (this.forward.lengthSq() < 0.0001) this.forward.set(0, 0, -1); else this.forward.normalize();
-    this.root.position.copy(this.head).addScaledVector(this.forward, 0.95); this.root.position.y -= 0.38;
-    this.root.rotation.set(0, Math.atan2(-this.forward.x, -this.forward.z), 0);
-    this.root.updateMatrixWorld(true);
-
-    const source = this.world.input.xr.getPrimaryInputSource('right') ?? this.world.input.xr.getPrimaryInputSource('left');
-    const index = source?.hand?.get('index-finger-tip'); const thumb = source?.hand?.get('thumb-tip');
-    const reference = this.world.xrReferenceSpace;
-    if (!index || !thumb || !reference) { this.finishDrag(); return; }
-    const indexPose = frame.getPose(index, reference); const thumbPose = frame.getPose(thumb, reference);
-    if (!indexPose || !thumbPose) { this.finishDrag(); return; }
-    this.handWorld.set(indexPose.transform.position.x, indexPose.transform.position.y, indexPose.transform.position.z);
-    this.world.player.updateMatrixWorld(true); this.world.player.localToWorld(this.handWorld);
-    this.handLocal.copy(this.handWorld); this.root.worldToLocal(this.handLocal);
-    const thumbWorld = new Vector3(thumbPose.transform.position.x, thumbPose.transform.position.y, thumbPose.transform.position.z);
-    this.world.player.localToWorld(thumbWorld);
-    const pinching = this.handWorld.distanceTo(thumbWorld) < 0.035;
-    if (pinching && !this.pinching) {
-      let nearest: { id: string; distance: number } | undefined;
-      for (const [id, mesh] of this.meshes) {
-        const distance = mesh.position.distanceTo(this.handLocal);
-        if (distance < 0.24 && (!nearest || distance < nearest.distance)) nearest = { id, distance };
-      }
-      this.draggingId = nearest?.id;
+    this.world.player.head.getWorldDirection(this.forward); this.forward.y=0;
+    if(this.forward.lengthSq()<0.0001)this.forward.set(0,0,-1);else this.forward.normalize();
+    this.root.position.copy(this.head).addScaledVector(this.forward,0.95);this.root.position.y-=0.38;
+    this.root.rotation.set(0,Math.atan2(-this.forward.x,-this.forward.z),0);this.root.updateMatrixWorld(true);
+    const source=this.world.input.xr.getPrimaryInputSource('right')??this.world.input.xr.getPrimaryInputSource('left');
+    const index=source?.hand?.get('index-finger-tip'),thumb=source?.hand?.get('thumb-tip'),reference=this.world.xrReferenceSpace;
+    if(!index||!thumb||!reference){this.finishDrag();this.scratchActive=false;return;}
+    const indexPose=frame.getPose(index,reference),thumbPose=frame.getPose(thumb,reference);
+    if(!indexPose||!thumbPose){this.finishDrag();this.scratchActive=false;return;}
+    this.handWorld.set(indexPose.transform.position.x,indexPose.transform.position.y,indexPose.transform.position.z);
+    this.world.player.updateMatrixWorld(true);this.world.player.localToWorld(this.handWorld);this.handLocal.copy(this.handWorld);this.root.worldToLocal(this.handLocal);
+    const thumbWorld=new Vector3(thumbPose.transform.position.x,thumbPose.transform.position.y,thumbPose.transform.position.z);this.world.player.localToWorld(thumbWorld);
+    const pinching=this.handWorld.distanceTo(thumbWorld)<0.035;
+    // Scratch by pinching and moving the index finger across the vinyl surface.
+    const deckLocal=this.turntable.worldToLocal(this.handWorld.clone());
+    const overRecord=Math.abs(deckLocal.x)<0.3&&Math.abs(deckLocal.z)<0.3&&deckLocal.y>0.08&&deckLocal.y<0.22;
+    if(pinching&&overRecord){this.scratchActive=true;this.onScratch?.(Math.max(0,Math.min(1,(deckLocal.x+0.3)/0.6)));}
+    else if(!pinching)this.scratchActive=false;
+    if(pinching&&!this.pinching){
+      let nearest:{id:string;distance:number}|undefined;
+      for(const [id,group] of this.meshes){const distance=group.position.distanceTo(this.handLocal);if(distance<0.24&&(!nearest||distance<nearest.distance))nearest={id,distance};}
+      this.draggingId=nearest?.id;
     }
-    if (pinching && this.draggingId) {
-      const mesh = this.meshes.get(this.draggingId);
-      mesh?.position.copy(this.handLocal);
-      this.placements = this.placements.map(item => item.id === this.draggingId
-        ? { ...item, position: { x: this.handLocal.x, y: this.handLocal.y, z: this.handLocal.z } } : item);
-    }
-    if (!pinching && this.pinching) this.finishDrag();
-    this.pinching = pinching;
+    if(pinching&&this.draggingId){const group=this.meshes.get(this.draggingId);group?.position.copy(this.handLocal);this.placements=this.placements.map(item=>item.id===this.draggingId?{...item,position:{x:this.handLocal.x,y:this.handLocal.y,z:this.handLocal.z}}:item);}
+    if(!pinching&&this.pinching)this.finishDrag();
+    this.pinching=pinching;
   }
-
-  private finishDrag(): void {
-    if (this.draggingId) this.onCommit(this.placements);
-    this.draggingId = undefined; this.pinching = false;
-  }
+  private finishDrag():void{if(this.draggingId)this.onCommit(this.placements);this.draggingId=undefined;this.pinching=false;}
 }
