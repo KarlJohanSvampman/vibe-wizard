@@ -1741,7 +1741,16 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       studioStatus.textContent = 'Turntable loaded: ' + asset.name + ' · ' + decoded.duration.toFixed(2) + ' seconds.';
     }).catch(error => { studioStatus.textContent = error instanceof Error ? error.message : 'Could not load turntable sample.'; });
   });
-  turntablePlayButton.addEventListener('click', () => { try { turntable.play(); } catch (error) { studioStatus.textContent = error instanceof Error ? error.message : 'Could not play deck.'; } });
+  turntablePlayButton.addEventListener('click', () => {
+    const track = activeTrack();
+    if (!track) { studioStatus.textContent = 'Add an instrument track before playing the turntable.'; return; }
+    const resources = ensureTrackRuntime(track);
+    void ensureTrackAudioReady(track.id).then(() => {
+      turntable.connectOutput(resources.bus.inputNode);
+      turntable.play();
+      studioStatus.textContent = 'Turntable playing through ' + track.name + '.';
+    }).catch(error => { studioStatus.textContent = error instanceof Error ? error.message : 'Could not play deck.'; });
+  });
   turntableStopButton.addEventListener('click', () => turntable.stop());
   turntableSpeedInput.addEventListener('input', () => { const speed = Number(turntableSpeedInput.value); turntable.setSpeed(speed); turntableSpeedValue.textContent = speed.toFixed(2) + '×'; });
   let platterPointer: number | undefined;
