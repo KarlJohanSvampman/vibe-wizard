@@ -340,7 +340,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '          <label for="sampler-transform-strength"><span>SOURCE INFLUENCE</span><select id="sampler-transform-strength"><option value="high">High · stay close</option><option value="medium">Medium · balanced</option><option value="low">Low · explore</option><option value="xhigh">Very high · strongest match</option></select></label>',
     '        </div>',
     '        <button class="transport-button" id="sampler-transform" type="button" disabled>✧ Transform selected sample</button>',
-    '        <p class="ai-generation-status" id="sampler-transform-status" role="status">Enable audio and select a Sampler track with a loaded sample. Requires Eleven Music API access. The selected source audio is uploaded to ElevenLabs; only use audio you have rights to use.</p>',
+    '        <p class="ai-generation-status" id="sampler-transform-status" role="status">Enable audio and select a Sampler track with a loaded sample. Requires Eleven Music API access. Upload and generation may both consume credits. Source audio is uploaded to ElevenLabs; only use audio you have rights to use.</p>',
     '      </section>',
     '    </section>',
     '    <section class="ai-sample-studio">',
