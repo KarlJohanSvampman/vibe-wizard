@@ -738,6 +738,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   ) {
     arrangementTransport.dispose();
     spatialAdapter.dispose();
+    guitarSpatialAdapter.dispose();
+    studioSpatialAdapter.dispose();
+    controllerRuntime.dispose();
+    turntable.dispose();
     unsubscribeController();
     throw new Error('The workbench UI is missing a required control.');
   }
