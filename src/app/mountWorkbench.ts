@@ -287,7 +287,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <span>Y <strong id="y-value">0.550</strong></span><span>Pitch <strong id="pitch-value">66.0</strong></span></div>',
     '    <button class="play-button" id="play-theremin" type="button" disabled><span class="play-symbol">▶</span>',
     '      <span><strong>Play theremin</strong><small>Press and hold to sustain a tone on desktop</small></span></button>',
-    '    <p class="spatial-hint">In VR, enter the session and move your right index fingertip into the floating field. Horizontal movement changes pitch; vertical movement changes volume.</p>',
+    '    <p class="spatial-hint">The theremin is a controller, not an instrument. Add and select an instrument track, then arm it to record. In VR, move your right index fingertip into the floating field to control pitch and volume.</p>',
     '  </div>',
     '  <div class="controller-panel sequencer-panel">',
     '    <div class="section-heading"><div><p class="eyebrow">ARRANGEMENT · TRACKS</p><h2 id="active-track-name">Theremin Synth</h2></div>',
@@ -1444,6 +1444,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (!audioReady) {
       try { await enableAudio(); } catch { return; }
     }
+    if (!activeTrack()) { updateStatus('Add and select an instrument track before playing the theremin.'); return; }
     if (!audioReady || isDesktopPlaying) return;
     await ensureTrackAudioReady(project.activeTrackId);
     startNote(theremin.id, desktopNoteId, 48 + Number(xInput.value) * 36, 0.55);
@@ -1554,7 +1555,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     await refreshAssetBrowser();
     enableButton.disabled = false;
     enterVrButton.disabled = false;
-    playButton.disabled = false;
+    playButton.disabled = !activeTrack();
     updateProjectUi();
   };
 
