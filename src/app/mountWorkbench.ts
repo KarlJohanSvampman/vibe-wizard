@@ -1554,7 +1554,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     controllerBoard.replaceChildren();
     controllerBoard.style.display = 'grid';
     controllerBoard.style.gridTemplateColumns = 'repeat(' + preset.board.columns + ', minmax(58px, 1fr))';
-    controllerBoard.style.gridTemplateRows = 'repeat(' + preset.board.rows + ', minmax(82px, auto))';
+    controllerBoard.style.gridTemplateRows = 'repeat(' + preset.board.rows + ', 100px)';
     controllerBoard.style.position = 'relative';
     const saveComponent = (id: string, patch: Partial<ControllerComponentDefinition>): void => {
       const current = project.controllerPresets.find(item => item.id === preset.id);
