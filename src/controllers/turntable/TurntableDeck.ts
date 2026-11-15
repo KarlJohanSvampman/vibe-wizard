@@ -119,7 +119,7 @@ export class TurntableDeck {
     source.connect(gain);
     gain.connect(context.destination);
     const safePosition = this.clampPosition(position);
-    const sourceOffset = reverse ? Math.max(0, this.buffer.duration - safePosition) : safePosition;
+    const sourceOffset = reverse ? Math.max(0, this.buffer.duration - safePosition - 0.01) : safePosition;
     const startAt = now + (crossfade ? 0.006 : 0);
     gain.gain.setValueAtTime(crossfade ? 0.0001 : 0.9, now);
     if (crossfade) gain.gain.linearRampToValueAtTime(0.9, startAt + 0.014);
