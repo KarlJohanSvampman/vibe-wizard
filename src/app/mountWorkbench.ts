@@ -1089,6 +1089,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     loopStartBarInput.disabled = timingControlsDisabled;
     loopEndBarInput.disabled = timingControlsDisabled;
     const selectedTrack = activeTrack();
+    playButton.disabled = !selectedTrack;
     trackName.textContent = selectedTrack
       ? selectedTrack.name + ' · ' + getInstrumentLabel(selectedTrack.instrumentType)
       : 'No instrument track selected';
