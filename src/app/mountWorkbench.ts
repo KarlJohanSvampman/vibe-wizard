@@ -1313,8 +1313,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
             resourceFor(selectedTrack.id)?.instrument.noteOff({ kind: 'note-off', sourceId: selectedTrack.instrumentModuleId, noteId, timestamp: performance.now() / 1000 });
             noteId = ''; pad.classList.remove('is-playing');
           };
-          pad.addEventListener('pointerdown', event => { event.preventDefault(); void start(); });
-          pad.addEventListener('pointerup', stop); pad.addEventListener('pointerleave', stop); pad.addEventListener('pointercancel', stop);
+          pad.addEventListener('click', () => {
+            void start().then(() => window.setTimeout(stop, selectedTrack.instrumentType === 'drums' ? 220 : 320));
+          });
           grid.append(pad);
         }
         instrumentEditor.append(title, description, grid);
