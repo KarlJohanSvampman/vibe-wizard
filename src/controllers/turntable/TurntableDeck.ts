@@ -1,4 +1,5 @@
 import type { AudioRuntime } from '../../audio/AudioRuntime.js';
+import { PcmAudioRecorder } from '../../audio/PcmAudioRecorder.js';
 
 /** Scratchable audio deck with signed speed, cached reverse audio and click-resistant scrubbing. */
 export class TurntableDeck {
@@ -11,6 +12,8 @@ export class TurntableDeck {
   private speed = 1;
   private playing = false;
   private outputNode: AudioNode | undefined;
+  private outputBus: GainNode | undefined;
+  private capture: PcmAudioRecorder | undefined;
 
   constructor(private readonly runtime: AudioRuntime) {}
 
@@ -29,9 +32,9 @@ export class TurntableDeck {
   /** Route deck audio into a track bus (or another AudioNode) instead of the master output. */
   connectOutput(destination: AudioNode): void {
     this.outputNode = destination;
-    if (this.gain) {
-      this.gain.disconnect();
-      this.gain.connect(destination);
+    if (this.outputBus) {
+      this.outputBus.disconnect();
+      this.outputBus.connect(destination);
     }
   }
 
@@ -70,6 +73,25 @@ export class TurntableDeck {
     return this.clampPosition(this.offset + elapsed * this.speed);
   }
 
+  /** Begin capturing the deck's complete output, including later scratches and speed changes. */
+  startCapture(): void {
+    if (!this.playing) throw new Error('Start turntable playback before recording a performance.');
+    if (this.capture) throw new Error('A turntable recording is already in progress.');
+    const context = this.runtime.prepareContext();
+    this.capture = new PcmAudioRecorder(context, this.ensureOutputBus(context));
+  }
+
+  /** Stop capture and return a lossless PCM WAV asset. */
+  stopCapture(): { data: ArrayBuffer; durationSeconds: number } {
+    if (!this.capture) throw new Error('No turntable recording is in progress.');
+    const capture = this.capture;
+    this.capture = undefined;
+    const durationSeconds = capture.durationSeconds;
+    return { data: capture.stop(), durationSeconds };
+  }
+
+  get isCapturing(): boolean { return this.capture !== undefined; }
+
   stop(): void {
     try { this.source?.stop(); } catch { /* Already stopped. */ }
     this.source?.disconnect();
@@ -77,6 +99,7 @@ export class TurntableDeck {
     this.source = undefined;
     this.gain = undefined;
     this.playing = false;
+    if (this.capture) { try { this.capture.stop(); } catch { /* Discard an empty capture. */ } this.capture = undefined; }
   }
 
   dispose(): void {
@@ -131,7 +154,7 @@ export class TurntableDeck {
     source.buffer = reverse ? this.getReversedBuffer(context) : this.buffer;
     source.playbackRate.setValueAtTime(Math.max(0.015, Math.abs(this.speed)), now);
     source.connect(gain);
-    gain.connect(this.outputNode ?? context.destination);
+    gain.connect(this.ensureOutputBus(context));
     const safePosition = this.clampPosition(position);
     const sourceOffset = reverse ? Math.max(0, this.buffer.duration - safePosition - 0.01) : safePosition;
     const startAt = now + (crossfade ? 0.006 : 0);
@@ -154,6 +177,14 @@ export class TurntableDeck {
       this.gain = undefined;
       gain.disconnect();
     };
+  }
+
+  private ensureOutputBus(context: AudioContext): GainNode {
+    if (!this.outputBus) {
+      this.outputBus = context.createGain();
+      this.outputBus.connect(this.outputNode ?? context.destination);
+    }
+    return this.outputBus;
   }
 
   private getReversedBuffer(context: AudioContext): AudioBuffer {
