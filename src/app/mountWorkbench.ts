@@ -1543,32 +1543,35 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const refreshControllerDesigner = (): void => {
     const presets = project.controllerPresets;
     presetSelect.replaceChildren();
-    for (const preset of presets) {
-      const option = document.createElement('option'); option.value = preset.id; option.textContent = preset.name; presetSelect.append(option);
-    }
+    for (const item of presets) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.name; presetSelect.append(option); }
     if (!presets.some(item => item.id === selectedControllerPresetId)) selectedControllerPresetId = presets[0]?.id ?? '';
     presetSelect.value = selectedControllerPresetId;
     const preset = presets.find(item => item.id === selectedControllerPresetId);
     if (!preset) { controllerBoard.textContent = 'No controller preset yet. Create one to begin.'; return; }
     presetNameInput.value = preset.name;
     controllerBoard.replaceChildren();
+    controllerBoard.style.display = 'grid';
     controllerBoard.style.gridTemplateColumns = 'repeat(' + preset.board.columns + ', minmax(58px, 1fr))';
+    controllerBoard.style.gridTemplateRows = 'repeat(' + preset.board.rows + ', minmax(82px, auto))';
+    controllerBoard.style.position = 'relative';
+    const saveComponent = (id: string, patch: Partial<ControllerComponentDefinition>): void => {
+      const current = project.controllerPresets.find(item => item.id === preset.id);
+      if (!current) return;
+      const next = validateControllerPreset({ ...current, updatedAt: new Date().toISOString(), version: current.version + 1,
+        components: current.components.map(item => item.id === id ? { ...item, ...patch } : item) });
+      project = saveControllerPreset(project, next); syncControllerRoutes(); void persistProject(); refreshControllerDesigner();
+    };
     for (const component of preset.components) {
-      const card = document.createElement('div'); card.className = 'controller-component';
+      const card = document.createElement('article'); card.className = 'controller-component'; card.tabIndex = 0;
       card.style.gridColumn = (component.x + 1) + ' / span ' + component.width;
       card.style.gridRow = (component.y + 1) + ' / span ' + component.height;
+      card.style.position = 'relative'; card.style.minWidth = '0'; card.dataset.componentId = component.id;
       const title = document.createElement('strong'); title.textContent = component.label;
       const type = document.createElement('small'); type.textContent = component.kind.toUpperCase();
       const parameter = document.createElement('select'); parameter.setAttribute('aria-label', 'Target parameter for ' + component.label);
-      for (const [id, label] of [['volume','Track volume'],['pan','Track pan'],['pitch','Pitch']] as const) {
-        const option = document.createElement('option'); option.value = id; option.textContent = label; parameter.append(option);
-      }
+      for (const [id, label] of [['volume','Track volume'],['pan','Track pan'],['pitch','Pitch']] as const) { const option = document.createElement('option'); option.value = id; option.textContent = label; parameter.append(option); }
       parameter.value = component.binding.targetParameterId ?? 'volume';
-      parameter.addEventListener('change', () => {
-        const next = validateControllerPreset({ ...preset, updatedAt: new Date().toISOString(), version: preset.version + 1,
-          components: preset.components.map(item => item.id === component.id ? { ...item, binding: { ...item.binding, targetParameterId: parameter.value } } : item) });
-        project = saveControllerPreset(project, next); syncControllerRoutes(); void persistProject();
-      });
+      parameter.addEventListener('change', () => saveComponent(component.id, { binding: { ...component.binding, targetParameterId: parameter.value } }));
       let control: HTMLElement;
       if (component.kind === 'button' || component.kind === 'toggle' || component.kind === 'guitar-fret' || component.kind === 'drum-pad') {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = component.kind === 'toggle' ? 'Toggle' : 'Press';
@@ -1581,11 +1584,50 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         input.addEventListener('input', () => { const instance = project.controllerInstances.find(i => i.presetId === preset.id); if (instance) controllerRuntime.setValue(instance, component, Number(input.value)); });
         control = input;
       }
+      const actions = document.createElement('div'); actions.className = 'controller-layout-actions';
+      const move = (dx: number, dy: number): void => saveComponent(component.id, { x: Math.max(0, Math.min(preset.board.columns - component.width, component.x + dx)), y: Math.max(0, Math.min(preset.board.rows - component.height, component.y + dy)) });
+      const resize = (dw: number, dh: number): void => saveComponent(component.id, { width: Math.max(1, Math.min(preset.board.columns - component.x, component.width + dw)), height: Math.max(1, Math.min(preset.board.rows - component.y, component.height + dh)) });
+      for (const [label, dx, dy] of [['←',-1,0],['→',1,0],['↑',0,-1],['↓',0,1]] as const) {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.title = 'Move ' + component.label + ' ' + label; button.addEventListener('click', () => move(dx,dy)); actions.append(button);
+      }
+      for (const [label,dw,dh] of [['W+',1,0],['W−',-1,0],['H+',0,1],['H−',0,-1]] as const) {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.title = 'Resize ' + component.label; button.addEventListener('click', () => resize(dw,dh)); actions.append(button);
+      }
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'controller-remove'; remove.textContent = '×'; remove.title = 'Remove component';
       remove.addEventListener('click', () => { project = saveControllerPreset(project, { ...preset, components: preset.components.filter(item => item.id !== component.id) }); syncControllerRoutes(); refreshControllerDesigner(); void persistProject(); });
-      card.append(title, type, parameter, control, remove); controllerBoard.append(card);
+      const dragHandle = document.createElement('button'); dragHandle.type = 'button'; dragHandle.className = 'controller-drag-handle'; dragHandle.textContent = 'Move'; dragHandle.title = 'Drag to reposition this control';
+      dragHandle.addEventListener('pointerdown', event => {
+        event.preventDefault(); dragHandle.setPointerCapture(event.pointerId);
+        const rect = controllerBoard.getBoundingClientRect();
+        const cellW = rect.width / preset.board.columns;
+        const cellH = rect.height / preset.board.rows;
+        const startX = event.clientX, startY = event.clientY;
+        const onMove = (moveEvent: PointerEvent): void => {
+          const dx = Math.round((moveEvent.clientX - startX) / cellW);
+          const dy = Math.round((moveEvent.clientY - startY) / cellH);
+          card.style.transform = 'translate(' + ((moveEvent.clientX-startX)) + 'px,' + ((moveEvent.clientY-startY)) + 'px)';
+          card.dataset.pendingX = String(Math.max(0, Math.min(preset.board.columns-component.width, component.x+dx)));
+          card.dataset.pendingY = String(Math.max(0, Math.min(preset.board.rows-component.height, component.y+dy)));
+        };
+        const onUp = (): void => {
+          dragHandle.removeEventListener('pointermove', onMove); dragHandle.removeEventListener('pointerup', onUp);
+          const x = Number(card.dataset.pendingX ?? component.x), y = Number(card.dataset.pendingY ?? component.y);
+          saveComponent(component.id, { x, y });
+        };
+        dragHandle.addEventListener('pointermove', onMove); dragHandle.addEventListener('pointerup', onUp);
+      });
+      const resizeHandle = document.createElement('button'); resizeHandle.type = 'button'; resizeHandle.className = 'controller-resize-handle'; resizeHandle.textContent = '↘'; resizeHandle.title = 'Drag to resize this control';
+      resizeHandle.addEventListener('pointerdown', event => {
+        event.preventDefault(); resizeHandle.setPointerCapture(event.pointerId);
+        const rect = controllerBoard.getBoundingClientRect(); const cellW = rect.width/preset.board.columns, cellH = rect.height/preset.board.rows;
+        const startX=event.clientX,startY=event.clientY;
+        const onMove=(moveEvent:PointerEvent):void=>{ const width=Math.max(1,Math.min(preset.board.columns-component.x,component.width+Math.round((moveEvent.clientX-startX)/cellW))); const height=Math.max(1,Math.min(preset.board.rows-component.y,component.height+Math.round((moveEvent.clientY-startY)/cellH))); card.dataset.pendingWidth=String(width);card.dataset.pendingHeight=String(height);card.style.gridColumn=(component.x+1)+' / span '+width;card.style.gridRow=(component.y+1)+' / span '+height; };
+        const onUp=():void=>{resizeHandle.removeEventListener('pointermove',onMove);resizeHandle.removeEventListener('pointerup',onUp);saveComponent(component.id,{width:Number(card.dataset.pendingWidth??component.width),height:Number(card.dataset.pendingHeight??component.height)});};
+        resizeHandle.addEventListener('pointermove',onMove);resizeHandle.addEventListener('pointerup',onUp);
+      });
+      card.append(dragHandle,title,type,parameter,control,actions,remove,resizeHandle); controllerBoard.append(card);
     }
-    controllerStatus.textContent = preset.components.length + ' controls · ' + project.controllerInstances.filter(item => item.presetId === preset.id).length + ' live instances.';
+    controllerStatus.textContent = preset.components.length + ' controls · drag Move to position, drag ↘ to resize, or use arrow/size buttons. ' + project.controllerInstances.filter(item => item.presetId === preset.id).length + ' live instances.';
   };
 
   controllerElement<HTMLButtonElement>('#controller-new-preset').addEventListener('click', () => {
