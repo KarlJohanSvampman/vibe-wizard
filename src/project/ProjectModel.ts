@@ -184,7 +184,7 @@ export function addInstrumentTrack(
     order: project.tracks.reduce((highest, item) => Math.max(highest, item.order), -1) + 1,
     muted: false,
     solo: false,
-    armed: true,
+    armed: false,
     volume: 0.8,
     pan: 0,
   };
@@ -193,7 +193,7 @@ export function addInstrumentTrack(
     ...project,
     updatedAt: now.toISOString(),
     activeTrackId: id,
-    tracks: project.tracks.map(item => ({ ...item, armed: false })).concat(track),
+    tracks: project.tracks.concat(track),
   };
 }
 
