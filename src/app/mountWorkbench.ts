@@ -57,6 +57,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const theremin = rack.add(new ThereminController('theremin-main', parameterBus));
   const recorder = new EventRecorder();
   const arrangementTransport = new ArrangementTransport(audioRuntime, parameterBus);
+  const synthEditorSettings = new Map<string, { waveform: OscillatorType; cutoff: number; resonance: number }>();
   const trackResources = new Map<string, {
     instrument: AudioEngine;
     bus: TrackAudioBus;
@@ -1274,14 +1275,16 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
           input.addEventListener('input', () => { readout.textContent = Number(input.value).toFixed(0) + suffix; });
           wrap.append(caption, input, readout); return { wrap, input };
         };
+        const settings = synthEditorSettings.get(selectedTrack.id) ?? { waveform: 'sawtooth' as OscillatorType, cutoff: 12000, resonance: 0.7 };
         const waveform = makeSelect('OSCILLATOR', 'synth-waveform', ['sawtooth', 'square', 'triangle', 'sine']);
-        const cutoff = makeRange('FILTER CUTOFF', 'synth-cutoff', 80, 18000, 12000, 10, ' Hz');
-        const resonance = makeRange('RESONANCE', 'synth-resonance', 0.1, 18, 0.7, 0.1, '');
-        const apply = () => resourceFor(selectedTrack.id)?.instrument.setSynthSettings({
-          waveform: waveform.select.value as OscillatorType,
-          cutoff: Number(cutoff.input.value),
-          resonance: Number(resonance.input.value),
-        });
+        waveform.select.value = settings.waveform;
+        const cutoff = makeRange('FILTER CUTOFF', 'synth-cutoff', 80, 18000, settings.cutoff, 10, ' Hz');
+        const resonance = makeRange('RESONANCE', 'synth-resonance', 0.1, 18, settings.resonance, 0.1, '');
+        const apply = () => {
+          const next = { waveform: waveform.select.value as OscillatorType, cutoff: Number(cutoff.input.value), resonance: Number(resonance.input.value) };
+          synthEditorSettings.set(selectedTrack.id, next);
+          resourceFor(selectedTrack.id)?.instrument.setSynthSettings(next);
+        };
         waveform.select.addEventListener('change', apply);
         cutoff.input.addEventListener('input', apply);
         resonance.input.addEventListener('input', apply);
@@ -1312,7 +1315,6 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
           };
           pad.addEventListener('pointerdown', event => { event.preventDefault(); void start(); });
           pad.addEventListener('pointerup', stop); pad.addEventListener('pointerleave', stop); pad.addEventListener('pointercancel', stop);
-          if (selectedTrack.instrumentType === 'drums') pad.addEventListener('click', () => { void start().then(() => window.setTimeout(stop, 220)); });
           grid.append(pad);
         }
         instrumentEditor.append(title, description, grid);
