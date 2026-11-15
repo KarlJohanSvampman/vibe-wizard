@@ -133,6 +133,7 @@ export function createDefaultProject(
       kind: 'instrument',
       instrumentModuleId,
       instrumentType,
+      ...(instrumentType === 'sampler' ? { samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
       order: 0,
       muted: false,
       solo: false,
