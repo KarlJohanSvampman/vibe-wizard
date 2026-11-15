@@ -127,6 +127,15 @@ describe('TurntableDeck', () => {
     expect(h.deck.currentPosition()).toBeCloseTo(0.6);
   });
 
+  it('leaves the platter at the end when forward playback completes', () => {
+    const h = makeHarness();
+    h.deck.load(h.buffer);
+    h.deck.play(0.8);
+    h.sources[0]!.onended();
+    expect(h.deck.isPlaying).toBe(false);
+    expect(h.deck.currentPosition()).toBeCloseTo(0.99);
+  });
+
   it('stops and disconnects active audio nodes', () => {
     const h = makeHarness();
     h.deck.load(h.buffer);
