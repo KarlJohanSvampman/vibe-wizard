@@ -6,6 +6,7 @@ import {
   createDefaultProject,
   createEmptyProject,
   deleteProjectTrack,
+  deleteProjectClip,
   getArrangementDurationBeats,
   projectClipToRecordingClip,
   getProjectClipNotes,
@@ -190,6 +191,19 @@ describe('project model', () => {
     recorder.start(1);
     const clip = recorder.stop(1, 'empty')!;
     expect(() => addRecordingToProject(project, 'missing-track', clip)).toThrow(/unknown track/i);
+  });
+
+  it('deletes a selected clip without deleting its track', () => {
+    const base = createDefaultProject('synth-main');
+    const recorder = new EventRecorder();
+    recorder.start(1);
+    const recording = recorder.stop(2, 'delete-me')!;
+    const withClip = addRecordingToProject(base, base.activeTrackId, recording);
+    const deleted = deleteProjectClip(withClip, 'delete-me');
+    expect(deleted.clips).toHaveLength(0);
+    expect(deleted.tracks).toHaveLength(1);
+    expect(deleted.activeTrackId).toBe(base.activeTrackId);
+    expect(() => deleteProjectClip(deleted, 'missing')).toThrow(/unknown clip/i);
   });
 
   it('moves a clip to another track and updates the arrangement duration', () => {
