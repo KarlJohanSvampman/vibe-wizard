@@ -22,6 +22,7 @@ import {
   addProjectClipNote,
   createEmptyProject,
   deleteProjectTrack,
+  deleteProjectClip,
   deleteProjectClipNote,
   duplicateProjectClip,
   getArrangementDurationBeats,
@@ -296,7 +297,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <span class="arrangement-label">MULTI-TRACK ARRANGEMENT</span>',
     '      <button class="transport-button" id="arrangement-play" type="button" disabled>▶ Play arrangement</button>',
     '      <button class="transport-button" id="arrangement-stop" type="button" disabled>■ Stop arrangement</button>',
-    '      <span class="arrangement-hint">Drag clips between tracks. Positions snap to the musical grid.</span>',
+    '      <span class="arrangement-hint">Click a clip to select it. Drag to move; drag its right edge to resize. Positions snap to the grid.</span>',
     '    </div>',
     '    <div class="timing-toolbar">',
     '      <label for="tempo-bpm"><span>TEMPO · BPM</span><input id="tempo-bpm" type="number" min="20" max="300" step="1" value="120" /></label>',
@@ -376,6 +377,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <button class="transport-button" id="record-stop" type="button" disabled>Stop recording</button>',
     '      <button class="transport-button" id="clip-play" type="button" disabled>▶ Play clip</button>',
     '      <button class="transport-button" id="clip-duplicate" type="button" disabled>Duplicate clip</button>',
+    '      <button class="transport-button danger-button" id="clip-delete" type="button" disabled>Delete clip</button>',
     '      <button class="transport-button" id="clip-stop" type="button" disabled>■ Stop playback</button>',
     '    </div>',
     '    <div class="timeline-wrap"><canvas id="clip-timeline" width="1000" height="210" aria-label="Recorded notes and theremin automation timeline"></canvas></div>',
@@ -393,7 +395,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <span class="piano-roll-hint">Click an empty cell to add a note. Drag a note to move it; drag its right edge to resize. Delete removes the selected note.</span>',
     '    </div>',
     '    <div class="piano-roll-wrap" id="piano-roll-wrap"><canvas id="piano-roll" width="1000" height="420" tabindex="0" aria-label="Piano roll editor. Click to add notes and drag notes to edit pitch, timing, and duration."></canvas></div>',
-    '    <p class="capture-hint" id="capture-status">Perform with the sliders, desktop button, or VR hand tracking. Recordings are saved to this device.</p>',
+    '    <p class="capture-hint" id="capture-status">Recording: select a track → Arm for recording → Record → perform → Stop. Use the theremin sliders on desktop or hand tracking in VR. The new clip appears on the selected track.</p>',
     '  </div>',
     '  <footer class="workbench-footer"><span>GLOBAL RACK</span><span>TRACK → CLIPS → TRANSPORT</span><span>LOCAL AUDIO</span></footer>',
     '</section>',
@@ -467,6 +469,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const clipPlayButton = get<HTMLButtonElement>('#clip-play');
   const clipStopButton = get<HTMLButtonElement>('#clip-stop');
   const clipDuplicateButton = get<HTMLButtonElement>('#clip-duplicate');
+  const clipDeleteButton = get<HTMLButtonElement>('#clip-delete');
   const clipSummary = get<HTMLElement>('#clip-summary');
   const pianoRollWrap = get<HTMLElement>('#piano-roll-wrap');
   const pianoRoll = get<HTMLCanvasElement>('#piano-roll');
@@ -504,7 +507,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !addTrackButton || !armTrackButton || !muteTrackButton ||
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
-    !clipStopButton || !clipDuplicateButton || !clipSummary || !arrangementPlayButton ||
+    !clipStopButton || !clipDuplicateButton || !clipDeleteButton || !clipSummary || !arrangementPlayButton ||
     !pianoRollWrap || !pianoRoll || !pianoNoteLabel || !pianoVelocityInput ||
     !pianoUndoButton || !pianoRedoButton || !pianoDeleteButton ||
     !arrangementStopButton || !tempoInput || !timeSignatureSelect || !gridSnapSelect ||
@@ -998,6 +1001,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const hasClip = Boolean(auditionClip && auditionClip.events.length > 0);
     clipPlayButton.disabled = !hasClip || !audioReady || recorder.isRecording || anyTransportPlaying();
     clipDuplicateButton.disabled = !selectedClip || recorder.isRecording || anyTransportPlaying();
+    clipDeleteButton.disabled = !selectedClip || recorder.isRecording || anyTransportPlaying();
     clipStopButton.disabled = !anyTransportPlaying();
     arrangementPlayButton.disabled = !audioReady || recorder.isRecording ||
       project.clips.length === 0 || anyTransportPlaying();
@@ -2384,6 +2388,20 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       captureStatus.textContent = error instanceof Error ? error.message : 'Could not play clip';
     }
   });
+  clipDeleteButton.addEventListener('click', () => {
+    if (!selectedClip || recorder.isRecording || anyTransportPlaying()) return;
+    const clip = selectedClip;
+    if (!window.confirm('Delete clip "' + clip.name + '"? This cannot be undone.')) return;
+    const beforeEdit = project;
+    project = deleteProjectClip(project, clip.id);
+    projectHistory.commit(beforeEdit, project);
+    selectedClipId = undefined; selectedClip = undefined; selectedPianoNote = undefined;
+    updateProjectUi();
+    void persistProject().catch((error: unknown) => {
+      projectStatus.textContent = error instanceof Error ? error.message : 'Could not delete clip.';
+    });
+  });
+
   clipDuplicateButton.addEventListener('click', () => {
     if (!selectedClip || recorder.isRecording || anyTransportPlaying()) return;
     try {
