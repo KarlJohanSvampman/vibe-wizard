@@ -483,6 +483,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !samplerLoopStartInput || !samplerLoopEndInput || !samplerRootNoteInput ||
     !samplerStartTime || !samplerEndTime || !samplerLoopStartTime || !samplerLoopEndTime || !aiServiceUrlInput || !aiSamplePromptInput || !aiSampleDurationInput ||
     !aiGenerateButton || !aiCancelButton || !aiGenerationStatus ||
+    !samplerTransformPrompt || !samplerTransformDuration || !samplerTransformStrength ||
+    !samplerTransformButton || !samplerTransformStatus ||
     !addTrackButton || !armTrackButton || !muteTrackButton ||
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
