@@ -1277,3 +1277,11 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
 .studio-object { position:absolute; z-index:1; max-width:140px; padding:10px 12px; border:1px solid #8a7b9d; border-radius:7px; color:#eee; background:linear-gradient(145deg,#494052,#292430); box-shadow:0 7px 15px #0008; cursor:grab; touch-action:none; }
 .studio-object.is-selected { border-color:#ffb000; box-shadow:0 0 0 2px #ffb00055,0 7px 15px #0008; }
 @media(max-width:650px) { .guitar-chords { grid-template-columns:repeat(3,minmax(72px,1fr)); } .controller-board { grid-template-columns:repeat(4,minmax(52px,1fr)) !important; } }
+
+.controller-board { grid-auto-rows:100px; touch-action:pan-y; }
+.controller-component { overflow:visible; }
+.controller-drag-handle { align-self:flex-start; min-height:24px!important; padding:2px 7px; font-size:10px; cursor:grab; touch-action:none; }
+.controller-resize-handle { position:absolute; right:2px; bottom:2px; min-width:24px; min-height:24px!important; padding:0; cursor:nwse-resize; touch-action:none; }
+.controller-layout-actions { display:flex; flex-wrap:wrap; gap:3px; }
+.controller-layout-actions button { min-width:25px; min-height:24px!important; padding:1px 4px; font-size:9px; }
+.controller-component:focus-within { outline:1px solid #ffb33d; outline-offset:2px; }
