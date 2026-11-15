@@ -1503,6 +1503,240 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     pitchValue.textContent = (48 + x * 36).toFixed(1);
   };
 
+  const controllerElement = <T extends HTMLElement>(selector: string): T => {
+    const element = root.querySelector<T>(selector);
+    if (!element) throw new Error('Missing controller UI element: ' + selector);
+    return element;
+  };
+  const presetNameInput = controllerElement<HTMLInputElement>('#controller-preset-name');
+  const presetSelect = controllerElement<HTMLSelectElement>('#controller-preset-select');
+  const controllerBoard = controllerElement<HTMLElement>('#controller-board');
+  const controllerStatus = controllerElement<HTMLElement>('#controller-status');
+  const guitarChordPanel = controllerElement<HTMLElement>('#guitar-chords');
+  const guitarStrumSurface = controllerElement<HTMLElement>('#guitar-strum');
+  const guitarStatus = controllerElement<HTMLElement>('#guitar-status');
+  const turntableAssetSelect = controllerElement<HTMLSelectElement>('#turntable-asset');
+  const turntableLoadButton = controllerElement<HTMLButtonElement>('#turntable-load');
+  const turntablePlayButton = controllerElement<HTMLButtonElement>('#turntable-play');
+  const turntableStopButton = controllerElement<HTMLButtonElement>('#turntable-stop');
+  const turntableSpeedInput = controllerElement<HTMLInputElement>('#turntable-speed');
+  const turntableSpeedValue = controllerElement<HTMLOutputElement>('#turntable-speed-value');
+  const turntablePlatter = controllerElement<HTMLElement>('#turntable-platter');
+  const studioObjectSelect = controllerElement<HTMLSelectElement>('#studio-object-select');
+  const studioRoom = controllerElement<HTMLElement>('#studio-room');
+  const studioStatus = controllerElement<HTMLElement>('#studio-status');
+  let selectedControllerPresetId = '';
+  let studioDraftPlacements: import('../controllers/ControllerModel.js').StudioObjectPlacement[] = [];
+  let studioDrag: { id: string; pointerId: number; x: number; y: number; startX: number; startZ: number } | undefined;
+
+  const refreshControllerDesigner = (): void => {
+    const presets = project.controllerPresets;
+    presetSelect.replaceChildren();
+    for (const preset of presets) {
+      const option = document.createElement('option'); option.value = preset.id; option.textContent = preset.name; presetSelect.append(option);
+    }
+    if (!presets.some(item => item.id === selectedControllerPresetId)) selectedControllerPresetId = presets[0]?.id ?? '';
+    presetSelect.value = selectedControllerPresetId;
+    const preset = presets.find(item => item.id === selectedControllerPresetId);
+    if (!preset) { controllerBoard.textContent = 'No controller preset yet. Create one to begin.'; return; }
+    presetNameInput.value = preset.name;
+    controllerBoard.replaceChildren();
+    controllerBoard.style.gridTemplateColumns = 'repeat(' + preset.board.columns + ', minmax(58px, 1fr))';
+    for (const component of preset.components) {
+      const card = document.createElement('div'); card.className = 'controller-component';
+      card.style.gridColumn = (component.x + 1) + ' / span ' + component.width;
+      card.style.gridRow = (component.y + 1) + ' / span ' + component.height;
+      const title = document.createElement('strong'); title.textContent = component.label;
+      const type = document.createElement('small'); type.textContent = component.kind.toUpperCase();
+      const parameter = document.createElement('select'); parameter.setAttribute('aria-label', 'Target parameter for ' + component.label);
+      for (const [id, label] of [['volume','Track volume'],['pan','Track pan'],['pitch','Pitch']] as const) {
+        const option = document.createElement('option'); option.value = id; option.textContent = label; parameter.append(option);
+      }
+      parameter.value = component.binding.targetParameterId ?? 'volume';
+      parameter.addEventListener('change', () => {
+        const next = validateControllerPreset({ ...preset, updatedAt: new Date().toISOString(), version: preset.version + 1,
+          components: preset.components.map(item => item.id === component.id ? { ...item, binding: { ...item.binding, targetParameterId: parameter.value } } : item) });
+        project = saveControllerPreset(project, next); syncControllerRoutes(); void persistProject();
+      });
+      let control: HTMLElement;
+      if (component.kind === 'button' || component.kind === 'toggle' || component.kind === 'guitar-fret' || component.kind === 'drum-pad') {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = component.kind === 'toggle' ? 'Toggle' : 'Press';
+        let active = false;
+        const down = () => { active = true; button.classList.add('is-playing'); controllerRuntime.setGate(project.controllerInstances.find(i => i.presetId === preset.id) ?? createControllerInstance(preset.id), component, true); };
+        const up = () => { if (!active) return; active = false; button.classList.remove('is-playing'); const instance = project.controllerInstances.find(i => i.presetId === preset.id); if (instance) controllerRuntime.setGate(instance, component, false); };
+        button.addEventListener('pointerdown', down); button.addEventListener('pointerup', up); button.addEventListener('pointerleave', up); control = button;
+      } else {
+        const input = document.createElement('input'); input.type = 'range'; input.min = String(component.min); input.max = String(component.max); input.step = '0.001'; input.value = String(component.defaultValue);
+        input.addEventListener('input', () => { const instance = project.controllerInstances.find(i => i.presetId === preset.id); if (instance) controllerRuntime.setValue(instance, component, Number(input.value)); });
+        control = input;
+      }
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'controller-remove'; remove.textContent = '×'; remove.title = 'Remove component';
+      remove.addEventListener('click', () => { project = saveControllerPreset(project, { ...preset, components: preset.components.filter(item => item.id !== component.id) }); syncControllerRoutes(); refreshControllerDesigner(); void persistProject(); });
+      card.append(title, type, parameter, control, remove); controllerBoard.append(card);
+    }
+    controllerStatus.textContent = preset.components.length + ' controls · ' + project.controllerInstances.filter(item => item.presetId === preset.id).length + ' live instances.';
+  };
+
+  controllerElement<HTMLButtonElement>('#controller-new-preset').addEventListener('click', () => {
+    const preset = createControllerPreset(presetNameInput.value || 'My Controller');
+    project = saveControllerPreset(project, preset); selectedControllerPresetId = preset.id;
+    refreshControllerDesigner(); void persistProject();
+  });
+  presetSelect.addEventListener('change', () => { selectedControllerPresetId = presetSelect.value; refreshControllerDesigner(); });
+  controllerElement<HTMLButtonElement>('#controller-add-instance').addEventListener('click', () => {
+    const preset = project.controllerPresets.find(item => item.id === selectedControllerPresetId);
+    if (!preset) { controllerStatus.textContent = 'Create a controller preset first.'; return; }
+    const instance = createControllerInstance(preset.id, preset.name + ' · ' + (project.controllerInstances.length + 1));
+    const track = activeTrack();
+    const targeted = { ...instance, ...(track ? { targetTrackId: track.id } : {}) };
+    project = addControllerInstance(project, targeted);
+    syncControllerRoutes(); refreshStudioRoom(); refreshControllerDesigner(); void persistProject();
+  });
+  controllerElement<HTMLElement>('.controller-component-tools').addEventListener('click', event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-add-component]');
+    if (!button) return;
+    let preset = project.controllerPresets.find(item => item.id === selectedControllerPresetId);
+    if (!preset) {
+      preset = createControllerPreset(presetNameInput.value || 'My Controller');
+      project = saveControllerPreset(project, preset); selectedControllerPresetId = preset.id;
+    }
+    const kind = button.dataset.addComponent as ControllerComponentDefinition['kind'];
+    const id = 'control-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+    const index = preset.components.length;
+    const component: ControllerComponentDefinition = {
+      id, kind, label: kind === 'guitar-fret' ? 'Chord ' + (index + 1) : kind[0]!.toUpperCase() + kind.slice(1),
+      x: index % preset.board.columns, y: Math.floor(index / preset.board.columns) % preset.board.rows,
+      width: 1, height: 1, min: 0, max: 1, defaultValue: 0.5,
+      binding: { action: kind === 'button' || kind === 'toggle' || kind === 'guitar-fret' || kind === 'drum-pad' ? 'gate' : 'parameter',
+        targetScope: 'instance-track', targetParameterId: 'volume', outputRange: [0, 1], curve: 'linear', invert: false, smoothingMs: 12 },
+    };
+    if (index >= preset.board.columns * preset.board.rows) { controllerStatus.textContent = 'Controller board is full. Increase its size before adding more controls.'; return; }
+    project = saveControllerPreset(project, { ...preset, components: [...preset.components, component] });
+    syncControllerRoutes(); refreshControllerDesigner(); void persistProject();
+  });
+
+  const refreshGuitar = (): void => {
+    guitarChordPanel.replaceChildren();
+    guitar.chords.forEach((chord, index) => {
+      const slot = document.createElement('div'); slot.className = 'guitar-chord-slot';
+      const select = document.createElement('select'); select.setAttribute('aria-label', 'Assign chord to guitar button ' + (index + 1));
+      for (const optionChord of guitar.chords) { const option = document.createElement('option'); option.value = optionChord.id; option.textContent = optionChord.name; select.append(option); }
+      select.value = chord.id;
+      select.addEventListener('change', () => { guitar.assignChord(index, select.value); refreshGuitar(); });
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = String(index + 1) + ' · ' + chord.name;
+      button.classList.toggle('is-active', guitar.selectedChord.id === chord.id);
+      button.addEventListener('click', () => { guitar.selectChord(chord.id); refreshGuitar(); guitarStatus.textContent = 'Selected ' + chord.name + ' chord · ' + chord.midiNotes.length + ' strings.'; });
+      slot.append(button, select); guitarChordPanel.append(slot);
+    });
+  };
+  refreshGuitar();
+  let guitarPointer: number | undefined;
+  guitarStrumSurface.addEventListener('pointerdown', event => {
+    guitarPointer = event.pointerId; guitarStrumSurface.setPointerCapture(event.pointerId);
+    const rect = guitarStrumSurface.getBoundingClientRect(); guitar.beginStrum((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+    event.preventDefault();
+  });
+  guitarStrumSurface.addEventListener('pointerup', event => {
+    if (guitarPointer !== event.pointerId) return; guitarPointer = undefined;
+    const rect = guitarStrumSurface.getBoundingClientRect();
+    const result = guitar.endStrum((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+    guitarStatus.textContent = result ? result.direction + ' strum · ' + result.chord.name + ' · intensity ' + Math.round(result.intensity * 100) + '%' : 'Swipe farther across the strings to strum.';
+  });
+  guitarStrumSurface.addEventListener('pointercancel', () => { guitarPointer = undefined; });
+
+  const refreshTurntableAssets = async (): Promise<void> => {
+    const assets = await sampleAssets.list(); const current = turntableAssetSelect.value;
+    turntableAssetSelect.replaceChildren();
+    for (const asset of assets) { const option = document.createElement('option'); option.value = asset.id; option.textContent = asset.name; turntableAssetSelect.append(option); }
+    if (assets.some(item => item.id === current)) turntableAssetSelect.value = current;
+  };
+  void refreshTurntableAssets();
+  turntableLoadButton.addEventListener('click', () => {
+    const assetId = turntableAssetSelect.value;
+    if (!assetId) return;
+    void sampleAssets.load(assetId).then(async asset => {
+      if (!asset) throw new Error('Audio asset no longer exists.');
+      const context = audioRuntime.prepareContext();
+      const decoded = await context.decodeAudioData(asset.data.slice(0));
+      turntable.load(decoded); turntablePlayButton.disabled = false; turntableStopButton.disabled = false;
+      studioStatus.textContent = 'Turntable loaded: ' + asset.name + ' · ' + decoded.duration.toFixed(2) + ' seconds.';
+    }).catch(error => { studioStatus.textContent = error instanceof Error ? error.message : 'Could not load turntable sample.'; });
+  });
+  turntablePlayButton.addEventListener('click', () => { try { turntable.play(); } catch (error) { studioStatus.textContent = error instanceof Error ? error.message : 'Could not play deck.'; } });
+  turntableStopButton.addEventListener('click', () => turntable.stop());
+  turntableSpeedInput.addEventListener('input', () => { const speed = Number(turntableSpeedInput.value); turntable.setSpeed(speed); turntableSpeedValue.textContent = speed.toFixed(2) + '×'; });
+  let platterPointer: number | undefined;
+  turntablePlatter.addEventListener('pointerdown', event => { platterPointer = event.pointerId; turntablePlatter.setPointerCapture(event.pointerId); });
+  turntablePlatter.addEventListener('pointermove', event => {
+    if (platterPointer !== event.pointerId || !turntable.isLoaded) return;
+    const rect = turntablePlatter.getBoundingClientRect();
+    const position = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    turntable.scratch(position * (turntable.currentPosition() > 0 ? Math.max(turntable.currentPosition(), 1) : 1));
+  });
+  turntablePlatter.addEventListener('pointerup', () => { platterPointer = undefined; });
+  turntablePlatter.addEventListener('pointercancel', () => { platterPointer = undefined; });
+
+  const refreshStudioRoom = (): void => {
+    const existing = project.studioLayout;
+    const refs = [
+      ...project.tracks.map((track, index) => ({ id: 'track:' + track.id, objectType: 'instrument-track' as const, objectRefId: track.id, label: track.name, index })),
+      ...project.controllerInstances.map((instance, index) => ({ id: 'controller:' + instance.id, objectType: 'controller-instance' as const, objectRefId: instance.id, label: instance.name, index })),
+    ];
+    studioDraftPlacements = refs.map(ref => existing.find(item => item.id === ref.id) ?? {
+      id: ref.id, objectType: ref.objectType, objectRefId: ref.objectRefId,
+      position: { x: (ref.index % 4) * 1.5 - 2.25, y: 0.6, z: -1 - Math.floor(ref.index / 4) * 1.2 },
+      rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 },
+    });
+    studioObjectSelect.replaceChildren();
+    refs.forEach(ref => { const option = document.createElement('option'); option.value = ref.id; option.textContent = ref.label; studioObjectSelect.append(option); });
+    studioRoom.querySelectorAll('.studio-object').forEach(node => node.remove());
+    for (const ref of refs) {
+      const placement = studioDraftPlacements.find(item => item.id === ref.id)!;
+      const node = document.createElement('button'); node.type = 'button'; node.className = 'studio-object';
+      node.dataset.objectId = ref.id; node.textContent = ref.label;
+      node.style.left = (50 + placement.position.x * 9) + '%';
+      node.style.top = (50 + placement.position.z * 9) + '%';
+      node.style.transform = 'translate(-50%,-50%) rotate(' + placement.rotation.y + 'rad) scale(' + placement.scale.x + ')';
+      node.addEventListener('click', () => { studioObjectSelect.value = ref.id; loadStudioFields(); });
+      node.addEventListener('pointerdown', event => { studioDrag = { id: ref.id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, startX: placement.position.x, startZ: placement.position.z }; node.setPointerCapture(event.pointerId); });
+      node.addEventListener('pointermove', event => {
+        if (!studioDrag || studioDrag.pointerId !== event.pointerId) return;
+        const next = { ...placement, position: { ...placement.position, x: studioDrag.startX + (event.clientX - studioDrag.x) / 36, z: studioDrag.startZ + (event.clientY - studioDrag.y) / 36 } };
+        studioDraftPlacements = studioDraftPlacements.map(item => item.id === ref.id ? next : item);
+        node.style.left = (50 + next.position.x * 9) + '%'; node.style.top = (50 + next.position.z * 9) + '%';
+        studioObjectSelect.value = ref.id; loadStudioFields();
+      });
+      node.addEventListener('pointerup', () => { studioDrag = undefined; });
+      studioRoom.append(node);
+    }
+    if (refs.length) { studioObjectSelect.value = refs[0]!.id; loadStudioFields(); }
+  };
+  const studioField = (id: string) => controllerElement<HTMLInputElement>('#studio-' + id);
+  const loadStudioFields = (): void => {
+    const item = studioDraftPlacements.find(placement => placement.id === studioObjectSelect.value);
+    if (!item) return;
+    studioField('x').value = String(item.position.x); studioField('y').value = String(item.position.y); studioField('z').value = String(item.position.z);
+    studioField('yaw').value = String(item.rotation.y * 180 / Math.PI); studioField('scale').value = String(item.scale.x);
+    studioRoom.querySelectorAll<HTMLElement>('.studio-object').forEach(node => node.classList.toggle('is-selected', node.dataset.objectId === item.id));
+  };
+  studioObjectSelect.addEventListener('change', loadStudioFields);
+  controllerElement<HTMLButtonElement>('#studio-save-placement').addEventListener('click', () => {
+    const id = studioObjectSelect.value;
+    const next = studioDraftPlacements.map(item => item.id !== id ? item : {
+      ...item,
+      position: { x: Number(studioField('x').value), y: Number(studioField('y').value), z: Number(studioField('z').value) },
+      rotation: { ...item.rotation, y: Number(studioField('yaw').value) * Math.PI / 180 },
+      scale: { x: Number(studioField('scale').value), y: Number(studioField('scale').value), z: Number(studioField('scale').value) },
+    });
+    try {
+      project = updateStudioLayout(project, next);
+      studioDraftPlacements = [...project.studioLayout];
+      updateProjectUi(); void persistProject();
+      studioStatus.textContent = 'Studio placement saved in this project.';
+    } catch (error) { studioStatus.textContent = error instanceof Error ? error.message : 'Invalid studio placement.'; }
+  });
+  refreshStudioRoom();
+
   const updateStatus = (message: string): void => { status.textContent = message; };
 
   const updateProjectBrowserControls = (): void => {
