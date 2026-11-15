@@ -247,6 +247,36 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     recordEvent(event);
   };
 
+  const controllerRuntime = new ControllerRuntime({
+    parameterBus,
+    resolveTarget: (instance, component) => {
+      const trackId = component.binding.targetScope === 'project-track'
+        ? component.binding.targetTrackId
+        : instance.targetTrackId || project.activeTrackId;
+      if (component.binding.targetScope === 'master') return undefined;
+      return trackId ? resourceFor(trackId)?.instrument : undefined;
+    },
+    onMusicalEvent: event => {
+      if (event.kind === 'note-on') startNote(event.sourceId, event.noteId, event.pitch, event.velocity, event.timestamp);
+      else if (event.kind === 'note-off') stopNote(event.sourceId, event.noteId, event.timestamp);
+      else recordEvent(event);
+    },
+  });
+  const syncControllerRoutes = (): void => {
+    for (const instance of project.controllerInstances) {
+      const preset = project.controllerPresets.find(item => item.id === instance.presetId);
+      if (preset) controllerRuntime.connect(preset, instance);
+    }
+  };
+  const guitar = new GuitarController({
+    sourceId: 'virtual-guitar',
+    emit: event => {
+      if (event.kind === 'note-on') startNote(event.sourceId, event.noteId, event.pitch, event.velocity, event.timestamp);
+      else if (event.kind === 'note-off') stopNote(event.sourceId, event.noteId, event.timestamp);
+    },
+  });
+  const turntable = new TurntableDeck(audioRuntime);
+
   const spatialAdapter = new ThereminSpatialAdapter(world, theremin, {
     handedness: 'right',
     onActiveChange: (active, point, time) => {
@@ -1459,6 +1489,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     refreshClipList();
     drawArrangement();
     applyTrackMix();
+    syncControllerRoutes();
+    refreshControllerDesigner();
+    refreshStudioRoom();
   };
 
   const updateController = (): void => {
