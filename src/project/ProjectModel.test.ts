@@ -101,11 +101,11 @@ describe('project model', () => {
     const second = addInstrumentTrack(project, 'Piano Layer', 'synth-piano');
     expect(second.tracks).toHaveLength(2);
     expect(second.activeTrackId).toBe(second.tracks[1]?.id);
-    expect(second.tracks[0]?.armed).toBe(false);
+    expect(second.tracks[0]?.armed).toBe(true);
     expect(second.tracks[1]).toMatchObject({
       name: 'Piano Layer',
       instrumentModuleId: 'synth-piano',
-      armed: true,
+      armed: false,
       volume: 0.8,
       pan: 0,
     });
