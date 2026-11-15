@@ -1559,9 +1559,24 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const saveComponent = (id: string, patch: Partial<ControllerComponentDefinition>): void => {
       const current = project.controllerPresets.find(item => item.id === preset.id);
       if (!current) return;
-      const next = validateControllerPreset({ ...current, updatedAt: new Date().toISOString(), version: current.version + 1,
-        components: current.components.map(item => item.id === id ? { ...item, ...patch } : item) });
-      project = saveControllerPreset(project, next); syncControllerRoutes(); void persistProject(); refreshControllerDesigner();
+      const candidate = current.components.map(item => item.id === id ? { ...item, ...patch } : item);
+      const changed = candidate.find(item => item.id === id);
+      if (!changed) return;
+      const overlaps = candidate.some(item => item.id !== id &&
+        changed.x < item.x + item.width && changed.x + changed.width > item.x &&
+        changed.y < item.y + item.height && changed.y + changed.height > item.y);
+      if (overlaps) {
+        controllerStatus.textContent = 'That position is occupied. Controls cannot overlap; choose an empty area.';
+        refreshControllerDesigner();
+        return;
+      }
+      try {
+        const next = validateControllerPreset({ ...current, updatedAt: new Date().toISOString(), version: current.version + 1, components: candidate });
+        project = saveControllerPreset(project, next); syncControllerRoutes(); void persistProject(); refreshControllerDesigner();
+      } catch (error) {
+        controllerStatus.textContent = error instanceof Error ? error.message : 'Could not update controller layout.';
+        refreshControllerDesigner();
+      }
     };
     for (const component of preset.components) {
       const card = document.createElement('article'); card.className = 'controller-component'; card.tabIndex = 0;
@@ -1611,12 +1626,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
           card.dataset.pendingX = String(Math.max(0, Math.min(preset.board.columns-component.width, component.x+dx)));
           card.dataset.pendingY = String(Math.max(0, Math.min(preset.board.rows-component.height, component.y+dy)));
         };
+        const cleanup = (): void => {
+          dragHandle.removeEventListener('pointermove', onMove);
+          dragHandle.removeEventListener('pointerup', onUp);
+          dragHandle.removeEventListener('pointercancel', onCancel);
+        };
         const onUp = (): void => {
-          dragHandle.removeEventListener('pointermove', onMove); dragHandle.removeEventListener('pointerup', onUp);
+          cleanup();
           const x = Number(card.dataset.pendingX ?? component.x), y = Number(card.dataset.pendingY ?? component.y);
+          card.style.transform = '';
           saveComponent(component.id, { x, y });
         };
-        dragHandle.addEventListener('pointermove', onMove); dragHandle.addEventListener('pointerup', onUp);
+        const onCancel = (): void => { cleanup(); card.style.transform = ''; delete card.dataset.pendingX; delete card.dataset.pendingY; };
+        dragHandle.addEventListener('pointermove', onMove); dragHandle.addEventListener('pointerup', onUp); dragHandle.addEventListener('pointercancel', onCancel);
       });
       const resizeHandle = document.createElement('button'); resizeHandle.type = 'button'; resizeHandle.className = 'controller-resize-handle'; resizeHandle.textContent = '↘'; resizeHandle.title = 'Drag to resize this control';
       resizeHandle.addEventListener('pointerdown', event => {
@@ -1624,8 +1646,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         const rect = controllerBoard.getBoundingClientRect(); const cellW = rect.width/preset.board.columns, cellH = rect.height/preset.board.rows;
         const startX=event.clientX,startY=event.clientY;
         const onMove=(moveEvent:PointerEvent):void=>{ const width=Math.max(1,Math.min(preset.board.columns-component.x,component.width+Math.round((moveEvent.clientX-startX)/cellW))); const height=Math.max(1,Math.min(preset.board.rows-component.y,component.height+Math.round((moveEvent.clientY-startY)/cellH))); card.dataset.pendingWidth=String(width);card.dataset.pendingHeight=String(height);card.style.gridColumn=(component.x+1)+' / span '+width;card.style.gridRow=(component.y+1)+' / span '+height; };
-        const onUp=():void=>{resizeHandle.removeEventListener('pointermove',onMove);resizeHandle.removeEventListener('pointerup',onUp);saveComponent(component.id,{width:Number(card.dataset.pendingWidth??component.width),height:Number(card.dataset.pendingHeight??component.height)});};
-        resizeHandle.addEventListener('pointermove',onMove);resizeHandle.addEventListener('pointerup',onUp);
+        const cleanup=():void=>{resizeHandle.removeEventListener('pointermove',onMove);resizeHandle.removeEventListener('pointerup',onUp);resizeHandle.removeEventListener('pointercancel',onCancel);};
+        const onUp=():void=>{cleanup();saveComponent(component.id,{width:Number(card.dataset.pendingWidth??component.width),height:Number(card.dataset.pendingHeight??component.height)});};
+        const onCancel=():void=>{cleanup();card.style.gridColumn=(component.x+1)+' / span '+component.width;card.style.gridRow=(component.y+1)+' / span '+component.height;delete card.dataset.pendingWidth;delete card.dataset.pendingHeight;};
+        resizeHandle.addEventListener('pointermove',onMove);resizeHandle.addEventListener('pointerup',onUp);resizeHandle.addEventListener('pointercancel',onCancel);
       });
       card.append(dragHandle,title,type,parameter,control,actions,remove,resizeHandle); controllerBoard.append(card);
     }
