@@ -1806,6 +1806,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     assetBrowserList.replaceChildren();
     try {
       const assets = await sampleAssets.list();
+      void refreshTurntableAssets();
       const query = assetSearchInput.value.trim().toLowerCase();
       const filter = assetFilterSelect.value;
       const visible = assets.filter(asset => {
