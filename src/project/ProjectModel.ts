@@ -871,13 +871,13 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     return { ...item, events } as unknown as ProjectClip;
   });
 
-  const controllerPresets = (value.controllerPresets ?? []).map(validateControllerPreset);
+  const controllerPresets = (Array.isArray(value.controllerPresets) ? value.controllerPresets : []).map(validateControllerPreset);
   const presetIds = new Set<string>();
   for (const preset of controllerPresets) {
     if (presetIds.has(preset.id)) throw new Error('Project contains duplicate controller preset IDs.');
     presetIds.add(preset.id);
   }
-  const controllerInstances = (value.controllerInstances ?? []).map(item => validateControllerInstance(item, presetIds));
+  const controllerInstances = (Array.isArray(value.controllerInstances) ? value.controllerInstances : []).map(item => validateControllerInstance(item, presetIds));
   const instanceIds = new Set<string>();
   for (const instance of controllerInstances) {
     if (instanceIds.has(instance.id)) throw new Error('Project contains duplicate controller instance IDs.');
@@ -886,7 +886,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       throw new Error('Controller instance references an unknown project track.');
     }
   }
-  const studioLayout = (value.studioLayout ?? []).map(validateStudioPlacement);
+  const studioLayout = (Array.isArray(value.studioLayout) ? value.studioLayout : []).map(validateStudioPlacement);
   const placementIds = new Set<string>();
   for (const placement of studioLayout) {
     if (placementIds.has(placement.id)) throw new Error('Project contains duplicate studio placement IDs.');
