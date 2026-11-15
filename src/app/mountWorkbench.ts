@@ -281,7 +281,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const guitarSpatialAdapter = new GuitarSpatialAdapter(world, guitar);
   const studioSpatialAdapter = new StudioSpatialAdapter(world, placements => {
     project = updateStudioLayout(project, placements);
-    void persistProject().catch(error => { projectStatus.textContent = error instanceof Error ? error.message : 'Could not save VR studio placement.'; });
+    void persistProject().catch(error => { if (projectStatus) projectStatus.textContent = error instanceof Error ? error.message : 'Could not save VR studio placement.'; });
   });
 
   const spatialAdapter = new ThereminSpatialAdapter(world, theremin, {
