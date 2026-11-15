@@ -4,6 +4,8 @@ import {
   addInstrumentTrack,
   addRecordingToProject,
   createDefaultProject,
+  createEmptyProject,
+  deleteProjectTrack,
   getArrangementDurationBeats,
   projectClipToRecordingClip,
   getProjectClipNotes,
@@ -22,6 +24,29 @@ import {
 } from './ProjectModel.js';
 
 describe('project model', () => {
+  it('creates a genuinely empty project and supports adding the first instrument', () => {
+    const empty = createEmptyProject(new Date('2026-11-15T12:00:00.000Z'));
+    expect(empty.tracks).toHaveLength(0);
+    expect(empty.activeTrackId).toBe('');
+    expect(validateProjectSnapshot(empty)).toEqual(empty);
+    const withTrack = addInstrumentTrack(empty, 'First synth', 'synth-first');
+    expect(withTrack.tracks).toHaveLength(1);
+    expect(withTrack.activeTrackId).toBe(withTrack.tracks[0]?.id);
+  });
+
+  it('deletes a track and its clips, selecting another track or none', () => {
+    const first = createDefaultProject('synth-main');
+    const second = addInstrumentTrack(first, 'Second', 'synth-second');
+    const withoutSecond = deleteProjectTrack(second, second.activeTrackId);
+    expect(withoutSecond.tracks).toHaveLength(1);
+    expect(withoutSecond.activeTrackId).toBe(first.activeTrackId);
+    const withoutAny = deleteProjectTrack(withoutSecond, first.activeTrackId);
+    expect(withoutAny.tracks).toHaveLength(0);
+    expect(withoutAny.activeTrackId).toBe('');
+    expect(validateProjectSnapshot(withoutAny)).toEqual(withoutAny);
+    expect(() => deleteProjectTrack(withoutAny, 'missing')).toThrow(/unknown track/i);
+  });
+
   it('creates a project with a ready-to-mix instrument track', () => {
     const project = createDefaultProject('synth-main', new Date('2026-11-14T12:00:00.000Z'));
     expect(project.schemaVersion).toBe(5);
