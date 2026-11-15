@@ -271,7 +271,7 @@ describe('project model', () => {
       tracks: project.tracks.map(({ volume: _volume, pan: _pan, ...track }) => track),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version1));
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.tracks[0]).toMatchObject({ volume: 0.8, pan: 0 });
     expect(migrated.id).toBe(project.id);
   });
