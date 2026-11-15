@@ -1805,7 +1805,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         project = addRecordingToProject(project, track.id, recording);
         const clip = project.clips.find(item => item.id === recording.id)!;
         project = { ...project, clips: project.clips.map(item => item.id === clip.id
-          ? { ...item, startBeats: getArrangementDurationBeats(beforeEdit) }
+          ? { ...item, startBeats: getArrangementDurationBeats(beforeEdit, 0) }
           : item) };
         ensureTrackRuntime(track);
         if (audioReady) await ensureTrackAudioReady(track.id);
