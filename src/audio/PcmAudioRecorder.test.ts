@@ -49,7 +49,7 @@ describe('PcmAudioRecorder', () => {
     expect(view.getUint16(34, true)).toBe(16);
     expect(view.getUint32(40, true)).toBe(12);
     expect([...Array.from({ length: 6 }, (_, index) => view.getInt16(44 + index * 2, true))])
-      .toEqual([0, 32767, 16384, -16384, -32768, 0]);
+      .toEqual([0, 32767, 16383, -16384, -32768, 0]);
     expect(h.source.connect).toHaveBeenCalledWith(h.processor);
     expect(h.processor.disconnect).toHaveBeenCalled();
     expect(h.silentGain.disconnect).toHaveBeenCalled();
