@@ -255,7 +255,7 @@ export class AudioEngine implements RackModule {
       const end = clamp(settings.endPosition, settings.startPosition + 0.001, 1) * duration;
       const rate = midiToFrequency(pitch) / midiToFrequency(settings.rootNote);
       sample.playbackRate.setValueAtTime(rate, startTime);
-      if (settings.loopEnabled) {
+      if (settings.loopEnabled && settings.playbackMode === 'gate') {
         sample.loop = true;
         sample.loopStart = clamp(settings.loopStart, settings.startPosition, settings.endPosition) * duration;
         sample.loopEnd = clamp(settings.loopEnd, settings.loopStart + 0.001, settings.endPosition) * duration;
