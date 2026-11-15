@@ -180,12 +180,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     resources.instrument.connectOutput(resources.bus.inputNode);
     await Promise.all([instrumentStart, busStart]);
     if (track.instrumentType === 'sampler' && track.sampleAssetId && !resources.instrument.hasSample) {
-      try {
-        const asset = await sampleAssets.load(track.sampleAssetId);
-        if (asset) await resources.instrument.loadSample(asset.data);
-      } catch (error) {
-        console.warn('Could not restore sampler sample for track ' + track.id, error);
+      const asset = await sampleAssets.load(track.sampleAssetId);
+      if (!asset) {
+        throw new Error('Audio asset "' + (track.sampleFileName ?? track.sampleAssetId) +
+          '" is missing for sampler track "' + track.name + '". Restore or re-import the sample before playback.');
       }
+      await resources.instrument.loadSample(asset.data);
     }
     applyTrackMix();
   };
