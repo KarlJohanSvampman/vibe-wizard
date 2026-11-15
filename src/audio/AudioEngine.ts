@@ -4,6 +4,16 @@ import type { RackModule } from '../rack/types.js';
 import { AudioRuntime } from './AudioRuntime.js';
 import type { InstrumentType } from './InstrumentTypes.js';
 
+export interface SamplerPlaybackSettings {
+  readonly startPosition: number;
+  readonly endPosition: number;
+  readonly loopEnabled: boolean;
+  readonly loopStart: number;
+  readonly loopEnd: number;
+  readonly rootNote: number;
+  readonly playbackMode: 'one-shot' | 'gate';
+}
+
 interface PitchControl {
   readonly parameter: AudioParam;
   readonly multiplier: number;
@@ -36,6 +46,11 @@ export class AudioEngine implements RackModule {
   private readonly voices = new Map<string, InstrumentVoice>();
   private masterVolume = 0.35;
   private sampleBuffer: AudioBuffer | undefined;
+  private samplerSettings: SamplerPlaybackSettings = {
+    startPosition: 0, endPosition: 1, loopEnabled: false,
+    loopStart: 0, loopEnd: 1, rootNote: 60, playbackMode: 'gate',
+  };
+  private readonly auditionNoteId = '__sampler-audition__';
   private noiseBuffer: AudioBuffer | undefined;
   private disposed = false;
 
@@ -78,10 +93,38 @@ export class AudioEngine implements RackModule {
     return this.runtime.performanceTimeForAudioTime(audioTime);
   }
 
+  get sampleDuration(): number { return this.sampleBuffer?.duration ?? 0; }
+
+  setSamplerSettings(settings: SamplerPlaybackSettings): void {
+    if (this.instrumentType !== 'sampler') return;
+    this.samplerSettings = { ...settings };
+    this.stopAudition();
+  }
+
   /** Decode one user-provided sample on the shared project AudioContext. */
   async loadSample(data: ArrayBuffer): Promise<void> {
     const context = this.runtime.requireContext();
+    this.stopAudition();
     this.sampleBuffer = await context.decodeAudioData(data.slice(0));
+  }
+
+  /** Audition without creating a sequencer or recorder event. */
+  auditionSample(pitch = this.samplerSettings.rootNote): void {
+    if (this.instrumentType !== 'sampler' || !this.sampleBuffer || !this.masterGain) return;
+    this.stopAudition();
+    this.noteOn({
+      kind: 'note-on', sourceId: this.id, noteId: this.auditionNoteId,
+      pitch: clamp(pitch, 0, 127), velocity: 0.85, timestamp: performance.now() / 1000,
+    });
+  }
+
+  stopAudition(): void {
+    const voice = this.voices.get(this.auditionNoteId);
+    if (!voice) return;
+    this.noteOff({
+      kind: 'note-off', sourceId: voice.sourceId, noteId: this.auditionNoteId,
+      timestamp: performance.now() / 1000,
+    }, 0.025);
   }
 
   /** Route this instrument's output into its owning track bus. */
@@ -110,7 +153,8 @@ export class AudioEngine implements RackModule {
     const sources: AudioScheduledSourceNode[] = [];
     const nodes: AudioNode[] = [envelope];
     const pitchControls: PitchControl[] = [];
-    const oneShot = this.instrumentType === 'drums';
+    const oneShot = this.instrumentType === 'drums' ||
+      (this.instrumentType === 'sampler' && this.samplerSettings.playbackMode === 'one-shot' && event.noteId !== this.auditionNoteId);
     const sourceStopTimes = new Map<AudioScheduledSourceNode, number>();
     const amplitude = Math.max(0.0001, velocity);
 
@@ -201,12 +245,23 @@ export class AudioEngine implements RackModule {
     } else if (this.sampleBuffer) {
       const sample = context.createBufferSource();
       sample.buffer = this.sampleBuffer;
-      const rate = midiToFrequency(pitch) / midiToFrequency(60);
+      const settings = this.samplerSettings;
+      const duration = this.sampleBuffer.duration;
+      const offset = clamp(settings.startPosition, 0, 0.999) * duration;
+      const end = clamp(settings.endPosition, settings.startPosition + 0.001, 1) * duration;
+      const rate = midiToFrequency(pitch) / midiToFrequency(settings.rootNote);
       sample.playbackRate.setValueAtTime(rate, startTime);
+      if (settings.loopEnabled) {
+        sample.loop = true;
+        sample.loopStart = clamp(settings.loopStart, settings.startPosition, settings.endPosition) * duration;
+        sample.loopEnd = clamp(settings.loopEnd, settings.loopStart + 0.001, settings.endPosition) * duration;
+      }
       sample.connect(envelope);
       sources.push(sample);
       nodes.push(sample);
       pitchControls.push({ parameter: sample.playbackRate, multiplier: 1 });
+      if (sample.loop) sample.start(startTime, offset);
+      else sample.start(startTime, offset, Math.max(0.001, end - offset));
     } else {
       // Keep an unloaded sampler track responsive, while the UI asks for a file.
       addOscillator('triangle', 1);
@@ -236,7 +291,7 @@ export class AudioEngine implements RackModule {
           if (this.voices.get(event.noteId) === voice) this.voices.delete(event.noteId);
         }
       };
-      source.start(startTime);
+      if (!(source instanceof AudioBufferSourceNode && this.instrumentType === 'sampler')) source.start(startTime);
       const stopAt = sourceStopTimes.get(source);
       if (stopAt !== undefined) source.stop(stopAt);
     }
@@ -317,7 +372,7 @@ export class AudioEngine implements RackModule {
     const pitch = clamp(value, 0, 127);
     const at = this.runtime.toAudioTime(timestamp);
     const frequency = this.instrumentType === 'sampler'
-      ? midiToFrequency(pitch) / midiToFrequency(60)
+      ? midiToFrequency(pitch) / midiToFrequency(this.samplerSettings.rootNote)
       : midiToFrequency(pitch);
     for (const voice of this.voices.values()) {
       for (const control of voice.pitchControls) {
@@ -332,6 +387,7 @@ export class AudioEngine implements RackModule {
 
   async dispose(): Promise<void> {
     if (this.disposed) return;
+    this.stopAudition();
     this.allNotesOff();
     this.disposed = true;
     this.voices.clear();
