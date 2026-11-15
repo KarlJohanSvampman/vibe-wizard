@@ -33,6 +33,8 @@ import {
   type ProjectClipNote,
   updateProjectTrack,
   updateProjectTiming,
+  DEFAULT_SAMPLER_SETTINGS,
+  type SamplerSettings,
   updateProjectLoopRegion,
   type ProjectClip,
   type ProjectSnapshot,
@@ -108,6 +110,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     if (existing) return existing;
 
     const instrument = rack.add(new AudioEngine(track.instrumentModuleId, audioRuntime, track.instrumentType));
+    if (track.instrumentType === 'sampler') {
+      instrument.setSamplerSettings(track.samplerSettings ?? DEFAULT_SAMPLER_SETTINGS);
+    }
     const bus = rack.add(new TrackAudioBus('track-bus-' + track.id, audioRuntime));
     parameterBus.registerTarget(instrument);
     parameterBus.registerTarget(bus);
@@ -315,7 +320,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <label for="sample-file"><span>SAMPLER AUDIO FILE</span><input id="sample-file" type="file" accept="audio/*" /></label>',
     '      <span id="sample-status">Choose a Sampler track to import audio.</span>',
     '    </div>',
-    '    <section class="ai-sample-studio">',
+    '    <section class="sampler-editor" id="sampler-editor" hidden>',
+    '      <div class="section-heading"><div><p class="eyebrow">SAMPLE EDITOR</p><h3>Sampler settings</h3></div><span id="sample-duration">No sample loaded</span></div>',
+    '      <div class="sampler-actions"><button class="transport-button" id="sample-audition" type="button" disabled>▶ Audition</button><button class="transport-button" id="sample-audition-stop" type="button" disabled>■ Stop</button>',
+    '        <label for="sampler-playback-mode"><span>PLAYBACK</span><select id="sampler-playback-mode"><option value="gate">Gate · hold to play</option><option value="one-shot">One-shot · play through</option></select></label></div>',
+    '      <label class="control-row" for="sampler-start"><span><strong>Sample start</strong><small id="sampler-start-time">0.00 s</small></span><input id="sampler-start" type="range" min="0" max="0.999" step="0.001" value="0" /></label>',
+    '      <label class="control-row" for="sampler-end"><span><strong>Sample end</strong><small id="sampler-end-time">100%</small></span><input id="sampler-end" type="range" min="0.001" max="1" step="0.001" value="1" /></label>',
+    '      <label class="loop-toggle" for="sampler-loop"><input id="sampler-loop" type="checkbox" /> <span>Enable sample loop</span></label>',
+    '      <label class="control-row" for="sampler-loop-start"><span><strong>Loop start</strong><small id="sampler-loop-start-time">0.00 s</small></span><input id="sampler-loop-start" type="range" min="0" max="0.999" step="0.001" value="0" /></label>',
+    '      <label class="control-row" for="sampler-loop-end"><span><strong>Loop end</strong><small id="sampler-loop-end-time">100%</small></span><input id="sampler-loop-end" type="range" min="0.001" max="1" step="0.001" value="1" /></label>',
+    '      <label for="sampler-root-note"><span>ROOT NOTE · MIDI</span><input id="sampler-root-note" type="number" min="0" max="127" step="1" value="60" /></label>',
+    '      <p class="sampler-hint">The root note plays the sample at its original pitch. Notes above and below transpose it chromatically.</p>',
+    '    </section>',
+    '    <section class="ai-sample-studio">
     '      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
     '      <label for="ai-service-url"><span>AI SERVICE URL</span><input id="ai-service-url" type="text" placeholder="/api (same-origin gateway)" autocomplete="url" /></label>',
     '      <label for="ai-sample-prompt"><span>SOUND PROMPT</span><textarea id="ai-sample-prompt" rows="3" maxlength="4000" placeholder="A warm, evolving analog bass with a soft attack, subtle tape saturation, and a clean low end."></textarea></label>',
@@ -386,6 +403,21 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const sampleImportRow = get<HTMLElement>('#sample-import-row');
   const sampleFileInput = get<HTMLInputElement>('#sample-file');
   const sampleStatus = get<HTMLElement>('#sample-status');
+  const samplerEditor = get<HTMLElement>('#sampler-editor');
+  const sampleDurationLabel = get<HTMLElement>('#sample-duration');
+  const sampleAuditionButton = get<HTMLButtonElement>('#sample-audition');
+  const sampleAuditionStopButton = get<HTMLButtonElement>('#sample-audition-stop');
+  const samplerPlaybackMode = get<HTMLSelectElement>('#sampler-playback-mode');
+  const samplerStartInput = get<HTMLInputElement>('#sampler-start');
+  const samplerEndInput = get<HTMLInputElement>('#sampler-end');
+  const samplerLoopInput = get<HTMLInputElement>('#sampler-loop');
+  const samplerLoopStartInput = get<HTMLInputElement>('#sampler-loop-start');
+  const samplerLoopEndInput = get<HTMLInputElement>('#sampler-loop-end');
+  const samplerRootNoteInput = get<HTMLInputElement>('#sampler-root-note');
+  const samplerStartTime = get<HTMLElement>('#sampler-start-time');
+  const samplerEndTime = get<HTMLElement>('#sampler-end-time');
+  const samplerLoopStartTime = get<HTMLElement>('#sampler-loop-start-time');
+  const samplerLoopEndTime = get<HTMLElement>('#sampler-loop-end-time');
   const aiServiceUrlInput = get<HTMLInputElement>('#ai-service-url');
   const aiSamplePromptInput = get<HTMLTextAreaElement>('#ai-sample-prompt');
   const aiSampleDurationInput = get<HTMLInputElement>('#ai-sample-duration');
@@ -430,7 +462,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !projectNameInput || !savedProjectsSelect || !openProjectButton || !newProjectButton ||
     !projectSaveButton || !projectStatus || !trackName ||
     !trackSelect || !newInstrumentTypeSelect || !sampleImportRow || !sampleFileInput ||
-    !sampleStatus || !aiServiceUrlInput || !aiSamplePromptInput || !aiSampleDurationInput ||
+    !sampleStatus || !samplerEditor || !sampleDurationLabel || !sampleAuditionButton || !sampleAuditionStopButton ||
+    !samplerPlaybackMode || !samplerStartInput || !samplerEndInput || !samplerLoopInput ||
+    !samplerLoopStartInput || !samplerLoopEndInput || !samplerRootNoteInput ||
+    !samplerStartTime || !samplerEndTime || !samplerLoopStartTime || !samplerLoopEndTime || !aiServiceUrlInput || !aiSamplePromptInput || !aiSampleDurationInput ||
     !aiGenerateButton || !aiCancelButton || !aiGenerationStatus ||
     !addTrackButton || !armTrackButton || !muteTrackButton ||
     !soloTrackButton || !trackVolumeInput || !trackPanInput ||
@@ -1039,6 +1074,34 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     trackSelect.disabled = recorder.isRecording;
     newInstrumentTypeSelect.disabled = recorder.isRecording;
     sampleImportRow.hidden = selectedTrack.instrumentType !== 'sampler';
+    samplerEditor.hidden = selectedTrack.instrumentType !== 'sampler';
+    const samplerSettings = selectedTrack.samplerSettings ?? DEFAULT_SAMPLER_SETTINGS;
+    const samplerResources = resourceFor(selectedTrack.id);
+    const samplerLoaded = samplerResources?.instrument.hasSample === true;
+    samplerResources?.instrument.setSamplerSettings(samplerSettings);
+    const sampleDuration = samplerResources?.instrument.sampleDuration ?? 0;
+    sampleDurationLabel.textContent = sampleDuration > 0 ? sampleDuration.toFixed(2) + ' s' : 'No sample loaded';
+    sampleAuditionButton.disabled = !audioReady || !samplerLoaded || recorder.isRecording || anyTransportPlaying();
+    sampleAuditionStopButton.disabled = !samplerLoaded;
+    samplerPlaybackMode.value = samplerSettings.playbackMode;
+    samplerStartInput.value = String(samplerSettings.startPosition);
+    samplerEndInput.value = String(samplerSettings.endPosition);
+    samplerLoopInput.checked = samplerSettings.loopEnabled;
+    samplerLoopStartInput.value = String(samplerSettings.loopStart);
+    samplerLoopEndInput.value = String(samplerSettings.loopEnd);
+    samplerRootNoteInput.value = String(samplerSettings.rootNote);
+    samplerLoopStartInput.disabled = !samplerSettings.loopEnabled || !samplerLoaded;
+    samplerLoopEndInput.disabled = !samplerSettings.loopEnabled || !samplerLoaded;
+    samplerStartInput.disabled = !samplerLoaded;
+    samplerEndInput.disabled = !samplerLoaded;
+    samplerLoopInput.disabled = !samplerLoaded;
+    samplerPlaybackMode.disabled = !samplerLoaded;
+    samplerRootNoteInput.disabled = !samplerLoaded;
+    const seconds = (position: number) => (position * sampleDuration).toFixed(2) + ' s';
+    samplerStartTime.textContent = seconds(samplerSettings.startPosition);
+    samplerEndTime.textContent = seconds(samplerSettings.endPosition);
+    samplerLoopStartTime.textContent = seconds(samplerSettings.loopStart);
+    samplerLoopEndTime.textContent = seconds(samplerSettings.loopEnd);
     sampleFileInput.disabled = recorder.isRecording;
     sampleStatus.textContent = selectedTrack.instrumentType !== 'sampler'
       ? 'Choose a Sampler track to import audio.'
@@ -1577,6 +1640,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       project = updateProjectTrack(project, track.id, {
         sampleAssetId: assetId,
         sampleFileName: file.name,
+        samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS },
       });
       projectHistory.commit(beforeEdit, project);
       const resources = resourceFor(track.id);
@@ -1593,6 +1657,57 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     });
     sampleFileInput.value = '';
   });
+
+  const saveSamplerSettings = (patch: Partial<SamplerSettings>): void => {
+    const track = activeTrack();
+    if (track.instrumentType !== 'sampler') return;
+    const current = track.samplerSettings ?? DEFAULT_SAMPLER_SETTINGS;
+    const next: SamplerSettings = {
+      ...current,
+      ...patch,
+    };
+    const startPosition = Math.max(0, Math.min(0.998, next.startPosition));
+    const endPosition = Math.max(startPosition + 0.001, Math.min(1, next.endPosition));
+    const loopStart = Math.max(startPosition, Math.min(endPosition - 0.001, next.loopStart));
+    const loopEnd = Math.max(loopStart + 0.001, Math.min(endPosition, next.loopEnd));
+    const normalized: SamplerSettings = {
+      ...next, startPosition, endPosition, loopStart, loopEnd,
+      rootNote: Math.max(0, Math.min(127, Math.round(next.rootNote))),
+    };
+    const beforeEdit = project;
+    project = updateProjectTrack(project, track.id, { samplerSettings: normalized });
+    projectHistory.commit(beforeEdit, project);
+    resourceFor(track.id)?.instrument.setSamplerSettings(normalized);
+    updateProjectUi();
+    void persistProject().catch((error: unknown) => {
+      sampleStatus.textContent = error instanceof Error ? error.message : 'Could not save sampler settings.';
+    });
+  };
+
+  sampleAuditionButton.addEventListener('click', () => {
+    const resources = resourceFor(activeTrack().id);
+    if (!audioReady || !resources?.instrument.hasSample) {
+      sampleStatus.textContent = 'Enable audio and load a sample before auditioning.';
+      return;
+    }
+    resources.instrument.auditionSample();
+    sampleAuditionStopButton.disabled = false;
+  });
+  sampleAuditionStopButton.addEventListener('click', () => resourceFor(activeTrack().id)?.instrument.stopAudition());
+  samplerPlaybackMode.addEventListener('change', () =>
+    saveSamplerSettings({ playbackMode: samplerPlaybackMode.value as SamplerSettings['playbackMode'] }));
+  samplerStartInput.addEventListener('input', () =>
+    saveSamplerSettings({ startPosition: Number(samplerStartInput.value) }));
+  samplerEndInput.addEventListener('input', () =>
+    saveSamplerSettings({ endPosition: Number(samplerEndInput.value) }));
+  samplerLoopInput.addEventListener('change', () =>
+    saveSamplerSettings({ loopEnabled: samplerLoopInput.checked }));
+  samplerLoopStartInput.addEventListener('input', () =>
+    saveSamplerSettings({ loopStart: Number(samplerLoopStartInput.value) }));
+  samplerLoopEndInput.addEventListener('input', () =>
+    saveSamplerSettings({ loopEnd: Number(samplerLoopEndInput.value) }));
+  samplerRootNoteInput.addEventListener('change', () =>
+    saveSamplerSettings({ rootNote: Number(samplerRootNoteInput.value) }));
 
   aiCancelButton.addEventListener('click', () => {
     generationAbortController?.abort();
@@ -1666,6 +1781,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       project = updateProjectTrack(project, generatedTrack.id, {
         sampleAssetId: assetId,
         sampleFileName: generated.fileName,
+        samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS },
       });
       projectHistory.commit(beforeEdit, project);
       ensureTrackRuntime(generatedTrack, false);
