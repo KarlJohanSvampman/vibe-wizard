@@ -82,12 +82,26 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   let saveQueue: Promise<void> = Promise.resolve();
   let generationAbortController: AbortController | undefined;
   let isCreatingNewProject = false;
+  let savedProjects: ProjectSnapshot[] = [];
   const desktopNoteId = 'theremin-desktop-note';
 
   const activeTrack = (): ProjectTrack =>
     project.tracks.find(track => track.id === project.activeTrackId) ?? project.tracks[0]!;
 
   const resourceFor = (trackId: string) => trackResources.get(trackId);
+
+  const disposeProjectTrackResources = async (): Promise<void> => {
+    for (const [trackId, resources] of [...trackResources.entries()]) {
+      resources.transport.dispose();
+      resources.unsubscribeTransport();
+      parameterBus.unregisterTarget(resources.instrument.id);
+      parameterBus.unregisterTarget(resources.bus.id);
+      await rack.remove(resources.instrument.id);
+      await rack.remove(resources.bus.id);
+      trackResources.delete(trackId);
+    }
+    noteOwners.clear();
+  };
 
   const ensureTrackRuntime = (track: ProjectTrack, autoStartAudio = true) => {
     const existing = trackResources.get(track.id);
@@ -248,6 +262,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '  <div class="project-toolbar">',
     '    <label class="project-name-field" for="project-name"><span>PROJECT</span>',
     '      <input id="project-name" type="text" maxlength="80" value="Untitled Session" /></label>',
+    '    <label class="saved-project-field" for="saved-projects"><span>OPEN A SAVED PROJECT</span>',
+    '      <select id="saved-projects" disabled><option value="">Loading projects…</option></select></label>',
+    '    <button class="transport-button" id="project-open" type="button" disabled>Open project</button>',
     '    <button class="transport-button" id="project-new" type="button" disabled>＋ New project</button>',
     '    <button class="transport-button" id="project-save" type="button" disabled>Save project</button>',
     '    <span class="project-status" id="project-status" role="status">Loading local project…</span>',
@@ -358,6 +375,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const yValue = get<HTMLElement>('#y-value');
   const pitchValue = get<HTMLElement>('#pitch-value');
   const projectNameInput = get<HTMLInputElement>('#project-name');
+  const savedProjectsSelect = get<HTMLSelectElement>('#saved-projects');
+  const openProjectButton = get<HTMLButtonElement>('#project-open');
   const newProjectButton = get<HTMLButtonElement>('#project-new');
   const projectSaveButton = get<HTMLButtonElement>('#project-save');
   const projectStatus = get<HTMLElement>('#project-status');
@@ -408,7 +427,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   if (
     !enableButton || !enterVrButton || !playButton || !xInput || !yInput ||
     !status || !statusDot || !xValue || !yValue || !pitchValue ||
-    !projectNameInput || !newProjectButton || !projectSaveButton || !projectStatus || !trackName ||
+    !projectNameInput || !savedProjectsSelect || !openProjectButton || !newProjectButton ||
+    !projectSaveButton || !projectStatus || !trackName ||
     !trackSelect || !newInstrumentTypeSelect || !sampleImportRow || !sampleFileInput ||
     !sampleStatus || !aiServiceUrlInput || !aiSamplePromptInput || !aiSampleDurationInput ||
     !aiGenerateButton || !aiCancelButton || !aiGenerationStatus ||
@@ -976,6 +996,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     projectNameInput.value = project.name;
     newProjectButton.disabled = !persistenceReady || recorder.isRecording ||
       anyTransportPlaying() || generationAbortController !== undefined || isCreatingNewProject;
+    updateProjectBrowserControls();
     tempoInput.value = String(project.tempoBpm);
     const signature = project.timeSignature.numerator + '/' + project.timeSignature.denominator;
     if (![...timeSignatureSelect.options].some(option => option.value === signature)) {
@@ -1053,6 +1074,54 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const updateStatus = (message: string): void => { status.textContent = message; };
 
+  const updateProjectBrowserControls = (): void => {
+    const blocked = !persistenceReady || recorder.isRecording ||
+      anyTransportPlaying() || generationAbortController !== undefined || isCreatingNewProject;
+    savedProjectsSelect.disabled = blocked || savedProjects.length === 0;
+    openProjectButton.disabled = blocked || !savedProjectsSelect.value ||
+      savedProjectsSelect.value === project.id;
+  };
+
+  const refreshSavedProjects = async (): Promise<void> => {
+    try {
+      savedProjects = await repository.list();
+      savedProjectsSelect.replaceChildren();
+      if (savedProjects.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'No saved projects yet';
+        savedProjectsSelect.append(option);
+      } else {
+        for (const saved of savedProjects) {
+          const option = document.createElement('option');
+          option.value = saved.id;
+          const date = new Date(saved.updatedAt);
+          const savedAt = Number.isNaN(date.getTime()) ? saved.updatedAt : date.toLocaleString();
+          option.textContent = saved.name + ' · ' + saved.tracks.length + ' tracks · ' +
+            saved.clips.length + ' clips · ' + savedAt;
+          savedProjectsSelect.append(option);
+        }
+        savedProjectsSelect.value = savedProjects.some(item => item.id === project.id)
+          ? project.id
+          : savedProjects[0]!.id;
+      }
+      updateProjectBrowserControls();
+    } catch (error) {
+      savedProjects = [];
+      savedProjectsSelect.replaceChildren();
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'Could not read saved projects';
+      savedProjectsSelect.append(option);
+      updateProjectBrowserControls();
+      projectStatus.textContent = error instanceof Error
+        ? 'Project list unavailable: ' + error.message
+        : 'Project list unavailable.';
+    }
+  };
+
+  savedProjectsSelect.addEventListener('change', updateProjectBrowserControls);
+
   const persistProject = (): Promise<void> => {
     const name = projectNameInput.value.trim();
     const nextName = name || 'Untitled Session';
@@ -1069,7 +1138,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const snapshot = project;
     const operation = saveQueue.then(() => repository.save(snapshot));
     saveQueue = operation.catch(() => undefined);
-    return operation;
+    return operation.then(() => refreshSavedProjects());
   };
 
   const commitPianoEdit = (
@@ -1256,6 +1325,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       projectStatus.textContent = 'Session only · browser storage unavailable';
     }
     for (const track of project.tracks) ensureTrackRuntime(track);
+    await refreshSavedProjects();
     enableButton.disabled = false;
     enterVrButton.disabled = false;
     playButton.disabled = false;
@@ -1963,16 +2033,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       arrangementTransport.stop();
 
       // Release the previous project's instruments, buses, schedulers and mappings.
-      for (const [trackId, resources] of [...trackResources.entries()]) {
-        resources.transport.dispose();
-        resources.unsubscribeTransport();
-        parameterBus.unregisterTarget(resources.instrument.id);
-        parameterBus.unregisterTarget(resources.bus.id);
-        await rack.remove(resources.instrument.id);
-        await rack.remove(resources.bus.id);
-        trackResources.delete(trackId);
-      }
-      noteOwners.clear();
+      await disposeProjectTrackResources();
 
       const previousUpdatedAt = Date.parse(project.updatedAt);
       const nextTimestamp = new Date(Number.isFinite(previousUpdatedAt)
@@ -2012,6 +2073,70 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   newProjectButton.addEventListener('click', () => {
     void startNewProject();
+  });
+
+  const openSelectedProject = async (): Promise<void> => {
+    if (
+      !persistenceReady || recorder.isRecording || anyTransportPlaying() ||
+      generationAbortController !== undefined || isCreatingNewProject
+    ) return;
+
+    const target = savedProjects.find(item => item.id === savedProjectsSelect.value);
+    if (!target || target.id === project.id) return;
+
+    const accepted = window.confirm(
+      'Open "' + target.name + '"?\n\n' +
+      'Your current project will be saved first. You can reopen it later.',
+    );
+    if (!accepted) return;
+
+    isCreatingNewProject = true;
+    updateProjectBrowserControls();
+    newProjectButton.disabled = true;
+    projectSaveButton.disabled = true;
+    try {
+      // Save the current project before changing the active snapshot.
+      await persistProject();
+
+      stopDesktopTone();
+      if (spatialNoteId) {
+        stopNote(theremin.id, spatialNoteId);
+        spatialNoteId = undefined;
+      }
+      arrangementTransport.stop();
+      await disposeProjectTrackResources();
+
+      project = target;
+      projectHistory.clear();
+      selectedClipId = undefined;
+      selectedClip = undefined;
+      selectedPianoNote = undefined;
+      pianoDrag = undefined;
+      recordingTrackId = undefined;
+
+      for (const track of project.tracks) ensureTrackRuntime(track, false);
+      if (audioReady) {
+        await Promise.all(project.tracks.map(track => ensureTrackAudioReady(track.id)));
+      }
+      updateProjectUi();
+      await refreshSavedProjects();
+
+      projectStatus.textContent = repository.durability === 'persistent'
+        ? 'Opened "' + project.name + '" · saved on this device'
+        : 'Opened "' + project.name + '" · session only';
+      captureStatus.textContent = 'Project "' + project.name + '" is ready.';
+    } catch (error) {
+      projectStatus.textContent = error instanceof Error
+        ? 'Could not open project: ' + error.message
+        : 'Could not open the selected project.';
+    } finally {
+      isCreatingNewProject = false;
+      updateProjectUi();
+    }
+  };
+
+  openProjectButton.addEventListener('click', () => {
+    void openSelectedProject();
   });
 
   function handleTransportState(trackId: string, state: TransportState): void {

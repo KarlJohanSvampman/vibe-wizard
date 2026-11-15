@@ -7,6 +7,7 @@ import {
 export interface ProjectRepository {
   readonly durability: 'persistent' | 'ephemeral';
   loadLatest(): Promise<ProjectSnapshot | undefined>;
+  list(): Promise<ProjectSnapshot[]>;
   save(snapshot: ProjectSnapshot): Promise<void>;
 }
 
@@ -65,6 +66,10 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 
   async loadLatest(): Promise<ProjectSnapshot | undefined> {
+    return (await this.list())[0];
+  }
+
+  async list(): Promise<ProjectSnapshot[]> {
     const database = await this.database;
     return new Promise((resolve, reject) => {
       const transaction = database.transaction(PROJECT_STORE, 'readonly');
@@ -74,7 +79,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
           const projects = (request.result as unknown[])
             .map((item) => validateProjectSnapshot(migrateProjectRecord(item)))
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-          resolve(projects[0]);
+          resolve(projects);
         } catch (error) {
           reject(error);
         }
@@ -102,9 +107,13 @@ export class MemoryProjectRepository implements ProjectRepository {
   private readonly projects = new Map<string, ProjectSnapshot>();
 
   async loadLatest(): Promise<ProjectSnapshot | undefined> {
-    const latest = [...this.projects.values()]
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    return latest ? cloneSnapshot(latest) : undefined;
+    return (await this.list())[0];
+  }
+
+  async list(): Promise<ProjectSnapshot[]> {
+    return [...this.projects.values()]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map(cloneSnapshot);
   }
 
   async save(snapshot: ProjectSnapshot): Promise<void> {
