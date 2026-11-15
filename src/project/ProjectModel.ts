@@ -109,6 +109,23 @@ function makeId(prefix: string): string {
     prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
 }
 
+export function createEmptyProject(now = new Date()): ProjectSnapshot {
+  const timestamp = now.toISOString();
+  return {
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    id: makeId('project'),
+    name: 'Untitled Session',
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    tempoBpm: 120,
+    timeSignature: { numerator: 4, denominator: 4 },
+    loopRegion: { enabled: false, startBeat: 0, endBeat: 16 },
+    activeTrackId: '',
+    tracks: [],
+    clips: [],
+  };
+}
+
 export function createDefaultProject(
   instrumentModuleId: string,
   now = new Date(),
@@ -178,6 +195,31 @@ export function addInstrumentTrack(
     activeTrackId: id,
     tracks: project.tracks.map(item => ({ ...item, armed: false })).concat(track),
   };
+}
+
+/** Delete a track and its clips. Select the next remaining track, or no track. */
+export function deleteProjectTrack(
+  snapshot: ProjectSnapshot,
+  trackId: string,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (!project.tracks.some(track => track.id === trackId)) {
+    throw new Error('Cannot delete unknown track: ' + trackId);
+  }
+  const tracks = project.tracks
+    .filter(track => track.id !== trackId)
+    .map((track, index) => ({ ...track, order: index }));
+  const activeTrackId = project.activeTrackId === trackId
+    ? (tracks[0]?.id ?? '')
+    : project.activeTrackId;
+  return validateProjectSnapshot({
+    ...project,
+    updatedAt: now.toISOString(),
+    activeTrackId,
+    tracks,
+    clips: project.clips.filter(clip => clip.trackId !== trackId),
+  });
 }
 
 export function updateProjectTrack(
@@ -752,8 +794,9 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     } as unknown as ProjectTrack;
   });
 
-  if (tracks.length === 0 || !trackIds.has(value.activeTrackId)) {
-    throw new Error('Project must contain at least one track and a valid active track.');
+  if ((tracks.length === 0 && value.activeTrackId !== '') ||
+      (tracks.length > 0 && !trackIds.has(value.activeTrackId))) {
+    throw new Error('Project must have either no active track or a valid active track.');
   }
 
   const clipIds = new Set<string>();
