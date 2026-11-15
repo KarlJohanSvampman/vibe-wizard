@@ -105,11 +105,15 @@ export class AudioEngine implements RackModule {
     this.samplerSettings = { ...settings };
   }
 
+  clearSample(): void {
+    this.stopAudition();
+    this.sampleBuffer = undefined;
+  }
+
   /** Decode one user-provided sample on the shared project AudioContext. */
   async loadSample(data: ArrayBuffer): Promise<void> {
     const context = this.runtime.requireContext();
-    this.stopAudition();
-    this.sampleBuffer = undefined;
+    this.clearSample();
     this.sampleBuffer = await context.decodeAudioData(data.slice(0));
   }
 
@@ -256,6 +260,15 @@ export class AudioEngine implements RackModule {
       const end = clamp(settings.endPosition, settings.startPosition + 0.001, 1) * duration;
       const rate = midiToFrequency(pitch) / midiToFrequency(settings.rootNote);
       sample.playbackRate.setValueAtTime(rate, startTime);
+      if (oneShot) {
+        // Fade a one-shot sample over its final few milliseconds to avoid a
+        // hard discontinuity when the AudioBufferSourceNode reaches its end.
+        const playbackSeconds = Math.max(0.001, (end - offset) / rate);
+        const fadeSeconds = Math.min(0.012, playbackSeconds * 0.25);
+        const fadeStart = startTime + Math.max(0, playbackSeconds - fadeSeconds);
+        envelope.gain.setValueAtTime(amplitude, fadeStart);
+        envelope.gain.linearRampToValueAtTime(0.0001, startTime + playbackSeconds);
+      }
       if (settings.loopEnabled && settings.playbackMode === 'gate') {
         sample.loop = true;
         sample.loopStart = clamp(settings.loopStart, settings.startPosition, settings.endPosition) * duration;
