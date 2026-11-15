@@ -1137,3 +1137,29 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
 @media (max-width: 480px) {
   .instrument-choice-grid { grid-template-columns: 1fr; }
 }
+
+
+/* Keep project navigation available in the compact title bar */
+.studio-topbar .project-toolbar .saved-project-field {
+  display: grid;
+  flex: 1 1 130px;
+  min-width: 110px;
+}
+.studio-topbar .project-toolbar #project-open,
+.studio-topbar .project-toolbar #project-save {
+  display: inline-flex;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 10px;
+}
+.studio-topbar .project-toolbar .project-status { display: none; }
+.studio-topbar .project-toolbar .project-name-field { flex: 0 1 120px; }
+.studio-topbar .project-toolbar .project-name-field input,
+.studio-topbar .project-toolbar .saved-project-field select { font-size: 10px; }
+@media (max-width: 1000px) {
+  .studio-topbar { grid-template-columns: minmax(130px, 1fr) minmax(280px, 2fr) auto; }
+  .studio-topbar .project-toolbar #project-open { display: none; }
+}
+@media (max-width: 650px) {
+  .studio-topbar .project-toolbar #project-open { display: inline-flex; }
+}
