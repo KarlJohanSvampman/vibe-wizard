@@ -676,6 +676,35 @@ export function addRecordingToProject(
   };
 }
 
+export function saveControllerPreset(snapshot: ProjectSnapshot, preset: ControllerPreset, now = new Date()): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  const normalized = validateControllerPreset({ ...preset, updatedAt: now.toISOString(), version: preset.version + 1 });
+  const presets = project.controllerPresets.some(item => item.id === normalized.id)
+    ? project.controllerPresets.map(item => item.id === normalized.id ? normalized : item)
+    : [...project.controllerPresets, normalized];
+  return validateProjectSnapshot({ ...project, updatedAt: now.toISOString(), controllerPresets: presets });
+}
+
+export function addControllerInstance(snapshot: ProjectSnapshot, instance: ControllerInstance, now = new Date()): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (project.controllerInstances.some(item => item.id === instance.id)) throw new Error('Controller instance already exists.');
+  return validateProjectSnapshot({ ...project, updatedAt: now.toISOString(), controllerInstances: [...project.controllerInstances, instance] });
+}
+
+export function updateControllerInstance(snapshot: ProjectSnapshot, instanceId: string, patch: Partial<Pick<ControllerInstance, 'name' | 'targetTrackId' | 'placement' | 'enabled'>>, now = new Date()): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  if (!project.controllerInstances.some(item => item.id === instanceId)) throw new Error('Unknown controller instance.');
+  return validateProjectSnapshot({
+    ...project, updatedAt: now.toISOString(),
+    controllerInstances: project.controllerInstances.map(item => item.id === instanceId ? { ...item, ...patch } : item),
+  });
+}
+
+export function updateStudioLayout(snapshot: ProjectSnapshot, placements: readonly StudioObjectPlacement[], now = new Date()): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  return validateProjectSnapshot({ ...project, updatedAt: now.toISOString(), studioLayout: [...placements] });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
