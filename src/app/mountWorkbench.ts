@@ -492,7 +492,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !status || !statusDot || !xValue || !yValue || !pitchValue ||
     !projectNameInput || !savedProjectsSelect || !openProjectButton || !newProjectButton ||
     !projectSaveButton || !projectStatus || !trackName ||
-    !trackSelect || !newInstrumentTypeSelect || !sampleImportRow || !sampleFileInput ||
+    !trackSelect || !trackList || !deleteTrackButton || !newInstrumentTypeSelect || !sampleImportRow || !sampleFileInput ||
     !sampleStatus || !samplerEditor || !sampleDurationLabel || !sampleAuditionButton || !sampleAuditionStopButton ||
     !samplerPlaybackMode || !samplerStartInput || !samplerEndInput || !samplerLoopInput ||
     !samplerLoopStartInput || !samplerLoopEndInput || !samplerRootNoteInput ||
@@ -1306,9 +1306,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
             ensureTrackRuntime(track); if (audioReady) await ensureTrackAudioReady(track.id);
             const resources = resourceFor(track.id); if (!resources) throw new Error('Selected sampler is not ready.');
             const loaded = await sampleAssets.load(asset.id); if (!loaded) throw new Error('This sound is no longer available.');
-            await resources.instrument.loadSample(loaded.data);
+            if (audioReady) await resources.instrument.loadSample(loaded.data);
             project = updateProjectTrack(project, track.id, { sampleAssetId: loaded.id, sampleFileName: loaded.name });
-            await persistProject(); updateProjectUi(); sampleStatus.textContent = 'Loaded from library: ' + loaded.name;
+            await persistProject(); updateProjectUi(); await refreshAssetBrowser();
+            sampleStatus.textContent = audioReady ? 'Loaded from library: ' + loaded.name : 'Assigned from library: ' + loaded.name + ' · enable audio to decode';
           })().catch((error: unknown) => { sampleStatus.textContent = error instanceof Error ? error.message : 'Could not load this sound.'; });
         });
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'transport-button danger-button'; remove.textContent = 'Delete';
@@ -1961,7 +1962,6 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       });
 
       await refreshAssetBrowser();
-      await refreshAssetBrowser();
       const beforeEdit = project;
       const trackNumber = project.tracks.length + 1;
       const moduleId = 'sampler-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
@@ -1973,6 +1973,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         'sampler',
       );
       const generatedTrack = activeTrack();
+      if (!generatedTrack) throw new Error('Generated sampler track could not be created.');
       project = updateProjectTrack(project, generatedTrack.id, {
         sampleAssetId: assetId,
         sampleFileName: generated.fileName,
@@ -1983,6 +1984,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       if (audioReady) await ensureTrackAudioReady(generatedTrack.id);
       await persistProject();
       updateProjectUi();
+      await refreshAssetBrowser();
       const sampleLoaded = resourceFor(generatedTrack.id)?.instrument.hasSample === true;
       aiGenerationStatus.textContent = sampleLoaded
         ? 'Created ' + generated.fileName + ' on ' + generatedTrack.name + '. The sample is loaded and ready to play.'
@@ -2090,6 +2092,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         'sampler',
       );
       const generatedTrack = activeTrack();
+      if (!generatedTrack) throw new Error('Variation sampler track could not be created.');
       project = updateProjectTrack(project, generatedTrack.id, {
         sampleAssetId: assetId,
         sampleFileName: transformed.fileName,
@@ -2100,6 +2103,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       if (audioReady) await ensureTrackAudioReady(generatedTrack.id);
       await persistProject();
       updateProjectUi();
+      await refreshAssetBrowser();
       samplerTransformStatus.textContent = 'Created ' + transformed.fileName + ' on ' + generatedTrack.name +
         '. Your original sample remains unchanged; the variation is saved as a new Sampler track.';
     })().catch((error: unknown) => {
