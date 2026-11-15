@@ -568,7 +568,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       <div class="section-heading"><div><p class="eyebrow">GUITAR HERO INSTRUMENT</p><h3>Virtual chord guitar</h3></div><span class="module-chip">LEFT HAND · CHORDS / RIGHT HAND · STRUM</span></div>
       <div id="guitar-chords" class="guitar-chords"></div><div id="guitar-strum" class="guitar-strum" role="button" tabindex="0" aria-label="Swipe here to strum guitar">Swipe across the strings to strum</div><p id="guitar-status" class="controller-status">Choose a chord, then swipe down or up across the strings. Six chord slots include an open/no-fret chord.</p>
       <div class="section-heading"><div><p class="eyebrow">TURNTABLE DECK</p><h3>Scratch and manipulate a sample</h3></div><span class="module-chip">PITCH · SPEED · SCRATCH</span></div>
-      <div class="turntable-controls"><select id="turntable-asset" aria-label="Turntable audio asset"><option value="">Choose a local audio asset…</option></select><button id="turntable-load" class="transport-button" type="button">Load deck</button><button id="turntable-play" class="transport-button" type="button" disabled>▶ Play</button><button id="turntable-stop" class="transport-button" type="button" disabled>■ Stop</button><label>Speed <input id="turntable-speed" type="range" min="-2" max="2" step="0.01" value="1"></label><output id="turntable-speed-value">1.00×</output></div>
+      <div class="turntable-controls"><select id="turntable-asset" aria-label="Turntable audio asset"><option value="">Choose a local audio asset…</option></select><button id="turntable-load" class="transport-button" type="button">Load deck</button><button id="turntable-play" class="transport-button" type="button" disabled>▶ Play</button><button id="turntable-stop" class="transport-button" type="button" disabled>■ Stop</button><button id="turntable-record" class="transport-button" type="button" disabled>● Record take</button><button id="turntable-finish-recording" class="transport-button" type="button" disabled>Finish take</button><label>Speed <input id="turntable-speed" type="range" min="-2" max="2" step="0.01" value="1"></label><output id="turntable-speed-value">1.00×</output></div>
       <div id="turntable-platter" class="turntable-platter" role="slider" tabindex="0" aria-label="Scratch platter"><span>VINYL</span><small>Drag horizontally to scratch</small></div>
       <div class="section-heading"><div><p class="eyebrow">SPATIAL STUDIO EDITOR</p><h3>Arrange your VR room</h3></div><span class="module-chip">POSITION · ROTATION · SCALE</span></div>
       <div class="studio-editor-toolbar"><select id="studio-object-select" aria-label="Studio object"></select><label>X <input id="studio-x" type="number" step="0.1" value="0"></label><label>Y <input id="studio-y" type="number" step="0.1" value="0"></label><label>Z <input id="studio-z" type="number" step="0.1" value="0"></label><label>Yaw <input id="studio-yaw" type="number" step="5" value="0"></label><label>Scale <input id="studio-scale" type="number" min="0.1" max="20" step="0.1" value="1"></label><button id="studio-save-placement" class="transport-button" type="button">Save placement</button></div>
@@ -1532,6 +1532,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const turntableLoadButton = controllerElement<HTMLButtonElement>('#turntable-load');
   const turntablePlayButton = controllerElement<HTMLButtonElement>('#turntable-play');
   const turntableStopButton = controllerElement<HTMLButtonElement>('#turntable-stop');
+  const turntableRecordButton = controllerElement<HTMLButtonElement>('#turntable-record');
+  const turntableFinishRecordingButton = controllerElement<HTMLButtonElement>('#turntable-finish-recording');
   const turntableSpeedInput = controllerElement<HTMLInputElement>('#turntable-speed');
   const turntableSpeedValue = controllerElement<HTMLOutputElement>('#turntable-speed-value');
   const turntablePlatter = controllerElement<HTMLElement>('#turntable-platter');
@@ -1737,7 +1739,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       if (!asset) throw new Error('Audio asset no longer exists.');
       const context = audioRuntime.prepareContext();
       const decoded = await context.decodeAudioData(asset.data.slice(0));
-      turntable.load(decoded); turntablePlayButton.disabled = false; turntableStopButton.disabled = false;
+      turntable.load(decoded); turntablePlayButton.disabled = false; turntableStopButton.disabled = false; turntableRecordButton.disabled = false;
       studioStatus.textContent = 'Turntable loaded: ' + asset.name + ' · ' + decoded.duration.toFixed(2) + ' seconds.';
     }).catch(error => { studioStatus.textContent = error instanceof Error ? error.message : 'Could not load turntable sample.'; });
   });
@@ -1751,7 +1753,78 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       studioStatus.textContent = 'Turntable playing through ' + track.name + '.';
     }).catch(error => { studioStatus.textContent = error instanceof Error ? error.message : 'Could not play deck.'; });
   });
-  turntableStopButton.addEventListener('click', () => turntable.stop());
+  turntableStopButton.addEventListener('click', () => {
+    if (turntable.isCapturing) {
+      studioStatus.textContent = 'Finish or discard the active take before stopping the deck.';
+      return;
+    }
+    turntable.stop();
+  });
+  turntableRecordButton.addEventListener('click', () => {
+    try {
+      turntable.startCapture();
+      turntableRecordButton.disabled = true;
+      turntableFinishRecordingButton.disabled = false;
+      studioStatus.textContent = 'Recording turntable output. Scratch, reverse and change speed; finish the take when ready.';
+    } catch (error) {
+      studioStatus.textContent = error instanceof Error ? error.message : 'Could not start turntable recording.';
+    }
+  });
+  turntableFinishRecordingButton.addEventListener('click', () => {
+    try {
+      const captured = turntable.stopCapture();
+      const id = globalThis.crypto?.randomUUID?.() ?? 'turntable-' + Date.now().toString(36);
+      const asset = {
+        id,
+        name: 'Turntable Performance ' + new Date().toLocaleString(),
+        mimeType: 'audio/wav',
+        data: captured.data,
+        updatedAt: new Date().toISOString(),
+        origin: { kind: 'user-import' as const, createdAt: new Date().toISOString() },
+      };
+      void sampleAssets.save(asset).then(async () => {
+        const beforeEdit = project;
+        const moduleId = 'turntable-sampler-' + id;
+        project = addInstrumentTrack(project, 'Turntable Performance', moduleId, new Date(), 'sampler');
+        const track = project.tracks.find(item => item.instrumentModuleId === moduleId)!;
+        project = updateProjectTrack(project, track.id, {
+          sampleAssetId: id,
+          sampleFileName: asset.name + '.wav',
+          samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS, playbackMode: 'one-shot' },
+        });
+        const duration = captured.durationSeconds;
+        const noteId = 'turntable-audio-' + id;
+        const recording: RecordingClip = {
+          id: 'clip-' + id,
+          durationSeconds: duration,
+          events: [
+            { offsetSeconds: 0, event: { kind: 'note-on', sourceId: moduleId, noteId, pitch: 60, velocity: 1, timestamp: 0 } },
+            { offsetSeconds: duration, event: { kind: 'note-off', sourceId: moduleId, noteId, timestamp: duration } },
+          ],
+        };
+        project = addRecordingToProject(project, track.id, recording);
+        const clip = project.clips.find(item => item.id === recording.id)!;
+        project = { ...project, clips: project.clips.map(item => item.id === clip.id
+          ? { ...item, startBeats: getArrangementDurationBeats(beforeEdit) }
+          : item) };
+        ensureTrackRuntime(track);
+        if (audioReady) await ensureTrackAudioReady(track.id);
+        projectHistory.commit(beforeEdit, project);
+        selectedClipId = recording.id;
+        await persistProject();
+        await refreshTurntableAssets();
+        updateProjectUi();
+        updateClipUi();
+        studioStatus.textContent = 'Saved ' + duration.toFixed(2) + ' seconds as an audio asset and arrangement clip on a new sampler track.';
+      }).catch(error => {
+        studioStatus.textContent = error instanceof Error ? error.message : 'Could not save turntable performance.';
+      });
+      turntableRecordButton.disabled = !turntable.isLoaded;
+      turntableFinishRecordingButton.disabled = true;
+    } catch (error) {
+      studioStatus.textContent = error instanceof Error ? error.message : 'Could not finish turntable recording.';
+    }
+  });
   turntableSpeedInput.addEventListener('input', () => { const speed = Number(turntableSpeedInput.value); turntable.setSpeed(speed); turntableSpeedValue.textContent = speed.toFixed(2) + '×'; });
   let platterPointer: number | undefined;
   turntablePlatter.addEventListener('pointerdown', event => { platterPointer = event.pointerId; turntablePlatter.setPointerCapture(event.pointerId); });
