@@ -80,7 +80,8 @@ describe('TurntableDeck', () => {
     h.deck.play(0.25);
     expect(h.sources[0]!.buffer).toBe(h.buffer);
     expect(h.sources[0]!.start).toHaveBeenCalledWith(10, 0.25);
-    expect(h.gains[0]!.connect).toHaveBeenCalledWith(trackInput);
+    expect(h.gains[0]!.connect).toHaveBeenCalledWith(h.gains[1]);
+    expect(h.gains[1]!.connect).toHaveBeenCalledWith(trackInput);
     expect(h.deck.isPlaying).toBe(true);
   });
 
