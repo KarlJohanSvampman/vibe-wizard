@@ -128,10 +128,18 @@ export class GuitarSpatialAdapter {
         if (this.previousRight) {
           const delta = local.distanceTo(this.previousRight);
           const elapsed = time - this.previousTime;
-          if (delta > 0.035 && elapsed > 0 && elapsed < 0.22) {
+          const dx = local.x - this.previousRight.x;
+          const dy = local.y - this.previousRight.y;
+          const dz = local.z - this.previousRight.z;
+          if (delta > 0.035 && elapsed > 0 && elapsed < 0.22 && Math.abs(dx) > Math.abs(dy) * 0.7) {
             const intensity = Math.min(1, delta * 5);
-            this.guitar.strum(this.guitar.selectedChord, intensity, time, local.y >= this.previousRight.y ? 'down' : 'up');
-            this.onStrum?.('VR strum · ' + this.guitar.selectedChord.name);
+            this.guitar.strum(this.guitar.selectedChord, intensity, time, dy >= 0 ? 'down' : 'up');
+            this.onStrum?.((dy >= 0 ? 'Down' : 'Up') + ' strum · ' + this.guitar.selectedChord.name);
+            this.previousRight = undefined;
+          } else if (Math.abs(dz) > 0.025 && Math.abs(dx) < 0.025 && Math.abs(dy) < 0.08 && local.y > -0.12 && local.y < 0.79) {
+            const stringIndex = Math.max(0, Math.min(5, Math.round(local.x / 0.018 + 2.5)));
+            const pitch = this.guitar.pluckString(stringIndex, Math.min(1, Math.abs(dz) * 12), time);
+            if (pitch !== undefined) this.onStrum?.('Plucked string ' + (stringIndex + 1) + ' · MIDI ' + pitch);
             this.previousRight = undefined;
           } else this.previousRight.copy(local);
         } else this.previousRight = local.clone();
