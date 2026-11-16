@@ -14,7 +14,7 @@ export interface ProjectRepository {
 }
 
 const DATABASE_NAME = 'vibe-wizard-projects';
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 5;
 const PROJECT_STORE = 'projects';
 
 function cloneSnapshot(snapshot: ProjectSnapshot): ProjectSnapshot {
@@ -36,7 +36,7 @@ function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
         store = transaction!.objectStore(PROJECT_STORE);
       }
 
-      if (event.oldVersion > 0 && event.oldVersion < 4) {
+      if (event.oldVersion > 0 && event.oldVersion < 5) {
         const cursorRequest = store.openCursor();
         cursorRequest.onsuccess = () => {
           const cursor = cursorRequest.result;
