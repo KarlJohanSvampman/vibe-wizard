@@ -3563,7 +3563,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     window.removeEventListener('resize', resizeHandler);
     if (activeAssetPreview) { activeAssetPreview.pause(); activeAssetPreview = undefined; }
     if (activeAssetPreviewUrl) { URL.revokeObjectURL(activeAssetPreviewUrl); activeAssetPreviewUrl = undefined; }
-    void rack.dispose().then(() => audioRuntime.dispose());
+    void Promise.all([sharedDelayReturn?.dispose(), sharedReverbReturn?.dispose()]).then(() => rack.dispose()).then(() => audioRuntime.dispose());
   }, { once: true });
 
   let arrangementAnimationFrame: number | undefined;
