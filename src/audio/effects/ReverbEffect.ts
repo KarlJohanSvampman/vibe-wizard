@@ -48,11 +48,13 @@ export class ReverbEffect implements AudioPortModule {
 
   setParameter(parameterId: string, value: number, timestamp: number): void {
     if (!Number.isFinite(value)) return;
-    const at = this.runtime.toAudioTime(timestamp);
     if (parameterId === 'mix') {
       this.mix = clamp(value, 0, 1);
-      this.wet?.gain.setTargetAtTime(this.mix, at, 0.015);
-      this.dry?.gain.setTargetAtTime(1 - this.mix, at, 0.015);
+      if (this.wet && this.dry) {
+        const at = this.runtime.toAudioTime(timestamp);
+        this.wet.gain.setTargetAtTime(this.mix, at, 0.015);
+        this.dry.gain.setTargetAtTime(1 - this.mix, at, 0.015);
+      }
     } else if (parameterId === 'decay') {
       this.decaySeconds = clamp(value, 0.1, 8);
       if (this.convolver) this.convolver.buffer = this.createImpulse(this.runtime.prepareContext());
