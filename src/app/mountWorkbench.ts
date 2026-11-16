@@ -6,6 +6,7 @@ import { MasterAudioBus } from '../audio/MasterAudioBus.js';
 import { DelayEffect } from '../audio/effects/DelayEffect.js';
 import { ReverbEffect } from '../audio/effects/ReverbEffect.js';
 import { AudioEffectChain } from '../rack/AudioEffectChain.js';
+import { SharedSendReturn } from '../rack/SharedSendReturn.js';
 import { createAudioAssetStore } from '../audio/AudioAssetStore.js';
 import { getInstrumentLabel, isInstrumentType } from '../audio/InstrumentTypes.js';
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
@@ -68,6 +69,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const rack = new Rack();
   const audioRuntime = new AudioRuntime();
   const masterBus = rack.add(new MasterAudioBus('master-output', audioRuntime));
+  const sharedDelayEffect = rack.add(new DelayEffect('shared-delay-return-effect', audioRuntime));
+  const sharedReverbEffect = rack.add(new ReverbEffect('shared-reverb-return-effect', audioRuntime));
+  let sharedDelayReturn: SharedSendReturn | undefined;
+  let sharedReverbReturn: SharedSendReturn | undefined;
   const sampleAssets = createAudioAssetStore();
   const parameterBus = new ParameterBus();
   parameterBus.registerTarget(masterBus);
@@ -82,6 +87,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     unsubscribeTransport: () => void;
     effectChain?: AudioEffectChain;
     effects: Map<string, DelayEffect | ReverbEffect>;
+    delaySend?: GainNode;
+    reverbSend?: GainNode;
   }>();
   const noteOwners = new Map<string, AudioEngine>();
   let project: ProjectSnapshot = createEmptyProject();
@@ -122,6 +129,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       parameterBus.unregisterTarget(resources.instrument.id);
       parameterBus.unregisterTarget(resources.bus.id);
       await resources.effectChain?.dispose(false);
+      resources.delaySend?.disconnect(); resources.reverbSend?.disconnect();
       for (const effect of resources.effects.values()) await rack.remove(effect.id);
       resources.effects.clear();
       await rack.remove(resources.instrument.id);
@@ -201,7 +209,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const syncTrackEffects = async (track: ProjectTrack): Promise<void> => {
     const resources = resourceFor(track.id);
-    if (!resources || !audioReady) return;
+    if (!resources) return;
     for (const config of track.effects) {
       let effect = resources.effects.get(config.id);
       if (!effect) {
@@ -223,6 +231,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
     resources.effectChain ??= new AudioEffectChain(audioRuntime.requireContext(), resources.bus.outputNode, masterBus.inputNode);
     resources.effectChain.setEffects(track.effects.map(config => ({ effect: resources.effects.get(config.id)!, enabled: config.enabled })));
+    if (sharedDelayReturn && !resources.delaySend) { resources.delaySend = audioRuntime.requireContext().createGain(); resources.bus.outputNode.connect(resources.delaySend); resources.delaySend.connect(sharedDelayReturn.inputNode); }
+    if (sharedReverbReturn && !resources.reverbSend) { resources.reverbSend = audioRuntime.requireContext().createGain(); resources.bus.outputNode.connect(resources.reverbSend); resources.reverbSend.connect(sharedReverbReturn.inputNode); }
   };
 
   const applyTrackMix = (): void => {
@@ -235,6 +245,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       const isAudible = !track.muted && (!anySolo || track.solo);
       resources.bus.setParameter('volume', isAudible ? track.volume : 0, timestamp);
       resources.bus.setParameter('pan', track.pan, timestamp);
+      if (resources.delaySend) resources.delaySend.gain.setTargetAtTime(track.sends.delay, audioRuntime.toAudioTime(timestamp), 0.02);
+      if (resources.reverbSend) resources.reverbSend.gain.setTargetAtTime(track.sends.reverb, audioRuntime.toAudioTime(timestamp), 0.02);
     }
   };
 
@@ -2222,14 +2234,19 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   const enableAudio = async (): Promise<void> => {
     try {
-      const masterStart = masterBus.start();
-      const runtimeStart = audioRuntime.start();
+      await Promise.all([masterBus.start(), audioRuntime.start()]);
+      const context = audioRuntime.requireContext();
+      sharedDelayEffect.setParameter('mix', 1, performance.now() / 1000);
+      sharedReverbEffect.setParameter('mix', 1, performance.now() / 1000);
+      sharedDelayReturn = new SharedSendReturn('shared-delay-return', context, sharedDelayEffect, masterBus.inputNode);
+      sharedReverbReturn = new SharedSendReturn('shared-reverb-return', context, sharedReverbEffect, masterBus.inputNode);
+      await Promise.all([sharedDelayReturn.start(), sharedReverbReturn.start()]);
+      audioReady = true;
       const trackStarts = project.tracks.map(async track => {
         ensureTrackRuntime(track);
         await ensureTrackAudioReady(track.id);
       });
-      await Promise.all([masterStart, runtimeStart, ...trackStarts]);
-      audioReady = true;
+      await Promise.all(trackStarts);
       updateStatus('Audio engine running');
       statusDot.classList.add('is-live');
       enableButton.textContent = 'Audio enabled';
