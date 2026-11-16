@@ -27,6 +27,11 @@ export class TrackAudioBus implements RackModule {
     this.panner.connect(destination ?? context.destination);
   }
 
+  get outputNode(): AudioNode {
+    if (!this.panner) throw new Error('Start the track bus before connecting its output.');
+    return this.panner;
+  }
+
   get inputNode(): AudioNode {
     if (!this.inputGain) throw new Error('Start the track bus before connecting an instrument.');
     return this.inputGain;
