@@ -38,7 +38,12 @@ A track bus owns independent output level and stereo pan for its track. Mute and
 
 ## Voices
 
-- Explicit maximum polyphony and configurable voice stealing are still planned.
+- Synth, piano, and sampler default to 16 simultaneous voices; drums default to 32 short-lived one-shot voices.
+- The per-instrument voice ceiling can be changed at runtime (1..128); lowering it immediately reclaims voices until the new limit is met.
+- When capacity is reached, the allocator steals the oldest voice already in release; if none are releasing, it steals the oldest active voice. Equal-time ties are deterministic.
+- Voice identity is scoped by both event source and note ID, preventing live input and sequencer playback from colliding.
+- Retriggering an existing source/note pair immediately retires its previous voice before starting the replacement.
+- `allNotesOff()` schedules a short release for sustained voices; `panic()` immediately silences every voice, including one-shots, and is used during instrument disposal.
 - Drum voices are one-shots with short autonomous decays; note-off does not truncate a triggered drum hit.
 - A note instance is identified by source and unique note ID within its instrument instance.
 - Stopping playback or disposing an input source must release its owned notes.
