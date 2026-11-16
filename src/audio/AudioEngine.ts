@@ -26,6 +26,7 @@ interface InstrumentVoice {
   readonly pitchControls: PitchControl[];
   readonly envelope: GainNode;
   readonly sourceId: string;
+  readonly noteId: string;
   readonly velocity: number;
   readonly startTime: number;
   readonly oneShot: boolean;
@@ -184,12 +185,7 @@ export class AudioEngine implements RackModule {
     const startTime = this.runtime.toAudioTime(event.timestamp);
 
     const key = voiceKey(event.sourceId, event.noteId);
-    this.noteOff({
-      kind: 'note-off',
-      sourceId: event.sourceId,
-      noteId: event.noteId,
-      timestamp: event.timestamp,
-    });
+    if (this.voices.has(key)) this.stopVoiceImmediately(key);
     this.ensurePolyphonyCapacity();
 
     const pitch = clamp(event.pitch, 0, 127);
@@ -334,6 +330,7 @@ export class AudioEngine implements RackModule {
       pitchControls,
       envelope,
       sourceId: event.sourceId,
+      noteId: event.noteId,
       velocity,
       startTime,
       oneShot,
@@ -412,11 +409,11 @@ export class AudioEngine implements RackModule {
 
   allNotesOff(): void {
     const timestamp = performance.now() / 1000;
-    for (const [key, voice] of this.voices) {
+    for (const voice of this.voices.values()) {
       this.noteOff({
         kind: 'note-off',
         sourceId: voice.sourceId,
-        noteId: key.slice(voice.sourceId.length + 1),
+        noteId: voice.noteId,
         timestamp,
       }, 0.03);
     }
