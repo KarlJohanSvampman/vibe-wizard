@@ -44,6 +44,7 @@ A track bus owns independent output level and stereo pan for its track. Mute and
 - Voice identity is scoped by both event source and note ID, preventing live input and sequencer playback from colliding.
 - Retriggering an existing source/note pair immediately retires its previous voice before starting the replacement.
 - `allNotesOff()` schedules a short release for sustained voices; `panic()` immediately silences every voice, including one-shots, and is used during instrument disposal.
+- The workbench Stop controls stop arrangement and clip transports, stop live desktop/spatial notes, and panic every active track instrument. This is the user-facing project-wide stop-all path.
 - Drum voices are one-shots with short autonomous decays; note-off does not truncate a triggered drum hit.
 - A note instance is identified by source and unique note ID within its instrument instance.
 - Stopping playback or disposing an input source must release its owned notes.
