@@ -5,7 +5,7 @@ import type { InstrumentType } from '../audio/InstrumentTypes.js';
 import { validateControllerInstance, validateControllerPreset, validateStudioPlacement } from '../controllers/ControllerModel.js';
 import type { ControllerInstance, ControllerPreset, StudioObjectPlacement } from '../controllers/ControllerModel.js';
 
-export const PROJECT_SCHEMA_VERSION = 6 as const;
+export const PROJECT_SCHEMA_VERSION = 7 as const;
 
 export interface SamplerSettings {
   readonly startPosition: number;
@@ -27,6 +27,13 @@ export interface ProjectTimeSignature {
   readonly denominator: number;
 }
 
+export interface ProjectTrackEffect {
+  readonly id: string;
+  readonly type: 'delay' | 'reverb';
+  readonly enabled: boolean;
+  readonly parameters: Readonly<Record<string, number>>;
+}
+
 export interface ProjectTrack {
   readonly id: string;
   readonly name: string;
@@ -45,6 +52,8 @@ export interface ProjectTrack {
   readonly volume: number;
   /** Stereo position in the range -1 (left) to +1 (right). */
   readonly pan: number;
+  /** Ordered, project-persisted track insert effects. */
+  readonly effects: readonly ProjectTrackEffect[];
 }
 
 export interface ProjectClipNote {
@@ -102,7 +111,7 @@ export interface ProjectSnapshot {
 }
 
 export type ProjectTrackPatch = Partial<
-  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan' | 'sampleAssetId' | 'sampleFileName' | 'samplerSettings'>
+  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan' | 'sampleAssetId' | 'sampleFileName' | 'samplerSettings' | 'effects'>
 >;
 
 export interface ProjectTimingPatch {
@@ -168,6 +177,7 @@ export function createDefaultProject(
       armed: true,
       volume: 0.8,
       pan: 0,
+      effects: [],
     }],
     clips: [],
     controllerPresets: [],
@@ -201,6 +211,7 @@ export function addInstrumentTrack(
     armed: false,
     volume: 0.8,
     pan: 0,
+    effects: [],
   };
 
   return {
@@ -718,7 +729,7 @@ export function migrateProjectRecord(value: unknown): unknown {
   if (!isRecord(value)) throw new Error('Project data must be an object.');
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) return value;
   if (
-    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5 && value.schemaVersion !== 6) ||
     !Array.isArray(value.tracks)
   ) {
     throw new Error('Unsupported project schema version: ' + String(value.schemaVersion) + '.');
@@ -733,6 +744,7 @@ export function migrateProjectRecord(value: unknown): unknown {
       ...track,
       volume: finiteNumber(track.volume) ? track.volume : 0.8,
       pan: finiteNumber(track.pan) ? track.pan : 0,
+      effects: Array.isArray(track.effects) ? track.effects : [],
       ...(track.instrumentType === 'sampler' && !isRecord(track.samplerSettings)
         ? { samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
     };
@@ -841,7 +853,13 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       typeof item.muted !== 'boolean' || typeof item.solo !== 'boolean' ||
       typeof item.armed !== 'boolean' ||
       !finiteNumber(item.volume) || item.volume < 0 || item.volume > 1 ||
-      !finiteNumber(item.pan) || item.pan < -1 || item.pan > 1
+      !finiteNumber(item.pan) || item.pan < -1 || item.pan > 1 ||
+      (item.effects !== undefined && (!Array.isArray(item.effects) || item.effects.some(effect =>
+        !isRecord(effect) || typeof effect.id !== 'string' || !effect.id ||
+        (effect.type !== 'delay' && effect.type !== 'reverb') ||
+        typeof effect.enabled !== 'boolean' || !isRecord(effect.parameters) ||
+        Object.values(effect.parameters).some(parameter => !finiteNumber(parameter))
+      )))
     ) {
       throw new Error('Project contains an invalid track.');
     }
@@ -852,7 +870,13 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     trackIds.add(item.id);
     moduleIds.add(item.instrumentModuleId);
     const instrumentType = item.instrumentType ?? 'synth';
-    return { ...item, instrumentType,
+    const effects = (Array.isArray(item.effects) ? item.effects : []) as unknown as ProjectTrackEffect[];
+    const effectIds = new Set<string>();
+    for (const effect of effects) {
+      if (effectIds.has(effect.id)) throw new Error('Project contains duplicate track effect IDs.');
+      effectIds.add(effect.id);
+    }
+    return { ...item, instrumentType, effects,
       ...(instrumentType === 'sampler' ? { samplerSettings: item.samplerSettings ?? { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
     } as unknown as ProjectTrack;
   });
