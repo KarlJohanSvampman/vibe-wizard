@@ -1285,3 +1285,15 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
 .controller-layout-actions { display:flex; flex-wrap:wrap; gap:3px; }
 .controller-layout-actions button { min-width:25px; min-height:24px!important; padding:1px 4px; font-size:9px; }
 .controller-component:focus-within { outline:1px solid #ffb33d; outline-offset:2px; }
+
+
+/* Project master output and post-limiter metering */
+.master-output-controls { display:grid; gap:10px; padding:14px; margin-top:12px; border:1px solid #4b4655; border-radius:8px; background:linear-gradient(145deg,#211e29,#17151c); }
+.master-output-controls .section-heading { margin:0; }
+.master-output-controls label { display:grid; gap:6px; color:#bbb; font-size:10px; letter-spacing:.08em; }
+.master-output-controls input[type=range] { width:100%; accent-color:#ffb000; }
+.master-meter-row { display:grid; grid-template-columns:auto minmax(70px,1fr) auto; align-items:center; gap:9px; color:#aaa; font-size:10px; }
+.master-meter-row meter { width:100%; height:13px; }
+.master-meter-row output { color:#eee; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.master-meter-row #master-limiter-label { grid-column:2 / -1; color:#999; }
+.master-meter-row #master-limiter-label.is-limiting { color:#ffb000; }
