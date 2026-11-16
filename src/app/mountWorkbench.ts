@@ -2152,6 +2152,21 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     playButton.classList.remove('is-playing');
   };
 
+  /** Stop sequenced playback and immediately silence live and one-shot voices. */
+  const panicAllAudio = (): void => {
+    stopDesktopTone();
+    if (spatialNoteId) {
+      stopNote(theremin.id, spatialNoteId);
+      spatialNoteId = undefined;
+    }
+    arrangementTransport.stop();
+    for (const resources of trackResources.values()) {
+      resources.transport.stop();
+      resources.instrument.panic();
+    }
+    noteOwners.clear();
+  };
+
   const startRecording = (): void => {
     if (!persistenceReady || recorder.isRecording) return;
     if (anyTransportPlaying()) {
@@ -3115,10 +3130,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
   });
 
-  clipStopButton.addEventListener('click', () => {
-    arrangementTransport.stop();
-    for (const resources of trackResources.values()) resources.transport.stop();
-  });
+  clipStopButton.addEventListener('click', panicAllAudio);
 
   const startArrangementPlayback = async (): Promise<void> => {
     if (!audioReady) throw new Error('Enable audio before playing the arrangement.');
@@ -3151,7 +3163,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         : 'Could not play the arrangement.';
     });
   });
-  arrangementStopButton.addEventListener('click', () => arrangementTransport.stop());
+  arrangementStopButton.addEventListener('click', panicAllAudio);
 
   projectSaveButton.addEventListener('click', () => {
     projectSaveButton.disabled = true;
