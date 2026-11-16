@@ -14,7 +14,7 @@ export class TrackAudioBus implements RackModule {
 
   constructor(readonly id: string, private readonly runtime: AudioRuntime) {}
 
-  async start(): Promise<void> {
+  async start(destination?: AudioNode): Promise<void> {
     if (this.disposed) throw new Error('Cannot start a disposed track bus.');
     const context = this.runtime.prepareContext();
     if (this.inputGain) return;
@@ -24,7 +24,7 @@ export class TrackAudioBus implements RackModule {
     this.inputGain.gain.value = this.volume;
     this.panner.pan.value = this.pan;
     this.inputGain.connect(this.panner);
-    this.panner.connect(context.destination);
+    this.panner.connect(destination ?? context.destination);
   }
 
   get inputNode(): AudioNode {
