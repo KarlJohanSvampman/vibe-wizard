@@ -13,12 +13,14 @@ export interface AudioEffectChainEntry {
 export class AudioEffectChain {
   private readonly input: GainNode;
   private readonly output: GainNode;
+  private readonly destination: AudioNode;
   private entries: AudioEffectChainEntry[] = [];
   private disposed = false;
 
   constructor(context: BaseAudioContext, source: AudioNode, destination: AudioNode) {
     this.input = context.createGain();
     this.output = context.createGain();
+    this.destination = destination;
     source.connect(this.input);
     this.output.connect(destination);
   }
@@ -43,6 +45,7 @@ export class AudioEffectChain {
 
     this.input.disconnect();
     this.output.disconnect();
+    this.output.connect(this.destination);
     for (const entry of this.entries) {
       try { entry.effect.getAudioPortNode('audio-in').disconnect(); } catch { /* Removed modules may already be disposed. */ }
       try { entry.effect.getAudioPortNode('audio-out').disconnect(); } catch { /* Removed modules may already be disposed. */ }
