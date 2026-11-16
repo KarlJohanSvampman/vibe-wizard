@@ -44,8 +44,8 @@ export class AudioEffectChain {
     this.input.disconnect();
     this.output.disconnect();
     for (const entry of this.entries) {
-      const output = entry.effect.getAudioPortNode('audio-out');
-      output.disconnect();
+      entry.effect.getAudioPortNode('audio-in').disconnect();
+      entry.effect.getAudioPortNode('audio-out').disconnect();
     }
 
     const active = entries.filter(entry => entry.enabled);
