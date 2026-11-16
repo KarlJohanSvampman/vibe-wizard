@@ -1547,6 +1547,24 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       }
       trackEffectList.append(card);
     });
+    if (selectedTrack) {
+      const sends = document.createElement('section'); sends.className = 'shared-send-controls';
+      const heading = document.createElement('strong'); heading.textContent = 'SHARED SENDS · POST-TRACK';
+      sends.append(heading);
+      for (const send of [{ id: 'delay', label: 'Shared delay' }, { id: 'reverb', label: 'Shared reverb' }] as const) {
+        const label = document.createElement('label'); label.className = 'effect-parameter';
+        const caption = document.createElement('span'); caption.textContent = send.label;
+        const input = document.createElement('input'); input.type = 'range'; input.min = '0'; input.max = '1'; input.step = '0.01'; input.value = String(selectedTrack.sends[send.id]);
+        input.addEventListener('input', () => {
+          const current = activeTrack(); if (!current) return;
+          project = updateProjectTrack(project, current.id, { sends: { ...current.sends, [send.id]: Number(input.value) } });
+          applyTrackMix();
+        });
+        input.addEventListener('change', () => { void persistProject(); });
+        label.append(caption, input); sends.append(label);
+      }
+      trackEffectList.append(sends);
+    }
     armTrackButton.disabled = !hasTrack || recorder.isRecording;
     muteTrackButton.disabled = !hasTrack || recorder.isRecording;
     soloTrackButton.disabled = !hasTrack || recorder.isRecording;
