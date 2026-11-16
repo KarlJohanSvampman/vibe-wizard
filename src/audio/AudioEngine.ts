@@ -47,7 +47,7 @@ export class AudioEngine implements RackModule {
   private outputNode: AudioNode | undefined;
   private readonly voices = new Map<string, InstrumentVoice>();
   private masterVolume = 0.35;
-  private maxPolyphony = defaultPolyphony(instrumentType);
+  private maxPolyphony: number;
   private synthWaveform: OscillatorType = 'sawtooth';
   private synthCutoff = 12000;
   private synthResonance = 0.7;
@@ -67,6 +67,7 @@ export class AudioEngine implements RackModule {
   ) {
     this.runtime = runtime ?? new AudioRuntime();
     this.ownsRuntime = runtime === undefined;
+    this.maxPolyphony = defaultPolyphony(instrumentType);
   }
 
   async start(): Promise<void> {
