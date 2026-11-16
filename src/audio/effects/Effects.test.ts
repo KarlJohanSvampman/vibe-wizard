@@ -40,15 +40,15 @@ describe('DelayEffect', () => {
     expect(effect.ports.map(port => port.id)).toEqual(['audio-in', 'audio-out']);
     expect(h.context.createDelay).toHaveBeenCalledWith(2);
     expect(h.delays[0]!.delayTime.value).toBe(0.35);
-    expect(h.gains[3]!.gain.value).toBe(0.25);
+    expect(h.gains[2]!.gain.value).toBe(0.25);
 
     effect.setParameter('mix', 0.6, 4);
     effect.setParameter('time', 9, 4);
     effect.setParameter('feedback', 2, 4);
-    expect(h.gains[4]!.gain.setTargetAtTime).toHaveBeenCalledWith(0.6, 5, 0.015);
-    expect(h.gains[5]!.gain.setTargetAtTime).toHaveBeenCalledWith(0.4, 5, 0.015);
+    expect(h.gains[3]!.gain.setTargetAtTime).toHaveBeenCalledWith(0.6, 5, 0.015);
+    expect(h.gains[4]!.gain.setTargetAtTime).toHaveBeenCalledWith(0.4, 5, 0.015);
     expect(h.delays[0]!.delayTime.setTargetAtTime).toHaveBeenCalledWith(2, 5, 0.02);
-    expect(h.gains[3]!.gain.setTargetAtTime).toHaveBeenCalledWith(0.85, 5, 0.02);
+    expect(h.gains[2]!.gain.setTargetAtTime).toHaveBeenCalledWith(0.85, 5, 0.02);
 
     await effect.dispose();
     await effect.dispose();
