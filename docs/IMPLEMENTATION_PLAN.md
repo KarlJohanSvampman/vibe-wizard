@@ -25,10 +25,11 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Sample decoding and local asset restoration before playback.
 - [x] Explicit reporting for missing or invalid sampler assets.
 - [x] PCM WAV recording/encoding coverage for recorded audio.
-- [ ] Define and enforce maximum polyphony per instrument.
-- [ ] Add deterministic voice-stealing policy and tests.
-- [ ] Add a project-wide panic/stop-all-notes path covering live input, clip audition, arrangement playback, and instrument disposal.
-- [ ] Test note ownership and release under rapid retrigger, track switching, stop, loop wrap, and disposal.
+- [x] Enforce bounded per-instrument polyphony (16 synth/piano/sampler voices; 32 drum voices by default; configurable 1..128).
+- [x] Add deterministic voice stealing: oldest releasing voice first, otherwise oldest active voice.
+- [x] Scope note identity by event source and note ID; immediately retire a voice on same-ID retrigger.
+- [x] Add immediate panic semantics for every voice, including one-shots, and use them during disposal.
+- [ ] Add end-to-end Web Audio tests for rapid retrigger, track switching, stop, loop wrap, and disposal.
 - [ ] Add audio lifecycle/resource-leak tests and manual clipping/long-session smoke tests.
 
 ## Phase 2 — Global rack, routing, and mixing
@@ -106,7 +107,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 
 ## Recommended execution order
 
-1. **Audio reliability:** inspect the existing voice lifecycle, then implement bounded polyphony, voice stealing, panic/release semantics, and regression tests.
+1. **Audio reliability:** complete the remaining end-to-end Web Audio lifecycle tests, then verify note ownership under rapid retrigger, track switching, stop, loop wrap, and disposal.
 2. **Master mixer:** add a master bus, peak metering, and safe output control.
 3. **Effects foundation:** define effect-module/port contracts, then implement reverb and delay with deterministic disposal and tests.
 4. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
