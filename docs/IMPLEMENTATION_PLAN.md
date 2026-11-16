@@ -109,7 +109,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 
 1. **Audio reliability:** complete the remaining end-to-end Web Audio lifecycle tests, then verify note ownership under rapid retrigger, track switching, stop, loop wrap, and disposal.
 2. **Master mixer:** add insert effects and send/return routing, then build the dedicated mixer/rack view.
-3. **Effects foundation:** define effect-module/port contracts, then implement reverb and delay with deterministic disposal and tests.
+3. **Effect routing integration:** wire per-track insert chains into the master path, then add shared send/return buses and a mixer UI.
 4. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
 5. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
 6. **AI transformation and music assistant:** build on the now-stable asset and arrangement contracts.
