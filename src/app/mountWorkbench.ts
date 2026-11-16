@@ -2,6 +2,7 @@ import { VisibilityState, type World } from '@iwsdk/core';
 import type { MusicalEvent, NoteOffEvent, NoteOnEvent } from '../audio/events.js';
 import { AudioRuntime } from '../audio/AudioRuntime.js';
 import { AudioEngine } from '../audio/AudioEngine.js';
+import { MasterAudioBus } from '../audio/MasterAudioBus.js';
 import { createAudioAssetStore } from '../audio/AudioAssetStore.js';
 import { getInstrumentLabel, isInstrumentType } from '../audio/InstrumentTypes.js';
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
@@ -62,8 +63,10 @@ import {
 export function mountWorkbench(root: HTMLElement, world: World): void {
   const rack = new Rack();
   const audioRuntime = new AudioRuntime();
+  const masterBus = rack.add(new MasterAudioBus('master-output', audioRuntime));
   const sampleAssets = createAudioAssetStore();
   const parameterBus = new ParameterBus();
+  parameterBus.registerTarget(masterBus);
   const theremin = rack.add(new ThereminController('theremin-main', parameterBus));
   const recorder = new EventRecorder();
   const arrangementTransport = new ArrangementTransport(audioRuntime, parameterBus);
@@ -174,7 +177,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const resources = track ? resourceFor(trackId) : undefined;
     if (!track || !resources) return;
     const instrumentStart = resources.instrument.start();
-    const busStart = resources.bus.start();
+    const busStart = resources.bus.start(masterBus.inputNode);
     // Both start methods create their graph nodes synchronously before awaiting
     // context resume, so XR input cannot race an unprepared track graph.
     resources.instrument.connectOutput(resources.bus.inputNode);
@@ -554,6 +557,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     instrumentPane.prepend(instrumentEditor);
     take<HTMLElement>('#sampler-editor', instrumentPane);
     take<HTMLElement>('.track-mixer-controls', mixerPane);
+    const masterOutputControls = document.createElement('section');
+    masterOutputControls.className = 'master-output-controls';
+    masterOutputControls.innerHTML = '<div class="section-heading"><div><p class="eyebrow">PROJECT OUTPUT</p><h3>Master</h3></div><span class="module-chip">SAFETY LIMITER</span></div><label for="master-volume"><span>MASTER LEVEL</span><input id="master-volume" type="range" min="0" max="1" step="0.01" value="0.8"></label><div class="master-meter-row"><label for="master-peak-meter">OUTPUT PEAK</label><meter id="master-peak-meter" min="0" max="1" low="0.5" high="0.85" optimum="0.65" value="0"></meter><output id="master-peak-label">−∞ dBFS</output><output id="master-limiter-label">Limiter idle</output></div><p class="controller-status">A safety limiter catches short output spikes. Keep the master meter below full scale; the limiter is not a substitute for sensible track levels.</p>';
+    mixerPane.append(masterOutputControls);
     controllersPane.append(controllerPanel);
     const controllerStudio = document.createElement('section');
     controllerStudio.className = 'controller-studio';
@@ -684,6 +691,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const soloTrackButton = get<HTMLButtonElement>('#solo-track');
   const trackVolumeInput = get<HTMLInputElement>('#track-volume');
   const trackPanInput = get<HTMLInputElement>('#track-pan');
+  const masterVolumeInput = get<HTMLInputElement>('#master-volume');
+  const masterPeakMeter = get<HTMLMeterElement>('#master-peak-meter');
+  const masterPeakLabel = get<HTMLOutputElement>('#master-peak-label');
+  const masterLimiterLabel = get<HTMLOutputElement>('#master-limiter-label');
   const clipSelect = get<HTMLSelectElement>('#saved-clips');
   const recordStartButton = get<HTMLButtonElement>('#record-start');
   const recordStopButton = get<HTMLButtonElement>('#record-stop');
@@ -726,7 +737,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !samplerTransformPrompt || !samplerTransformDuration || !samplerTransformStrength ||
     !samplerTransformButton || !samplerTransformStatus ||
     !addTrackButton || !armTrackButton || !muteTrackButton ||
-    !soloTrackButton || !trackVolumeInput || !trackPanInput ||
+    !soloTrackButton || !trackVolumeInput || !trackPanInput || !masterVolumeInput || !masterPeakMeter || !masterPeakLabel || !masterLimiterLabel ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
     !clipStopButton || !clipDuplicateButton || !clipDeleteButton || !clipSummary || !arrangementPlayButton ||
     !pianoRollWrap || !pianoRoll || !pianoNoteLabel || !pianoVelocityInput ||
@@ -2110,20 +2121,34 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     }
   };
 
+  const refreshMasterMeter = (): void => {
+    if (!root.isConnected) return;
+    const peak = masterBus.peakLevel;
+    masterPeakMeter.value = peak;
+    masterPeakLabel.textContent = peak > 0.00001 ? masterBus.peakDb.toFixed(1) + ' dBFS' : '−∞ dBFS';
+    const reduction = masterBus.gainReductionDb;
+    masterLimiterLabel.textContent = reduction < -0.5 ? 'Limiting ' + reduction.toFixed(1) + ' dB' : 'Limiter idle';
+    masterLimiterLabel.classList.toggle('is-limiting', reduction < -0.5);
+    window.requestAnimationFrame(refreshMasterMeter);
+  };
+
   const enableAudio = async (): Promise<void> => {
     try {
+      const masterStart = masterBus.start();
       const runtimeStart = audioRuntime.start();
       const trackStarts = project.tracks.map(async track => {
         ensureTrackRuntime(track);
         await ensureTrackAudioReady(track.id);
       });
-      await Promise.all([runtimeStart, ...trackStarts]);
+      await Promise.all([masterStart, runtimeStart, ...trackStarts]);
       audioReady = true;
       updateStatus('Audio engine running');
       statusDot.classList.add('is-live');
       enableButton.textContent = 'Audio enabled';
       enableButton.disabled = true;
       applyTrackMix();
+      masterBus.setParameter('volume', Number(masterVolumeInput.value), performance.now() / 1000);
+      refreshMasterMeter();
       // Refresh sampler asset status after deferred audio decoding completes.
       updateProjectUi();
     } catch (error) {
@@ -2863,6 +2888,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     projectHistory.commit(beforeEdit, project);
     updateProjectUi();
     void persistProject();
+  });
+
+  masterVolumeInput.addEventListener('input', () => {
+    masterBus.setParameter('volume', Number(masterVolumeInput.value), performance.now() / 1000);
   });
 
   trackVolumeInput.addEventListener('input', () => {
