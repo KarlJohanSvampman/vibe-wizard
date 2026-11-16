@@ -2,7 +2,7 @@
 
 ## Responsibilities
 
-A project owns one shared, lazily created AudioContext through AudioRuntime. Instruments own their voices and instrument-output gain stages; tracks own independent TrackAudioBus stages. This keeps audio modules separate from UI, XR, and controller implementations while allowing all tracks to mix in one browser audio graph.
+A project owns one shared, lazily created AudioContext through AudioRuntime. Instruments own their voices and instrument-output gain stages; tracks own independent TrackAudioBus stages; effect modules expose named audio input/output ports. AudioConnectionGraph validates and physically wires patch cables, rejecting invalid directions, occupied inputs, duplicate connections, and routing cycles. This keeps audio modules separate from UI, XR, and controller implementations while allowing all tracks to mix in one browser audio graph.
 
 ## Lifecycle
 
@@ -34,7 +34,7 @@ All families implement the same note-on/note-off/parameter interface and share t
 
 Sampler audio bytes live in a separate IndexedDB database (`vibe-wizard-audio-assets`) so project JSON snapshots remain small. A project track stores only the sample asset ID and display filename. Imported files are decoded with `decodeAudioData` on the shared AudioContext and never uploaded.
 
-A track bus owns independent output level and stereo pan for its track. Mute and solo are resolved by the project mixer before volume is applied. This separates instrument expression from the track fader.\n\nThe project master bus owns the final output gain (0..1), a fast broadband safety limiter (−3 dB threshold, 20:1 ratio), and a post-limiter peak analyser. The Mixer pane exposes master level, live dBFS peak, and limiter gain-reduction status. The limiter catches transient overs; it does not replace sensible track gain staging or mastering.
+A track bus owns independent output level and stereo pan for its track. Mute and solo are resolved by the project mixer before volume is applied. This separates instrument expression from the track fader.\n\n## Effects and routing\n\n- Audio modules publish named `audio` ports with explicit `input` or `output` direction and optional connection limits.\n- `AudioConnectionGraph` validates endpoints, enforces one incoming cable per input by default, permits explicit output fan-out, prevents self-links and directed cycles, and disconnects physical Web Audio edges when cables/modules are removed.\n- `DelayEffect` provides independent wet/dry paths, delay time (10 ms–2 s), and bounded feedback (0–0.85). Its feedback loop contains a DelayNode and is intentionally internal to the effect.\n- `ReverbEffect` provides convolution reverb using a locally generated stereo impulse response, wet/dry mix, and decay time (0.1–8 s). No network assets are required.\n- Effect parameters can be set before audio startup; values are retained and applied when the graph is created. Effect modules own and disconnect all nodes they create.\n- The effect modules and validated patch graph are the routing foundation; per-track insert chains and shared send/return controls are the next integration step.\n\nThe project master bus owns the final output gain (0..1), a fast broadband safety limiter (−3 dB threshold, 20:1 ratio), and a post-limiter peak analyser. The Mixer pane exposes master level, live dBFS peak, and limiter gain-reduction status. The limiter catches transient overs; it does not replace sensible track gain staging or mastering.
 
 ## Voices
 
@@ -59,4 +59,4 @@ A track bus owns independent output level and stereo pan for its track. Mute and
 
 ## Testing
 
-Unit tests cover project mix metadata, migration, scheduling, event normalization, mappings, recorder behavior, master routing/limiter settings, peak metering, and disposal. AudioEngine lifecycle tests cover source-scoped notes, rapid retrigger, bounded polyphony, panic, and disposal. Manual tests must still cover simultaneous instruments, track mute/solo/volume/pan, actual output, latency, limiter behavior, suspension, and long sessions.
+Unit tests cover project mix metadata, migration, scheduling, event normalization, mappings, recorder behavior, master routing/limiter settings, peak metering, disposal, effect parameter bounds, effect-node cleanup, patch direction/cardinality validation, duplicate/self/cycle rejection, and cable removal. AudioEngine lifecycle tests cover source-scoped notes, rapid retrigger, bounded polyphony, panic, and disposal. Manual tests must still cover simultaneous instruments, track mute/solo/volume/pan, actual output, latency, limiter behavior, suspension, and long sessions.
