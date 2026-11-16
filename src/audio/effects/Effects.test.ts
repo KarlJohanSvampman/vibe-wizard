@@ -67,7 +67,8 @@ describe('ReverbEffect', () => {
     effect.setParameter('mix', 0.7, 3);
     effect.setParameter('decay', 4, 3);
     expect(h.gains[2]!.gain.setTargetAtTime).toHaveBeenCalledWith(0.7, 4, 0.015);
-    expect(h.gains[3]!.gain.setTargetAtTime).toHaveBeenCalledWith(0.3, 4, 0.015);
+    expect(h.gains[3]!.gain.setTargetAtTime.mock.calls[0]![0]).toBeCloseTo(0.3);
+    expect(h.gains[3]!.gain.setTargetAtTime.mock.calls[0]!.slice(1)).toEqual([4, 0.015]);
     expect(h.context.createBuffer).toHaveBeenLastCalledWith(2, 400, 100);
     expect(h.convolvers[0]!.buffer?.length).toBe(400);
 
