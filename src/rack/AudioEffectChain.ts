@@ -44,8 +44,8 @@ export class AudioEffectChain {
     this.input.disconnect();
     this.output.disconnect();
     for (const entry of this.entries) {
-      entry.effect.getAudioPortNode('audio-in').disconnect();
-      entry.effect.getAudioPortNode('audio-out').disconnect();
+      try { entry.effect.getAudioPortNode('audio-in').disconnect(); } catch { /* Removed modules may already be disposed. */ }
+      try { entry.effect.getAudioPortNode('audio-out').disconnect(); } catch { /* Removed modules may already be disposed. */ }
     }
 
     const active = entries.filter(entry => entry.enabled);
@@ -66,8 +66,8 @@ export class AudioEffectChain {
     this.input.disconnect();
     this.output.disconnect();
     for (const entry of this.entries) {
-      entry.effect.getAudioPortNode('audio-in').disconnect();
-      entry.effect.getAudioPortNode('audio-out').disconnect();
+      try { entry.effect.getAudioPortNode('audio-in').disconnect(); } catch { /* Already disposed. */ }
+      try { entry.effect.getAudioPortNode('audio-out').disconnect(); } catch { /* Already disposed. */ }
       if (disposeEffects) await entry.effect.dispose?.();
     }
     this.entries = [];
