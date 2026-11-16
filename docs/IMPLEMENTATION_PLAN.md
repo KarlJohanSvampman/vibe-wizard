@@ -39,7 +39,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Tracks reference unique instrument instances; all tracks share the same AudioRuntime.
 - [x] Independent track level, pan, mute, and solo.
 - [ ] Add module port metadata and connection validation.
-- [ ] Add a master bus with safe output gain and peak metering.
+- [x] Add a project master bus with bounded output gain, a safety limiter, and post-limiter peak metering.
 - [ ] Add insert effects and send/return routing with explicit ownership and disposal.
 - [ ] Build a dedicated mixer/rack view.
 - [ ] Persist rack presets and editable parameter mappings.
@@ -108,7 +108,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 ## Recommended execution order
 
 1. **Audio reliability:** complete the remaining end-to-end Web Audio lifecycle tests, then verify note ownership under rapid retrigger, track switching, stop, loop wrap, and disposal.
-2. **Master mixer:** add a master bus, peak metering, and safe output control.
+2. **Master mixer:** add insert effects and send/return routing, then build the dedicated mixer/rack view.
 3. **Effects foundation:** define effect-module/port contracts, then implement reverb and delay with deterministic disposal and tests.
 4. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
 5. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
