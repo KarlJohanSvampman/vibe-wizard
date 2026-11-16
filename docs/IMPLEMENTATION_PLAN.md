@@ -38,7 +38,10 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Parameter Bus with range conversion, curves, inversion, dead zone, quantization, smoothing, and fan-out.
 - [x] Tracks reference unique instrument instances; all tracks share the same AudioRuntime.
 - [x] Independent track level, pan, mute, and solo.
-- [ ] Add module port metadata and connection validation.
+- [x] Add module port metadata and connection validation.
+- [x] Add ordered, bypassable per-track delay and reverb insert chains.
+- [x] Persist effect types, enabled state, ordering, and parameters in project schema v7.
+- [x] Add mixer controls for effect insertion, bypass, reordering, removal, and parameters.
 - [x] Add a project master bus with bounded output gain, a safety limiter, and post-limiter peak metering.
 - [ ] Add insert effects and send/return routing with explicit ownership and disposal.
 - [ ] Build a dedicated mixer/rack view.
@@ -85,7 +88,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 
 ## Phase 6 — Effects and advanced instruments
 
-- [ ] Implement modular reverb and delay.
+- [x] Implement modular reverb and delay.
 - [ ] Implement EQ, distortion, compressor/limiter, chorus, and phaser.
 - [ ] Add effect parameter metadata, presets, and automation support.
 - [ ] Expand sampler to zones, root-key ranges, velocity layers, loop points, envelopes, and pitch mapping.
@@ -108,7 +111,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 ## Recommended execution order
 
 1. **Audio reliability:** complete the remaining end-to-end Web Audio lifecycle tests, then verify note ownership under rapid retrigger, track switching, stop, loop wrap, and disposal.
-2. **Master mixer:** add insert effects and send/return routing, then build the dedicated mixer/rack view.
+2. **Master mixer:** add shared send/return routing and expand the dedicated mixer/rack view.
 3. **Effect routing integration:** wire per-track insert chains into the master path, then add shared send/return buses and a mixer UI.
 4. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
 5. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
