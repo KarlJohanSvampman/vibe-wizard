@@ -1,92 +1,126 @@
-# Implementation Plan
+# Vibe-Wizard Implementation Plan
 
-## Guiding strategy
+Last reconciled: 2026-11-16
 
-Build a narrow vertical slice that validates the architecture before building a large DAW surface. The repository now has a shared Web Audio runtime, multiple independently routed instrument tracks, the global rack and Parameter Bus, desktop and tracked-hand theremin, recording/playback, an editable clip arrangement, and local project persistence.
+This plan reflects the implementation currently present on `main`. Completed items are not reopened simply because this document previously lagged behind the codebase. Continue in small, testable increments and keep the global rack, platform-neutral audio domain, typed event streams, local-first asset storage, and asynchronous AI boundary intact.
 
-## Phase 0 — Foundation
+## Product direction
 
-- [x] Set up a manifest-first TypeScript IWSDK project.
-- [x] Add an application entry point and Vite configuration.
-- [x] Establish a desktop UI surface independent of the XR scene.
-- [x] Add initial architecture and subsystem documents.
-- [ ] Verify clean install, typecheck, tests, and production build locally.
-- [ ] Verify the generated scene on physical Quest hardware.
+Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflow. The near-term priority is reliable music creation: stable audio lifecycle, expressive instruments and effects, a useful mixer, and a coherent local sound library. AI generation and transformation should produce validated local assets, never run in the real-time audio path.
 
-## Phase 1 — Audio foundation
+## Phase 0 — Foundation and runtime
 
-- [x] Define deferred shared AudioContext initialization.
-- [x] Implement a basic Web Audio synthesizer with independent instrument voices.
-- [x] Translate shared event timestamps to the shared AudioContext clock.
-- [x] Add look-ahead note and parameter scheduling for clip playback.
-- [x] Add independent track output gain and stereo pan buses.
-- [x] Add one shared arrangement transport clock for synchronized multi-track playback.
-- [ ] Add explicit polyphony limits and voice-stealing policy.
-- [ ] Add panic/cleanup behavior tests and manual audio smoke tests.
+- [x] Manifest-first TypeScript Meta IWSDK project and Vite setup.
+- [x] Desktop development surface and IWSDK/IWER workflow.
+- [x] Architecture, subsystem contracts, and technical decision documentation.
+- [ ] Repeat clean-install, typecheck, test, and production-build verification in a fresh environment.
+- [ ] Validate the generated scene and hand tracking on physical Quest hardware.
 
-## Phase 2 — Rack and parameter system
+## Phase 1 — Audio engine and instruments
 
-- [x] Define global rack registry and module lifecycle.
-- [x] Implement Parameter Bus mappings with range conversion, curves, inversion, dead zone, quantization, smoothing, and fan-out.
-- [x] Add track-to-instrument assignment and separate track audio buses.
-- [x] Scope arrangement automation to its owning track's instrument.
+- [x] One lazily initialized shared AudioContext per project.
+- [x] Shared audio clock conversion and look-ahead scheduling.
+- [x] Analog-style synth, additive piano, synthesized drum kit, and chromatic sampler.
+- [x] Independent instrument outputs and per-track gain/pan buses.
+- [x] Sample decoding and local asset restoration before playback.
+- [x] Explicit reporting for missing or invalid sampler assets.
+- [x] PCM WAV recording/encoding coverage for recorded audio.
+- [ ] Define and enforce maximum polyphony per instrument.
+- [ ] Add deterministic voice-stealing policy and tests.
+- [ ] Add a project-wide panic/stop-all-notes path covering live input, clip audition, arrangement playback, and instrument disposal.
+- [ ] Test note ownership and release under rapid retrigger, track switching, stop, loop wrap, and disposal.
+- [ ] Add audio lifecycle/resource-leak tests and manual clipping/long-session smoke tests.
+
+## Phase 2 — Global rack, routing, and mixing
+
+- [x] Global rack/module registry and module lifecycle.
+- [x] Parameter Bus with range conversion, curves, inversion, dead zone, quantization, smoothing, and fan-out.
+- [x] Tracks reference unique instrument instances; all tracks share the same AudioRuntime.
+- [x] Independent track level, pan, mute, and solo.
 - [ ] Add module port metadata and connection validation.
-- [ ] Add effect-chain routing, sends, and master bus.
-- [ ] Add mapping editor and preset serialization.
+- [ ] Add a master bus with safe output gain and peak metering.
+- [ ] Add insert effects and send/return routing with explicit ownership and disposal.
+- [ ] Build a dedicated mixer/rack view.
+- [ ] Persist rack presets and editable parameter mappings.
 
-## Phase 3 — Input and theremin
+## Phase 3 — Controllers and spatial performance
 
-- [x] Define a platform-neutral two-axis theremin controller.
-- [x] Add desktop slider emulation.
-- [x] Add IWSDK tracked index-finger input adapter.
-- [x] Add a floating spatial interaction volume, chromatic guide lines, and fingertip cursor.
-- [x] Release the spatial note when the fingertip leaves the interaction volume or tracking is lost.
+- [x] Platform-neutral two-axis theremin controller.
+- [x] Desktop slider adapter and tracked right-index-finger adapter.
+- [x] Spatial interaction volume, chromatic guide lines, and fingertip cursor.
+- [x] Release notes when the fingertip exits the volume or tracking is lost.
+- [x] Record timestamped controller movement alongside note events.
 - [ ] Add harmonic mode and scale quantization.
-- [ ] Add calibration controls and left-hand selection.
-- [ ] Validate tracking, comfort, and audio latency on physical Quest hardware.
+- [ ] Add calibration and left-hand selection.
+- [ ] Validate tracking comfort, latency, and sustained use on Quest hardware.
 
-## Phase 4 — Recording and sequencer
+## Phase 4 — Recording, clips, and arrangement
 
-- [x] Add typed note/control event recording.
-- [x] Capture live theremin X/Y controller output from desktop and XR.
-- [x] Automatically close notes held when recording stops.
-- [x] Add AudioContext look-ahead clip audition through the rack.
-- [x] Add per-track clip ownership and playback.
-- [x] Add a simple automation/note timeline visualization.
-- [x] Add an editable multi-track arrangement timeline.
-- [x] Add synchronized arrangement playback across instrument tracks.
-- [ ] Add tempo, musical grid, quantization, and loop sections.
-- [ ] Add clip resizing, trimming, duplication, multi-select, and undo.
-- [ ] Add rendered audio recording as a separate mode.
+- [x] Typed note/control recording and automatic closure of held notes on recording stop.
+- [x] Per-track clip ownership and clip audition.
+- [x] Multi-track arrangement canvas with cross-track clip moves.
+- [x] Shared arrangement transport clock for synchronized playback.
+- [x] BPM, time signature, beat/bar ruler, and configurable snap.
+- [x] Loop regions with note release at loop boundaries.
+- [x] Non-destructive clip resizing and duplication.
+- [x] Piano roll note creation, selection, move, resize, delete, and velocity editing.
+- [x] Snapshot undo/redo for piano-roll and supported arrangement edits.
+- [x] Turntable recording takes and arrangement placement.
+- [ ] Add multi-select, grouping, and broader undo coverage.
+- [ ] Add rendered master-output recording/export as a separate recording mode.
+- [ ] Add WAV export for full arrangements with offline rendering where supported.
 
-## Phase 5 — Projects, tracks, and studio views
+## Phase 5 — Projects, persistence, and sound library
 
-- [x] Add a versioned project snapshot and instrument-track model.
-- [x] Add IndexedDB persistence for project snapshots and recorded clips.
-- [x] Restore the latest project and select between saved performances.
-- [x] Add multiple instrument tracks with independent shared-context audio routing.
-- [x] Add track select/arm, mute/solo, level, and pan controls.
-- [x] Persist clip start positions and track ownership when arranging.
-- [ ] Add a full mixer view and instrument rack view.
-- [ ] Add persistent rack presets and parameter mapping state.
-- [x] Migrate schema version 1 projects to the version 2 track mix model.
-- [ ] Add tempo-aware beat positions and undo/redo.
+- [x] Versioned project model and IndexedDB project persistence.
+- [x] Schema migrations through version 4.
+- [x] Separate IndexedDB binary asset store for imported/generated samples.
+- [x] Restore imported and generated sampler audio after reload.
+- [x] Persist turntable takes and refresh the sound library after saving.
+- [x] Validate restored assets before playback and surface missing-asset errors.
+- [ ] Add user-facing sound-library organization, tags, search, and preview.
+- [ ] Add project backup/restore and explicit asset cleanup for unused samples.
+- [ ] Add persistent rack presets and project-level settings coverage.
 
-## Phase 6 — Effects and richer instruments
+## Phase 6 — Effects and advanced instruments
 
-- [ ] Reverb, delay, EQ, distortion, compressor, chorus/phaser as modular effects.
-- [ ] Sampler with sample zones, loop points, envelopes, pitch and velocity mapping.
-- [ ] Drum pads and sample player.
-- [ ] MIDI input adapter, feature-detected and permission-gated.
+- [ ] Implement modular reverb and delay.
+- [ ] Implement EQ, distortion, compressor/limiter, chorus, and phaser.
+- [ ] Add effect parameter metadata, presets, and automation support.
+- [ ] Expand sampler to zones, root-key ranges, velocity layers, loop points, envelopes, and pitch mapping.
+- [ ] Add sample trimming and time-stretching as separate, testable capabilities.
+- [ ] Add a flexible drum-pad/sample-player instrument.
+- [ ] Add feature-detected, permission-gated MIDI input and output.
 
-## Phase 7 — AI asset creation
+## Phase 7 — AI creation and transformation
 
-- [ ] Provider abstraction and asynchronous job lifecycle.
-- [ ] Sample generation and audio transformation.
-- [ ] Validate generated audio metadata and import into local sample library.
-- [ ] Instrument Designer outputs a playable package: samples/zones, pitch/velocity maps, loop points, envelopes, metadata.
-- [ ] Keep API credentials out of browser builds; use an optional thin service or local inference adapter when required.
+- [x] Provider abstraction and asynchronous generation job lifecycle.
+- [x] Local FastAPI gateway with provider credentials kept server-side.
+- [x] ElevenLabs sound-effect generation integrated into the local sample workflow.
+- [x] Generated audio imported as sampler tracks with prompt/provider provenance.
+- [ ] Add audio transformation jobs (variation, extend, inpaint, style/texture changes where provider supports them).
+- [ ] Validate generated file type, duration, sample rate, channels, and decode success before import.
+- [ ] Build a complete Instrument Designer package: sample zones, root keys, velocity maps, loops, envelopes, metadata, and preview.
+- [ ] Add provider capability discovery and clear job cancellation/error/retry states.
+- [ ] Build the music assistant for arrangement-level suggestions and edits, always through explicit user-approved operations.
 
-## Next recommended milestone
+## Recommended execution order
 
-Build a beat-based arrangement grid with tempo-aware clip movement and loop playback, then add an instrument selector and the first distinct instrument implementation.
+1. **Audio reliability:** inspect the existing voice lifecycle, then implement bounded polyphony, voice stealing, panic/release semantics, and regression tests.
+2. **Master mixer:** add a master bus, peak metering, and safe output control.
+3. **Effects foundation:** define effect-module/port contracts, then implement reverb and delay with deterministic disposal and tests.
+4. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
+5. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
+6. **AI transformation and music assistant:** build on the now-stable asset and arrangement contracts.
+
+## Quality gates
+
+Before each commit, run:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+For audio changes, add deterministic unit tests for scheduling and lifecycle behavior. For XR-facing changes, test desktop IWER and report physical-Quest validation separately; never imply hardware validation has happened when it has not.
