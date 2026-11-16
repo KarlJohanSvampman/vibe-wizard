@@ -77,7 +77,7 @@ describe('project model', () => {
 
   it('creates a project with a ready-to-mix instrument track', () => {
     const project = createDefaultProject('synth-main', new Date('2026-11-14T12:00:00.000Z'));
-    expect(project.schemaVersion).toBe(6);
+    expect(project.schemaVersion).toBe(7);
     expect(project.tempoBpm).toBe(120);
     expect(project.tracks).toHaveLength(1);
     expect(project.activeTrackId).toBe(project.tracks[0]?.id);
@@ -115,7 +115,7 @@ describe('project model', () => {
       tracks: sampler.tracks.map(({ samplerSettings: _settings, ...item }) => item),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version4));
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(7);
     expect(migrated.tracks[1]?.samplerSettings).toMatchObject({
       startPosition: 0, endPosition: 1, rootNote: 60, playbackMode: 'gate',
     });
@@ -305,7 +305,7 @@ describe('project model', () => {
       tracks: project.tracks.map(({ volume: _volume, pan: _pan, ...track }) => track),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version1));
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(7);
     expect(migrated.tracks[0]).toMatchObject({ volume: 0.8, pan: 0 });
     expect(migrated.id).toBe(project.id);
   });
