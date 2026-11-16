@@ -24,7 +24,7 @@ export class TrackAudioBus implements RackModule {
     this.inputGain.gain.value = this.volume;
     this.panner.pan.value = this.pan;
     this.inputGain.connect(this.panner);
-    this.panner.connect(destination ?? context.destination);
+    if (destination) this.panner.connect(destination);
   }
 
   get outputNode(): AudioNode {
