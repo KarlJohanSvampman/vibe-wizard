@@ -1297,3 +1297,23 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
 .master-meter-row output { color:#eee; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .master-meter-row #master-limiter-label { grid-column:2 / -1; color:#999; }
 .master-meter-row #master-limiter-label.is-limiting { color:#ffb000; }
+
+
+/* Per-track insert effect rack */
+.track-effects-panel {
+  margin: 12px 0 16px;
+  padding: 12px;
+  border: 1px solid rgba(179,151,226,.16);
+  border-radius: 10px;
+  background: rgba(7,7,13,.22);
+}
+.track-effects-panel .section-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.track-effects-panel .section-heading h3 { margin:0; }
+.track-effect-list { display:grid; gap:9px; margin-top:10px; }
+.track-effect-card { padding:10px; border:1px solid rgba(255,255,255,.08); border-radius:8px; background:rgba(255,255,255,.025); }
+.track-effect-heading { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:9px; }
+.track-effect-heading strong { flex:1 1 130px; font-size:11px; }
+.track-effect-heading input { accent-color:#b99ae9; }
+.effect-parameter { display:grid; grid-template-columns:90px 1fr; align-items:center; gap:10px; margin-top:7px; }
+.effect-parameter span { color:#9e96ad; font-size:9px; }
+.effect-parameter input { width:100%; }
