@@ -9,7 +9,7 @@ export class SharedSendReturn {
   constructor(
     readonly id: string,
     private readonly context: BaseAudioContext,
-    private readonly effect: AudioPortModule,
+    private readonly effect: AudioPortModule & { start(): Promise<void> },
     private readonly destination: AudioNode,
   ) {
     this.input = context.createGain();
@@ -18,7 +18,7 @@ export class SharedSendReturn {
   async start(): Promise<void> {
     if (this.disposed) throw new Error('Cannot start a disposed send return.');
     if (this.started) return;
-    await this.effect.start?.();
+    await this.effect.start();
     this.input.connect(this.effect.getAudioPortNode('audio-in'));
     this.effect.getAudioPortNode('audio-out').connect(this.destination);
     this.started = true;
