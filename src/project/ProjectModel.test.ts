@@ -29,12 +29,28 @@ describe('project model', () => {
     const project = createDefaultProject('synth-main');
     const { controllerPresets: _presets, controllerInstances: _instances, studioLayout: _layout, ...version5 } = project;
     const migrated = validateProjectSnapshot(migrateProjectRecord({ ...version5, schemaVersion: 5 }));
-    expect(migrated.schemaVersion).toBe(6);
+    expect(migrated.schemaVersion).toBe(7);
     expect(migrated.controllerPresets).toEqual([]);
     expect(migrated.controllerInstances).toEqual([]);
     expect(migrated.studioLayout).toEqual([]);
   });
 
+
+
+  it('persists ordered delay and reverb inserts and migrates older tracks without effects', () => {
+    const project = createDefaultProject('synth-main');
+    const withEffects = updateProjectTrack(project, project.activeTrackId, {
+      effects: [
+        { id: 'delay-1', type: 'delay', enabled: true, parameters: { mix: 0.4, time: 0.5, feedback: 0.2 } },
+        { id: 'reverb-1', type: 'reverb', enabled: false, parameters: { mix: 0.3, decay: 2.5 } },
+      ],
+    });
+    expect(validateProjectSnapshot(withEffects).tracks[0]?.effects).toEqual(withEffects.tracks[0]?.effects);
+    const legacy = { ...project, schemaVersion: 6, tracks: project.tracks.map(({ effects: _effects, ...track }) => track) };
+    const migrated = validateProjectSnapshot(migrateProjectRecord(legacy));
+    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.tracks[0]?.effects).toEqual([]);
+  });
 
   it('creates a genuinely empty project and supports adding the first instrument', () => {
     const empty = createEmptyProject(new Date('2026-11-15T12:00:00.000Z'));
