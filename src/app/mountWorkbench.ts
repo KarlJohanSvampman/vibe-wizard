@@ -593,6 +593,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     instrumentPane.prepend(instrumentEditor);
     take<HTMLElement>('#sampler-editor', instrumentPane);
     take<HTMLElement>('.track-mixer-controls', mixerPane);
+    take<HTMLElement>('.track-effects-panel', mixerPane);
     const masterOutputControls = document.createElement('section');
     masterOutputControls.className = 'master-output-controls';
     masterOutputControls.innerHTML = '<div class="section-heading"><div><p class="eyebrow">PROJECT OUTPUT</p><h3>Master</h3></div><span class="module-chip">SAFETY LIMITER</span></div><label for="master-volume"><span>MASTER LEVEL</span><input id="master-volume" type="range" min="0" max="1" step="0.01" value="0.8"></label><div class="master-meter-row"><label for="master-peak-meter">OUTPUT PEAK</label><meter id="master-peak-meter" min="0" max="1" low="0.5" high="0.85" optimum="0.65" value="0"></meter><output id="master-peak-label">−∞ dBFS</output><output id="master-limiter-label">Limiter idle</output></div><p class="controller-status">A safety limiter catches short output spikes. Keep the master meter below full scale; the limiter is not a substitute for sensible track levels.</p>';
