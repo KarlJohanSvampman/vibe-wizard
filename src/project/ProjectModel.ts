@@ -5,7 +5,7 @@ import type { InstrumentType } from '../audio/InstrumentTypes.js';
 import { validateControllerInstance, validateControllerPreset, validateStudioPlacement } from '../controllers/ControllerModel.js';
 import type { ControllerInstance, ControllerPreset, StudioObjectPlacement } from '../controllers/ControllerModel.js';
 
-export const PROJECT_SCHEMA_VERSION = 7 as const;
+export const PROJECT_SCHEMA_VERSION = 8 as const;
 
 export interface SamplerSettings {
   readonly startPosition: number;
@@ -54,6 +54,8 @@ export interface ProjectTrack {
   readonly pan: number;
   /** Ordered, project-persisted track insert effects. */
   readonly effects: readonly ProjectTrackEffect[];
+  /** Linear pre-fader send levels to the shared project delay and reverb returns. */
+  readonly sends: Readonly<{ delay: number; reverb: number }>;
 }
 
 export interface ProjectClipNote {
@@ -111,7 +113,7 @@ export interface ProjectSnapshot {
 }
 
 export type ProjectTrackPatch = Partial<
-  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan' | 'sampleAssetId' | 'sampleFileName' | 'samplerSettings' | 'effects'>
+  Pick<ProjectTrack, 'name' | 'muted' | 'solo' | 'armed' | 'volume' | 'pan' | 'sampleAssetId' | 'sampleFileName' | 'samplerSettings' | 'effects' | 'sends'>
 >;
 
 export interface ProjectTimingPatch {
@@ -178,6 +180,7 @@ export function createDefaultProject(
       volume: 0.8,
       pan: 0,
       effects: [],
+      sends: { delay: 0, reverb: 0 },
     }],
     clips: [],
     controllerPresets: [],
@@ -212,6 +215,7 @@ export function addInstrumentTrack(
     volume: 0.8,
     pan: 0,
     effects: [],
+    sends: { delay: 0, reverb: 0 },
   };
 
   return {
@@ -729,7 +733,7 @@ export function migrateProjectRecord(value: unknown): unknown {
   if (!isRecord(value)) throw new Error('Project data must be an object.');
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) return value;
   if (
-    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5 && value.schemaVersion !== 6) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5 && value.schemaVersion !== 6 && value.schemaVersion !== 7) ||
     !Array.isArray(value.tracks)
   ) {
     throw new Error('Unsupported project schema version: ' + String(value.schemaVersion) + '.');
@@ -745,6 +749,7 @@ export function migrateProjectRecord(value: unknown): unknown {
       volume: finiteNumber(track.volume) ? track.volume : 0.8,
       pan: finiteNumber(track.pan) ? track.pan : 0,
       effects: Array.isArray(track.effects) ? track.effects : [],
+      sends: isRecord(track.sends) ? track.sends : { delay: 0, reverb: 0 },
       ...(track.instrumentType === 'sampler' && !isRecord(track.samplerSettings)
         ? { samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
     };
@@ -854,6 +859,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       typeof item.armed !== 'boolean' ||
       !finiteNumber(item.volume) || item.volume < 0 || item.volume > 1 ||
       !finiteNumber(item.pan) || item.pan < -1 || item.pan > 1 ||
+      (item.sends !== undefined && (!isRecord(item.sends) || !finiteNumber(item.sends.delay) || item.sends.delay < 0 || item.sends.delay > 1 || !finiteNumber(item.sends.reverb) || item.sends.reverb < 0 || item.sends.reverb > 1)) ||
       (item.effects !== undefined && (!Array.isArray(item.effects) || item.effects.some(effect =>
         !isRecord(effect) || typeof effect.id !== 'string' || !effect.id ||
         (effect.type !== 'delay' && effect.type !== 'reverb') ||
@@ -876,7 +882,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       if (effectIds.has(effect.id)) throw new Error('Project contains duplicate track effect IDs.');
       effectIds.add(effect.id);
     }
-    return { ...item, instrumentType, effects,
+    return { ...item, instrumentType, effects, sends: (item.sends ?? { delay: 0, reverb: 0 }) as ProjectTrack['sends'],
       ...(instrumentType === 'sampler' ? { samplerSettings: item.samplerSettings ?? { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
     } as unknown as ProjectTrack;
   });
