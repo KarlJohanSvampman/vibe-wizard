@@ -186,7 +186,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const resources = track ? resourceFor(trackId) : undefined;
     if (!track || !resources) return;
     const instrumentStart = resources.instrument.start();
-    const busStart = resources.bus.start();
+    const busStart = resources.bus.start(undefined, true);
     // Prepare both nodes before connecting the track's serial insert path.
     resources.instrument.connectOutput(resources.bus.inputNode);
     await Promise.all([instrumentStart, busStart]);
