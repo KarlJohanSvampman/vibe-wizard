@@ -3,6 +3,7 @@ import type { NoteOffEvent, NoteOnEvent } from './events.js';
 import type { RackModule } from '../rack/types.js';
 import { AudioRuntime } from './AudioRuntime.js';
 import type { InstrumentType } from './InstrumentTypes.js';
+import { defaultPolyphony, selectVoiceToSteal, voiceKey } from './VoiceManagement.js';
 
 export interface SamplerPlaybackSettings {
   readonly startPosition: number;
@@ -45,6 +46,7 @@ export class AudioEngine implements RackModule {
   private outputNode: AudioNode | undefined;
   private readonly voices = new Map<string, InstrumentVoice>();
   private masterVolume = 0.35;
+  private maxPolyphony = defaultPolyphony(instrumentType);
   private synthWaveform: OscillatorType = 'sawtooth';
   private synthCutoff = 12000;
   private synthResonance = 0.7;
@@ -98,6 +100,19 @@ export class AudioEngine implements RackModule {
 
   get sampleDuration(): number { return this.sampleBuffer?.duration ?? 0; }
 
+  get activeVoiceCount(): number { return this.voices.size; }
+
+  /** Set the instrument voice ceiling. Values are clamped to 1..128. */
+  setMaxPolyphony(value: number): void {
+    if (!Number.isFinite(value)) return;
+    this.maxPolyphony = clamp(Math.floor(value), 1, 128);
+    while (this.voices.size > this.maxPolyphony) {
+      const victim = this.selectVoiceVictim();
+      if (!victim) break;
+      this.stopVoiceImmediately(victim);
+    }
+  }
+
   setSynthSettings(settings: { waveform?: OscillatorType; cutoff?: number; resonance?: number }): void {
     if (this.instrumentType !== 'synth') return;
     if (settings.waveform && ['sine', 'triangle', 'sawtooth', 'square'].includes(settings.waveform)) this.synthWaveform = settings.waveform;
@@ -147,7 +162,7 @@ export class AudioEngine implements RackModule {
   }
 
   stopAudition(): void {
-    const voice = this.voices.get(this.auditionNoteId);
+    const voice = this.voices.get(voiceKey(this.id, this.auditionNoteId));
     if (!voice) return;
     this.noteOff({
       kind: 'note-off', sourceId: voice.sourceId, noteId: this.auditionNoteId,
@@ -168,12 +183,14 @@ export class AudioEngine implements RackModule {
     if (!this.masterGain) throw new Error('Start the instrument before sending note events.');
     const startTime = this.runtime.toAudioTime(event.timestamp);
 
+    const key = voiceKey(event.sourceId, event.noteId);
     this.noteOff({
       kind: 'note-off',
       sourceId: event.sourceId,
       noteId: event.noteId,
       timestamp: event.timestamp,
     });
+    this.ensurePolyphonyCapacity();
 
     const pitch = clamp(event.pitch, 0, 127);
     const velocity = clamp(event.velocity, 0, 1);
@@ -322,7 +339,7 @@ export class AudioEngine implements RackModule {
       oneShot,
       remainingSources: sources.length,
     };
-    this.voices.set(event.noteId, voice);
+    this.voices.set(key, voice);
 
     for (const source of sources) {
       source.onended = () => {
@@ -332,7 +349,7 @@ export class AudioEngine implements RackModule {
           for (const node of nodes) {
             try { node.disconnect(); } catch { /* already disconnected */ }
           }
-          if (this.voices.get(event.noteId) === voice) this.voices.delete(event.noteId);
+          if (this.voices.get(key) === voice) this.voices.delete(key);
         }
       };
       if (this.instrumentType === 'sampler' && source === sources[0]) {
@@ -348,7 +365,7 @@ export class AudioEngine implements RackModule {
     }
 
     if (sources.length === 0) {
-      this.voices.delete(event.noteId);
+      this.voices.delete(key);
     }
   }
 
@@ -365,7 +382,8 @@ export class AudioEngine implements RackModule {
   }
 
   noteOff(event: NoteOffEvent, releaseSeconds = 0.14): void {
-    const voice = this.voices.get(event.noteId);
+    const key = voiceKey(event.sourceId, event.noteId);
+    const voice = this.voices.get(key);
     const context = this.runtime.context;
     if (!voice || voice.oneShot || !context || context.state === 'closed') return;
 
@@ -394,13 +412,50 @@ export class AudioEngine implements RackModule {
 
   allNotesOff(): void {
     const timestamp = performance.now() / 1000;
-    for (const [noteId, voice] of this.voices) {
+    for (const [key, voice] of this.voices) {
       this.noteOff({
         kind: 'note-off',
         sourceId: voice.sourceId,
-        noteId,
+        noteId: key.slice(voice.sourceId.length + 1),
         timestamp,
       }, 0.03);
+    }
+  }
+
+  /** Immediately silence every voice, including autonomous one-shot sounds. */
+  panic(): void {
+    for (const key of [...this.voices.keys()]) this.stopVoiceImmediately(key);
+  }
+
+  private selectVoiceVictim(): string | undefined {
+    return selectVoiceToSteal([...this.voices.entries()].map(([key, voice]) => ({
+      key,
+      startTime: voice.startTime,
+      releaseTime: voice.releaseTime,
+    })));
+  }
+
+  private ensurePolyphonyCapacity(): void {
+    if (this.voices.size < this.maxPolyphony) return;
+    const victim = this.selectVoiceVictim();
+    if (victim) this.stopVoiceImmediately(victim);
+  }
+
+  private stopVoiceImmediately(key: string): void {
+    const voice = this.voices.get(key);
+    if (!voice) return;
+    this.voices.delete(key);
+    const context = this.runtime.context;
+    const now = context && context.state !== 'closed' ? context.currentTime : voice.startTime;
+    try {
+      voice.envelope.gain.cancelScheduledValues(now);
+      voice.envelope.gain.setValueAtTime(0.0001, now);
+    } catch { /* context may already be closed */ }
+    for (const source of voice.sources) {
+      try { source.stop(now); } catch { /* source may already have stopped */ }
+    }
+    for (const node of voice.nodes) {
+      try { node.disconnect(); } catch { /* already disconnected */ }
     }
   }
 
@@ -438,10 +493,8 @@ export class AudioEngine implements RackModule {
 
   async dispose(): Promise<void> {
     if (this.disposed) return;
-    this.stopAudition();
-    this.allNotesOff();
     this.disposed = true;
-    this.voices.clear();
+    this.panic();
     this.masterGain?.disconnect();
     this.masterGain = undefined;
     this.outputNode = undefined;
