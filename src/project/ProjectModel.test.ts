@@ -29,7 +29,7 @@ describe('project model', () => {
     const project = createDefaultProject('synth-main');
     const { controllerPresets: _presets, controllerInstances: _instances, studioLayout: _layout, ...version5 } = project;
     const migrated = validateProjectSnapshot(migrateProjectRecord({ ...version5, schemaVersion: 5 }));
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.controllerPresets).toEqual([]);
     expect(migrated.controllerInstances).toEqual([]);
     expect(migrated.studioLayout).toEqual([]);
@@ -48,8 +48,24 @@ describe('project model', () => {
     expect(validateProjectSnapshot(withEffects).tracks[0]?.effects).toEqual(withEffects.tracks[0]?.effects);
     const legacy = { ...project, schemaVersion: 6, tracks: project.tracks.map(({ effects: _effects, ...track }) => track) };
     const migrated = validateProjectSnapshot(migrateProjectRecord(legacy));
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.tracks[0]?.effects).toEqual([]);
+  });
+
+
+  it('persists shared return send levels and migrates older tracks with sends at zero', () => {
+    const project = createDefaultProject('synth-main');
+    const sent = updateProjectTrack(project, project.activeTrackId, {
+      sends: { delay: 0.45, reverb: 0.7 },
+    });
+    expect(validateProjectSnapshot(sent).tracks[0]?.sends).toEqual({ delay: 0.45, reverb: 0.7 });
+    const legacy = { ...project, schemaVersion: 7, tracks: project.tracks.map(({ sends: _sends, ...track }) => track) };
+    const migrated = validateProjectSnapshot(migrateProjectRecord(legacy));
+    expect(migrated.schemaVersion).toBe(8);
+    expect(migrated.tracks[0]?.sends).toEqual({ delay: 0, reverb: 0 });
+    expect(() => validateProjectSnapshot({
+      ...project, tracks: project.tracks.map(track => ({ ...track, sends: { delay: 1.2, reverb: 0 } })),
+    })).toThrow(/invalid track/i);
   });
 
   it('creates a genuinely empty project and supports adding the first instrument', () => {
@@ -77,7 +93,7 @@ describe('project model', () => {
 
   it('creates a project with a ready-to-mix instrument track', () => {
     const project = createDefaultProject('synth-main', new Date('2026-11-14T12:00:00.000Z'));
-    expect(project.schemaVersion).toBe(7);
+    expect(project.schemaVersion).toBe(8);
     expect(project.tempoBpm).toBe(120);
     expect(project.tracks).toHaveLength(1);
     expect(project.activeTrackId).toBe(project.tracks[0]?.id);
@@ -115,7 +131,7 @@ describe('project model', () => {
       tracks: sampler.tracks.map(({ samplerSettings: _settings, ...item }) => item),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version4));
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.tracks[1]?.samplerSettings).toMatchObject({
       startPosition: 0, endPosition: 1, rootNote: 60, playbackMode: 'gate',
     });
@@ -305,7 +321,7 @@ describe('project model', () => {
       tracks: project.tracks.map(({ volume: _volume, pan: _pan, ...track }) => track),
     };
     const migrated = validateProjectSnapshot(migrateProjectRecord(version1));
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     expect(migrated.tracks[0]).toMatchObject({ volume: 0.8, pan: 0 });
     expect(migrated.id).toBe(project.id);
   });
