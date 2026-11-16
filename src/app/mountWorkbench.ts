@@ -3,6 +3,9 @@ import type { MusicalEvent, NoteOffEvent, NoteOnEvent } from '../audio/events.js
 import { AudioRuntime } from '../audio/AudioRuntime.js';
 import { AudioEngine } from '../audio/AudioEngine.js';
 import { MasterAudioBus } from '../audio/MasterAudioBus.js';
+import { DelayEffect } from '../audio/effects/DelayEffect.js';
+import { ReverbEffect } from '../audio/effects/ReverbEffect.js';
+import { AudioEffectChain } from '../rack/AudioEffectChain.js';
 import { createAudioAssetStore } from '../audio/AudioAssetStore.js';
 import { getInstrumentLabel, isInstrumentType } from '../audio/InstrumentTypes.js';
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
@@ -53,6 +56,7 @@ import {
   type ProjectClip,
   type ProjectSnapshot,
   type ProjectTrack,
+  type ProjectTrackEffect,
 } from '../project/ProjectModel.js';
 import {
   createProjectRepository,
@@ -76,6 +80,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     bus: TrackAudioBus;
     transport: ReturnType<typeof createSequencerTransport>;
     unsubscribeTransport: () => void;
+    effectChain?: AudioEffectChain;
+    effects: Map<string, DelayEffect | ReverbEffect>;
   }>();
   const noteOwners = new Map<string, AudioEngine>();
   let project: ProjectSnapshot = createEmptyProject();
@@ -115,6 +121,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       resources.unsubscribeTransport();
       parameterBus.unregisterTarget(resources.instrument.id);
       parameterBus.unregisterTarget(resources.bus.id);
+      await resources.effectChain?.dispose(false);
+      for (const effect of resources.effects.values()) await rack.remove(effect.id);
+      resources.effects.clear();
       await rack.remove(resources.instrument.id);
       await rack.remove(resources.bus.id);
       trackResources.delete(trackId);
@@ -166,7 +175,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const unsubscribeTransport = transport.subscribe((state) =>
       handleTransportState(track.id, state),
     );
-    const resources = { instrument, bus, transport, unsubscribeTransport };
+    const resources = { instrument, bus, transport, unsubscribeTransport, effects: new Map<string, DelayEffect | ReverbEffect>() };
     trackResources.set(track.id, resources);
     if (audioReady && autoStartAudio) void ensureTrackAudioReady(track.id);
     return resources;
@@ -177,17 +186,43 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const resources = track ? resourceFor(trackId) : undefined;
     if (!track || !resources) return;
     const instrumentStart = resources.instrument.start();
-    const busStart = resources.bus.start(masterBus.inputNode);
-    // Both start methods create their graph nodes synchronously before awaiting
-    // context resume, so XR input cannot race an unprepared track graph.
+    const busStart = resources.bus.start();
+    // Prepare both nodes before connecting the track's serial insert path.
     resources.instrument.connectOutput(resources.bus.inputNode);
     await Promise.all([instrumentStart, busStart]);
+    await syncTrackEffects(track);
     if (track.instrumentType === 'sampler' && track.sampleAssetId && !resources.instrument.hasSample) {
       const asset = await sampleAssets.load(track.sampleAssetId);
       if (asset) await resources.instrument.loadSample(asset.data);
       else console.warn('Missing audio asset "' + track.sampleAssetId + '" for sampler track "' + track.name + '".');
     }
     applyTrackMix();
+  };
+
+  const syncTrackEffects = async (track: ProjectTrack): Promise<void> => {
+    const resources = resourceFor(track.id);
+    if (!resources || !audioReady) return;
+    for (const config of track.effects) {
+      let effect = resources.effects.get(config.id);
+      if (!effect) {
+        effect = config.type === 'delay'
+          ? rack.add(new DelayEffect(config.id, audioRuntime))
+          : rack.add(new ReverbEffect(config.id, audioRuntime));
+        resources.effects.set(config.id, effect);
+        for (const [parameter, value] of Object.entries(config.parameters)) effect.setParameter(parameter, value, performance.now() / 1000);
+        await effect.start();
+      } else {
+        for (const [parameter, value] of Object.entries(config.parameters)) effect.setParameter(parameter, value, performance.now() / 1000);
+      }
+    }
+    const retained = new Set(track.effects.map(effect => effect.id));
+    for (const [id] of [...resources.effects]) {
+      if (retained.has(id)) continue;
+      await rack.remove(id);
+      resources.effects.delete(id);
+    }
+    resources.effectChain ??= new AudioEffectChain(audioRuntime.requireContext(), resources.bus.outputNode, masterBus.inputNode);
+    resources.effectChain.setEffects(track.effects.map(config => ({ effect: resources.effects.get(config.id)!, enabled: config.enabled })));
   };
 
   const applyTrackMix = (): void => {
@@ -416,6 +451,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <label for="track-volume"><span>TRACK LEVEL</span><input id="track-volume" type="range" min="0" max="1" step="0.01" value="0.8" /></label>',
     '      <label for="track-pan"><span>STEREO PAN</span><input id="track-pan" type="range" min="-1" max="1" step="0.01" value="0" /></label>',
     '    </div>',
+    '    <section class="track-effects-panel"><div class="section-heading"><div><p class="eyebrow">INSERT EFFECTS</p><h3>Track effects</h3></div><div><button class="transport-button" id="add-delay-effect" type="button">＋ Delay</button><button class="transport-button" id="add-reverb-effect" type="button">＋ Reverb</button></div></div><div id="track-effect-list" class="track-effect-list"></div></section>',
     '    <div class="clip-library-row">',
     '      <label for="saved-clips"><span>CLIPS ON THIS TRACK</span>',
     '        <select id="saved-clips" disabled><option value="">No saved clips</option></select></label>',
@@ -691,6 +727,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const soloTrackButton = get<HTMLButtonElement>('#solo-track');
   const trackVolumeInput = get<HTMLInputElement>('#track-volume');
   const trackPanInput = get<HTMLInputElement>('#track-pan');
+  const trackEffectList = get<HTMLElement>('#track-effect-list');
+  const addDelayEffectButton = get<HTMLButtonElement>('#add-delay-effect');
+  const addReverbEffectButton = get<HTMLButtonElement>('#add-reverb-effect');
   const masterVolumeInput = get<HTMLInputElement>('#master-volume');
   const masterPeakMeter = get<HTMLMeterElement>('#master-peak-meter');
   const masterPeakLabel = get<HTMLOutputElement>('#master-peak-label');
@@ -737,7 +776,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !samplerTransformPrompt || !samplerTransformDuration || !samplerTransformStrength ||
     !samplerTransformButton || !samplerTransformStatus ||
     !addTrackButton || !armTrackButton || !muteTrackButton ||
-    !soloTrackButton || !trackVolumeInput || !trackPanInput || !masterVolumeInput || !masterPeakMeter || !masterPeakLabel || !masterLimiterLabel ||
+    !soloTrackButton || !trackVolumeInput || !trackPanInput || !trackEffectList || !addDelayEffectButton || !addReverbEffectButton || !masterVolumeInput || !masterPeakMeter || !masterPeakLabel || !masterLimiterLabel ||
     !clipSelect || !recordStartButton || !recordStopButton || !clipPlayButton ||
     !clipStopButton || !clipDuplicateButton || !clipDeleteButton || !clipSummary || !arrangementPlayButton ||
     !pianoRollWrap || !pianoRoll || !pianoNoteLabel || !pianoVelocityInput ||
@@ -1447,6 +1486,54 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     soloTrackButton.textContent = selectedTrack?.solo ? 'Unsolo' : 'Solo';
     trackVolumeInput.value = String(selectedTrack?.volume ?? 0.8);
     trackPanInput.value = String(selectedTrack?.pan ?? 0);
+    trackEffectList.replaceChildren();
+    addDelayEffectButton.disabled = !selectedTrack || recorder.isRecording;
+    addReverbEffectButton.disabled = !selectedTrack || recorder.isRecording;
+    if (selectedTrack) selectedTrack.effects.forEach((config, index) => {
+      const card = document.createElement('div'); card.className = 'track-effect-card';
+      const heading = document.createElement('div'); heading.className = 'track-effect-heading';
+      const title = document.createElement('strong'); title.textContent = config.type === 'delay' ? 'Stereo Delay' : 'Algorithmic Reverb';
+      const enabled = document.createElement('input'); enabled.type = 'checkbox'; enabled.checked = config.enabled; enabled.setAttribute('aria-label', 'Enable effect');
+      enabled.addEventListener('change', () => {
+        const current = activeTrack(); if (!current) return;
+        project = updateProjectTrack(project, current.id, { effects: current.effects.map(item => item.id === config.id ? { ...item, enabled: enabled.checked } : item) });
+        void syncTrackEffects(activeTrack()!).then(() => persistProject()); updateProjectUi();
+      });
+      const move = (delta: number) => {
+        const current = activeTrack(); if (!current) return;
+        const list = [...current.effects]; const target = index + delta;
+        [list[index], list[target]] = [list[target]!, list[index]!];
+        project = updateProjectTrack(project, current.id, { effects: list });
+        void syncTrackEffects(activeTrack()!).then(() => persistProject()); updateProjectUi();
+      };
+      const up = document.createElement('button'); up.type = 'button'; up.className = 'transport-button'; up.textContent = '↑'; up.disabled = index === 0; up.addEventListener('click', () => move(-1));
+      const down = document.createElement('button'); down.type = 'button'; down.className = 'transport-button'; down.textContent = '↓'; down.disabled = index === selectedTrack.effects.length - 1; down.addEventListener('click', () => move(1));
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'transport-button'; remove.textContent = 'Remove';
+      remove.addEventListener('click', () => {
+        const current = activeTrack(); if (!current) return;
+        project = updateProjectTrack(project, current.id, { effects: current.effects.filter(item => item.id !== config.id) });
+        void syncTrackEffects(activeTrack()!).then(() => persistProject()); updateProjectUi();
+      });
+      heading.append(title, enabled, up, down, remove); card.append(heading);
+      const defaults: Record<string, number> = config.type === 'delay' ? { mix: 0.3, time: 0.35, feedback: 0.25 } : { mix: 0.25, decay: 2.2 };
+      const params = config.type === 'delay'
+        ? [{ id: 'mix', label: 'Wet mix', min: 0, max: 1, step: 0.01 }, { id: 'time', label: 'Time', min: 0.01, max: 2, step: 0.01 }, { id: 'feedback', label: 'Feedback', min: 0, max: 0.85, step: 0.01 }]
+        : [{ id: 'mix', label: 'Wet mix', min: 0, max: 1, step: 0.01 }, { id: 'decay', label: 'Decay', min: 0.1, max: 8, step: 0.1 }];
+      for (const param of params) {
+        const label = document.createElement('label'); label.className = 'effect-parameter';
+        const caption = document.createElement('span'); caption.textContent = param.label;
+        const input = document.createElement('input'); input.type = 'range'; input.min = String(param.min); input.max = String(param.max); input.step = String(param.step); input.value = String(config.parameters[param.id] ?? defaults[param.id]);
+        input.addEventListener('input', () => {
+          const current = activeTrack(); if (!current) return;
+          const effects = current.effects.map(item => item.id === config.id ? { ...item, parameters: { ...item.parameters, [param.id]: Number(input.value) } } : item);
+          project = updateProjectTrack(project, current.id, { effects });
+          resourceFor(current.id)?.effects.get(config.id)?.setParameter(param.id, Number(input.value), performance.now() / 1000);
+        });
+        input.addEventListener('change', () => { void persistProject(); });
+        label.append(caption, input); card.append(label);
+      }
+      trackEffectList.append(card);
+    });
     armTrackButton.disabled = !hasTrack || recorder.isRecording;
     muteTrackButton.disabled = !hasTrack || recorder.isRecording;
     soloTrackButton.disabled = !hasTrack || recorder.isRecording;
@@ -2893,6 +2980,17 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   masterVolumeInput.addEventListener('input', () => {
     masterBus.setParameter('volume', Number(masterVolumeInput.value), performance.now() / 1000);
   });
+
+  const addTrackEffect = (type: 'delay' | 'reverb'): void => {
+    const selected = activeTrack(); if (!selected || recorder.isRecording) return;
+    const id = 'effect-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2));
+    const config: ProjectTrackEffect = { id, type, enabled: true, parameters: type === 'delay' ? { mix: 0.3, time: 0.35, feedback: 0.25 } : { mix: 0.25, decay: 2.2 } };
+    project = updateProjectTrack(project, selected.id, { effects: [...selected.effects, config] });
+    void syncTrackEffects(activeTrack()!).then(() => persistProject()).catch(error => { projectStatus.textContent = error instanceof Error ? error.message : 'Could not initialize track effect.'; });
+    updateProjectUi();
+  };
+  addDelayEffectButton.addEventListener('click', () => addTrackEffect('delay'));
+  addReverbEffectButton.addEventListener('click', () => addTrackEffect('reverb'));
 
   trackVolumeInput.addEventListener('input', () => {
     projectHistory.clear();
