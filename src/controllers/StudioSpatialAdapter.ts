@@ -40,7 +40,7 @@ export class StudioSpatialAdapter {
     for (const [id, group] of this.meshes) if (!active.has(id)) { this.root.remove(group); this.disposeGroup(group); this.meshes.delete(id); }
     for (const placement of this.placements) {
       let group = this.meshes.get(placement.id);
-      if (!group) { group = this.createStudioObject(placement.objectType); group.name = placement.id; this.meshes.set(placement.id, group); this.root.add(group); }
+      if (!group) { group = this.createStudioObject(placement); group.name = placement.id; this.meshes.set(placement.id, group); this.root.add(group); }
       group.position.set(placement.position.x, placement.position.y, placement.position.z);
       group.rotation.set(placement.rotation.x, placement.rotation.y, placement.rotation.z);
       group.scale.set(placement.scale.x, placement.scale.y, placement.scale.z);
@@ -59,16 +59,33 @@ export class StudioSpatialAdapter {
   private add(group: Group, geometry: BoxGeometry | CylinderGeometry | CircleGeometry | RingGeometry | SphereGeometry, color: number, position: [number,number,number], scale?: [number,number,number]): Mesh {
     const mesh = new Mesh(geometry, this.material(color)); mesh.position.set(...position); if (scale) mesh.scale.set(...scale); group.add(mesh); return mesh;
   }
-  private createStudioObject(type: StudioObjectPlacement['objectType']): Group {
+  private createStudioObject(placement: StudioObjectPlacement): Group {
     const group = new Group();
-    if (type === 'instrument-track') {
+    if (placement.objectType === 'instrument-track' && placement.instrumentType === 'piano') {
+      // Full-width playable-looking keyboard with alternating black keys.
+      this.add(group, new BoxGeometry(1.12, 0.12, 0.34), 0x292d34, [0, 0, 0]);
+      this.add(group, new BoxGeometry(1.02, 0.018, 0.22), 0xe9e5dc, [0, -0.018, 0.035]);
+      for (let i = 0; i < 24; i++) this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xf6f2e8, [-0.48 + i * 0.0417, 0.002, 0.035]);
+      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x101216, [-0.459 + i * 0.0417, 0.018, -0.005]);
+      for (let i = 0; i < 5; i++) this.add(group, new CylinderGeometry(0.025, 0.025, 0.02, 16), 0xc38e4b, [0.32 + i * 0.09, 0.075, -0.1]);
+    } else if (placement.objectType === 'instrument-track' && placement.instrumentType === 'drums') {
+      // Compact tabletop electronic drum kit: kick, snare, toms and cymbal pads.
+      this.add(group, new BoxGeometry(1.0, 0.09, 0.58), 0x252a31, [0, 0, 0]);
+      const pads: Array<[number, number, number, number]> = [
+        [-0.32, 0.08, -0.14, 0x9c4545], [0, 0.08, -0.14, 0x477b9d], [0.32, 0.08, -0.14, 0x477b9d],
+        [-0.32, 0.08, 0.16, 0x477b9d], [0, 0.08, 0.16, 0x9c4545], [0.32, 0.08, 0.16, 0x477b9d],
+      ];
+      for (const [x, y, z, color] of pads) this.add(group, new CylinderGeometry(0.115, 0.115, 0.055, 32), color, [x, y, z]);
+      this.add(group, new CylinderGeometry(0.16, 0.16, 0.018, 32), 0xc6a64e, [-0.46, 0.28, -0.22], [1, 0.12, 1]);
+      this.add(group, new CylinderGeometry(0.16, 0.16, 0.018, 32), 0xc6a64e, [0.46, 0.28, 0.22], [1, 0.12, 1]);
+    } else if (placement.objectType === 'instrument-track') {
       // Compact keyboard/workstation: chassis, keybed, alternating black keys and control panel.
       this.add(group, new BoxGeometry(0.72,0.12,0.28), 0x34383e, [0,0,0]);
       this.add(group, new BoxGeometry(0.58,0.018,0.14), 0xe4e1d8, [0,-0.018,0.055]);
       for (let i=0;i<14;i++) this.add(group,new BoxGeometry(0.034,0.025,0.11),0xf4f1e9,[-0.27+i*0.041,-0.002,0.055]);
       for (let i=0;i<13;i++) if (i%7!==2 && i%7!==6) this.add(group,new BoxGeometry(0.022,0.035,0.075),0x17191d,[-0.25+i*0.041,0.012,0.02]);
       for (let i=0;i<4;i++) this.add(group,new CylinderGeometry(0.022,0.022,0.018,16),0xc38e4b,[0.19+i*0.075,0.075,-0.075]);
-    } else if (type === 'controller-instance') {
+    } else if (placement.objectType === 'controller-instance') {
       this.add(group,new BoxGeometry(0.62,0.07,0.38),0x262a31,[0,0,0]);
       for(let row=0;row<2;row++) for(let col=0;col<4;col++) this.add(group,new BoxGeometry(0.095,0.025,0.11),0x4d5968,[-0.21+col*0.14,0.048,-0.08+row*0.15]);
       for(let i=0;i<3;i++) this.add(group,new CylinderGeometry(0.035,0.035,0.035,20),0xc38e4b,[0.19,0.06,-0.11+i*0.1]);
