@@ -2036,14 +2036,14 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const refreshStudioRoom = (): void => {
     const existing = project.studioLayout;
     const refs = [
-      ...project.tracks.map((track, index) => ({ id: 'track:' + track.id, objectType: 'instrument-track' as const, objectRefId: track.id, label: track.name, index })),
+      ...project.tracks.map((track, index) => ({ id: 'track:' + track.id, objectType: 'instrument-track' as const, objectRefId: track.id, instrumentType: track.instrumentType, label: track.name, index })),
       ...project.controllerInstances.map((instance, index) => ({ id: 'controller:' + instance.id, objectType: 'controller-instance' as const, objectRefId: instance.id, label: instance.name, index })),
     ];
-    studioDraftPlacements = refs.map(ref => existing.find(item => item.id === ref.id) ?? {
+    studioDraftPlacements = refs.map(ref => ({ ...(existing.find(item => item.id === ref.id) ?? {
       id: ref.id, objectType: ref.objectType, objectRefId: ref.objectRefId,
       position: { x: (ref.index % 4) * 1.5 - 2.25, y: 0.6, z: -1 - Math.floor(ref.index / 4) * 1.2 },
       rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 },
-    });
+    }), ...(ref.objectType === 'instrument-track' ? { instrumentType: ref.instrumentType } : {}) }));
     studioSpatialAdapter.setLayout(studioDraftPlacements);
     studioObjectSelect.replaceChildren();
     refs.forEach(ref => { const option = document.createElement('option'); option.value = ref.id; option.textContent = ref.label; studioObjectSelect.append(option); });
@@ -3592,6 +3592,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
 
   world.visibilityState.subscribe((state) => {
     const immersive = state !== VisibilityState.NonImmersive;
+    document.body.classList.toggle('vr-immersive-ui', immersive);
     enterVrButton.disabled = !persistenceReady || immersive;
     enterVrButton.textContent = immersive ? 'VR active' : 'Enter VR';
     if (!immersive && audioReady) updateStatus('Audio engine running');
