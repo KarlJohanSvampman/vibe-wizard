@@ -2041,9 +2041,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     ];
     studioDraftPlacements = refs.map(ref => ({ ...(existing.find(item => item.id === ref.id) ?? {
       id: ref.id, objectType: ref.objectType, objectRefId: ref.objectRefId,
-      position: { x: (ref.index % 4) * 1.5 - 2.25, y: 0.6, z: -1 - Math.floor(ref.index / 4) * 1.2 },
+      position: { x: (ref.index % 4) * 1.5 - 2.25, y: -0.45, z: -1 - Math.floor(ref.index / 4) * 1.2 },
       rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 },
-    }), ...(ref.objectType === 'instrument-track' ? { instrumentType: ref.instrumentType } : {}) }));
+    }), position: { ...(existing.find(item => item.id === ref.id)?.position ?? { x: (ref.index % 4) * 1.5 - 2.25, y: -0.45, z: -1 - Math.floor(ref.index / 4) * 1.2 }), y: Math.min(existing.find(item => item.id === ref.id)?.position.y ?? -0.45, -0.45) }, ...(ref.objectType === 'instrument-track' ? { instrumentType: ref.instrumentType } : {}) }));
     studioSpatialAdapter.setLayout(studioDraftPlacements);
     studioObjectSelect.replaceChildren();
     refs.forEach(ref => { const option = document.createElement('option'); option.value = ref.id; option.textContent = ref.label; studioObjectSelect.append(option); });
