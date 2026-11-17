@@ -48,6 +48,9 @@ import {
   updateProjectTrack,
   updateProjectTiming,
   DEFAULT_SAMPLER_SETTINGS,
+  DEFAULT_SHARED_RETURN_SETTINGS,
+  updateProjectSharedReturns,
+  type SharedReturnSettings,
   type SamplerSettings,
   updateProjectLoopRegion,
   saveControllerPreset,
@@ -233,6 +236,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     resources.effectChain.setEffects(track.effects.map(config => ({ effect: resources.effects.get(config.id)!, enabled: config.enabled })));
     if (sharedDelayReturn && !resources.delaySend) { resources.delaySend = audioRuntime.requireContext().createGain(); resources.bus.outputNode.connect(resources.delaySend); resources.delaySend.connect(sharedDelayReturn.inputNode); }
     if (sharedReverbReturn && !resources.reverbSend) { resources.reverbSend = audioRuntime.requireContext().createGain(); resources.bus.outputNode.connect(resources.reverbSend); resources.reverbSend.connect(sharedReverbReturn.inputNode); }
+  };
+
+  const applySharedReturnSettings = (): void => {
+    const timestamp = performance.now() / 1000;
+    sharedDelayEffect.setParameter('time', project.sharedReturns.delay.time, timestamp);
+    sharedDelayEffect.setParameter('feedback', project.sharedReturns.delay.feedback, timestamp);
+    sharedReverbEffect.setParameter('decay', project.sharedReturns.reverb.decay, timestamp);
   };
 
   const applyTrackMix = (): void => {
@@ -1547,6 +1557,36 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       }
       trackEffectList.append(card);
     });
+    {
+      const returns = document.createElement('section'); returns.className = 'shared-send-controls';
+      const heading = document.createElement('strong'); heading.textContent = 'SHARED RETURN EFFECTS · PROJECT';
+      returns.append(heading);
+      const parameters = [
+        { id: 'delay-time', label: 'Delay time', min: 0.01, max: 2, step: 0.01, value: project.sharedReturns.delay.time },
+        { id: 'delay-feedback', label: 'Delay feedback', min: 0, max: 0.85, step: 0.01, value: project.sharedReturns.delay.feedback },
+        { id: 'reverb-decay', label: 'Reverb decay', min: 0.1, max: 8, step: 0.1, value: project.sharedReturns.reverb.decay },
+      ] as const;
+      for (const parameter of parameters) {
+        const label = document.createElement('label'); label.className = 'effect-parameter';
+        const caption = document.createElement('span'); caption.textContent = parameter.label;
+        const input = document.createElement('input'); input.type = 'range';
+        input.min = String(parameter.min); input.max = String(parameter.max); input.step = String(parameter.step); input.value = String(parameter.value);
+        input.addEventListener('input', () => {
+          const next: SharedReturnSettings = {
+            delay: { ...project.sharedReturns.delay },
+            reverb: { ...project.sharedReturns.reverb },
+          };
+          if (parameter.id === 'delay-time') next.delay = { ...next.delay, time: Number(input.value) };
+          else if (parameter.id === 'delay-feedback') next.delay = { ...next.delay, feedback: Number(input.value) };
+          else next.reverb = { decay: Number(input.value) };
+          project = updateProjectSharedReturns(project, next);
+          applySharedReturnSettings();
+        });
+        input.addEventListener('change', () => { void persistProject(); });
+        label.append(caption, input); returns.append(label);
+      }
+      trackEffectList.append(returns);
+    }
     if (selectedTrack) {
       const sends = document.createElement('section'); sends.className = 'shared-send-controls';
       const heading = document.createElement('strong'); heading.textContent = 'SHARED SENDS · POST-TRACK';
@@ -2256,6 +2296,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       const context = audioRuntime.requireContext();
       sharedDelayEffect.setParameter('mix', 1, performance.now() / 1000);
       sharedReverbEffect.setParameter('mix', 1, performance.now() / 1000);
+      applySharedReturnSettings();
       sharedDelayReturn = new SharedSendReturn('shared-delay-return', context, sharedDelayEffect, masterBus.inputNode);
       sharedReverbReturn = new SharedSendReturn('shared-reverb-return', context, sharedReverbEffect, masterBus.inputNode);
       await Promise.all([sharedDelayReturn.start(), sharedReverbReturn.start()]);
