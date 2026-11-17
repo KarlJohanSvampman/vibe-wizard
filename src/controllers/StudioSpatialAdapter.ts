@@ -13,7 +13,9 @@ export class StudioSpatialAdapter {
   private readonly forward = new Vector3();
   private readonly handWorld = new Vector3();
   private readonly handLocal = new Vector3();
-  private readonly activeInstrumentNotes = new Map<string, { trackId: string; noteId: string; sourceId: string }>();
+  private readonly activeInstrumentNotes = new Map<string, { trackId: string; noteId: string; sourceId: string; mesh: Mesh; baseScaleY: number; oneShot: boolean }>();
+  private readonly previousFingerPositions = new Map<'left' | 'right', Vector3>();
+  private readonly previousFingerTimes = new Map<'left' | 'right', number>();
   private readonly turntable = new Group();
   private readonly record = new Mesh(new CylinderGeometry(0.31, 0.31, 0.018, 48), new MeshStandardMaterial({ color: 0x202124, roughness: 0.42 }));
   private readonly tonearm = new Group();
@@ -67,8 +69,8 @@ export class StudioSpatialAdapter {
       this.add(group, new BoxGeometry(1.12, 0.12, 0.34), 0x292d34, [0, 0, 0]);
       this.add(group, new BoxGeometry(1.02, 0.018, 0.22), 0xe9e5dc, [0, -0.018, 0.035]);
       const whitePitches = [0, 2, 4, 5, 7, 9, 11];
-      for (let i = 0; i < 24; i++) { const key = this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xf6f2e8, [-0.48 + i * 0.0417, 0.002, 0.035]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + whitePitches[i % 7]; }
-      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x101216, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.pitch = 49 + Math.floor(i / 7) * 12 + [0, 2, 0, 3, 5, 7, 0][i % 7]; }
+      for (let i = 0; i < 24; i++) { const key = this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xf6f2e8, [-0.48 + i * 0.0417, 0.002, 0.035]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + whitePitches[i % 7]; key.userData.hitHalfExtents = [0.0205, 0.07, 0.095]; }
+      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x101216, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.pitch = 49 + Math.floor(i / 7) * 12 + [0, 2, 0, 3, 5, 7, 0][i % 7]; key.userData.hitHalfExtents = [0.013, 0.07, 0.06]; }
       for (let i = 0; i < 5; i++) this.add(group, new CylinderGeometry(0.025, 0.025, 0.02, 16), 0xc38e4b, [0.32 + i * 0.09, 0.075, -0.1]);
     } else if (placement.objectType === 'instrument-track' && placement.instrumentType === 'drums') {
       // Compact tabletop electronic drum kit: kick, snare, toms and cymbal pads.
@@ -162,44 +164,72 @@ export class StudioSpatialAdapter {
       const source = this.world.input.xr.getPrimaryInputSource(hand);
       const joint = source?.hand?.get('index-finger-tip');
       const pose = joint ? frame.getPose(joint, reference) : undefined;
-      if (!pose) continue;
+      if (!pose) {
+        this.previousFingerPositions.delete(hand);
+        this.previousFingerTimes.delete(hand);
+        continue;
+      }
       const point = new Vector3(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
       this.world.player.localToWorld(point);
+      const previous = this.previousFingerPositions.get(hand);
+      const previousAt = this.previousFingerTimes.get(hand);
+      const elapsed = previousAt === undefined ? 0 : Math.max(0.001, now - previousAt);
+      const speed = previous ? point.distanceTo(previous) / elapsed : 0;
+      const velocity = Math.max(0.18, Math.min(1, 0.35 + speed * 0.22));
+      this.previousFingerPositions.set(hand, point.clone());
+      this.previousFingerTimes.set(hand, now);
+
       for (const placement of this.placements) {
         if (placement.objectType !== 'instrument-track' || (placement.instrumentType !== 'piano' && placement.instrumentType !== 'drums')) continue;
         const group = this.meshes.get(placement.id);
         if (!group) continue;
         group.updateMatrixWorld(true);
-        const localPoint = group.worldToLocal(point.clone());
         group.traverse(object => {
           const mesh = object as Mesh;
           const data = mesh.userData;
           if (!data.instrumentKey && !data.drumPad) return;
-          const distance = mesh.getWorldPosition(new Vector3()).distanceTo(point);
-          const reach = data.instrumentKey ? 0.045 : 0.14;
-          if (distance > reach || Math.abs(localPoint.y - mesh.position.y) > (data.instrumentKey ? 0.065 : 0.12)) return;
+          const local = mesh.worldToLocal(point.clone());
+          let touching = false;
+          if (data.instrumentKey) {
+            const half = data.hitHalfExtents as number[];
+            touching = Math.abs(local.x) <= half[0]! &&
+              Math.abs(local.y) <= half[1]! &&
+              Math.abs(local.z) <= half[2]!;
+          } else {
+            const radius = 0.115;
+            touching = local.x * local.x + local.z * local.z <= radius * radius &&
+              Math.abs(local.y) <= 0.12;
+          }
+          if (!touching) return;
           const key = placement.id + ':' + hand + ':' + String(data.pitch);
           seen.add(key);
           if (this.activeInstrumentNotes.has(key)) return;
           const noteId = 'vr:' + key;
           const sourceId = placement.objectRefId;
-          this.activeInstrumentNotes.set(key, { trackId: placement.objectRefId, noteId, sourceId });
-          this.onInstrumentNoteOn?.(placement.objectRefId, sourceId, noteId, Number(data.pitch), data.drumPad ? 0.9 : 0.72, now);
-          mesh.scale.y = data.drumPad ? 1.18 : 0.72;
+          const oneShot = Boolean(data.drumPad);
+          this.activeInstrumentNotes.set(key, { trackId: placement.objectRefId, noteId, sourceId, mesh, baseScaleY: mesh.scale.y, oneShot });
+          this.onInstrumentNoteOn?.(placement.objectRefId, sourceId, noteId, Number(data.pitch), oneShot ? velocity : velocity, now);
+          mesh.scale.y = oneShot ? 1.18 : 0.72;
         });
       }
     }
     for (const [key, note] of this.activeInstrumentNotes) {
       if (seen.has(key)) continue;
-      this.onInstrumentNoteOff?.(note.trackId, note.sourceId, note.noteId, now);
+      if (!note.oneShot) this.onInstrumentNoteOff?.(note.trackId, note.sourceId, note.noteId, now);
+      note.mesh.scale.y = note.baseScaleY;
       this.activeInstrumentNotes.delete(key);
     }
   }
 
   private releaseInstrumentNotes(): void {
     const now = performance.now() / 1000;
-    for (const note of this.activeInstrumentNotes.values()) this.onInstrumentNoteOff?.(note.trackId, note.sourceId, note.noteId, now);
+    for (const note of this.activeInstrumentNotes.values()) {
+      if (!note.oneShot) this.onInstrumentNoteOff?.(note.trackId, note.sourceId, note.noteId, now);
+      note.mesh.scale.y = note.baseScaleY;
+    }
     this.activeInstrumentNotes.clear();
+    this.previousFingerPositions.clear();
+    this.previousFingerTimes.clear();
   }
 
   private finishDrag():void{if(this.draggingId)this.onCommit(this.placements);this.draggingId=undefined;this.pinching=false;}
