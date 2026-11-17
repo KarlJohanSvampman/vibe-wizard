@@ -340,7 +340,24 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     void persistProject().catch(error => { if (projectStatus) projectStatus.textContent = error instanceof Error ? error.message : 'Could not save VR studio placement.'; });
   }, normalizedPosition => {
     if (turntable.isLoaded) turntable.scratch(normalizedPosition * turntable.duration);
-  }, () => turntable.isPlaying ? turntable.currentPosition() : undefined);
+  }, () => turntable.isPlaying ? turntable.currentPosition() : undefined, (trackId, _sourceId, noteId, pitch, velocity, timestamp) => {
+    const track = project.tracks.find(item => item.id === trackId);
+    const resources = audioReady ? resourceFor(trackId) : undefined;
+    if (!track || !resources) return;
+    const event: NoteOnEvent = { kind: 'note-on', sourceId: track.instrumentModuleId, noteId, pitch, velocity, timestamp };
+    noteOwners.set(noteKey(track.instrumentModuleId, noteId), resources.instrument);
+    resources.instrument.noteOn(event);
+    recordEvent(event);
+  }, (trackId, _sourceId, noteId, timestamp) => {
+    const track = project.tracks.find(item => item.id === trackId);
+    if (!track) return;
+    const event: NoteOffEvent = { kind: 'note-off', sourceId: track.instrumentModuleId, noteId, timestamp };
+    const key = noteKey(track.instrumentModuleId, noteId);
+    const owner = noteOwners.get(key) ?? resourceFor(trackId)?.instrument;
+    owner?.noteOff(event);
+    noteOwners.delete(key);
+    recordEvent(event);
+  });
 
   const spatialAdapter = new ThereminSpatialAdapter(world, theremin, {
     handedness: 'right',
