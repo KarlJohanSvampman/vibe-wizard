@@ -48,7 +48,6 @@ import {
   updateProjectTrack,
   updateProjectTiming,
   DEFAULT_SAMPLER_SETTINGS,
-  DEFAULT_SHARED_RETURN_SETTINGS,
   updateProjectSharedReturns,
   type SharedReturnSettings,
   type SamplerSettings,
