@@ -44,6 +44,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Add mixer controls for effect insertion, bypass, reordering, removal, and parameters.
 - [x] Add a project master bus with bounded output gain, a safety limiter, and post-limiter peak metering.
 - [x] Add insert effects and send/return routing with explicit ownership and disposal.
+- [x] Persist shared delay time/feedback and reverb decay in project schema v9; expose project-wide return controls in the Mixer.
 - [ ] Build a dedicated mixer/rack view.
 - [ ] Persist rack presets and editable parameter mappings.
 
