@@ -62,3 +62,12 @@ Use IWSDK's supported spatial UI and interaction systems where they fit. Prefer 
 9. Repeat for a sustained session and monitor audio glitches, controller drift, and tracking reacquisition.
 
 The repository implementation is not a substitute for this physical-device validation. Record the actual headset/browser result before treating Quest behavior as verified.
+
+
+## Workstation UI in immersive mode
+
+The existing DOM workstation remains the primary editing surface in VR. When the world enters an immersive visibility state, the page switches to an expanded scrollable layout: the root can scroll vertically, and the dock, browser, track list, and arrangement retain independent scroll regions. Scroll containers use touch/overscroll settings intended for headset pointer and touch interaction. Validate actual Quest Browser DOM-overlay scrolling with both hand and controller input; browser/OS-level scroll gesture behavior can vary by runtime.
+
+## Spatial instrument representations
+
+Instrument-track placements carry their instrument family. Piano tracks render a full-width keyboard model; drum tracks render an electronic tabletop pad kit with cymbal pads. These are currently visual spatial representations. The next interaction milestone is to bind tracked fingertip/controller contact to note-on/note-off events, including safe note release when tracking is lost. Do not treat the visual models alone as completed playable instruments.
