@@ -70,7 +70,7 @@ export class StudioSpatialAdapter {
       this.add(group, new BoxGeometry(1.02, 0.018, 0.22), 0xe9e5dc, [0, -0.018, 0.035]);
       const whitePitches = [0, 2, 4, 5, 7, 9, 11];
       for (let i = 0; i < 24; i++) { const key = this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xf6f2e8, [-0.48 + i * 0.0417, 0.002, 0.035]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + whitePitches[i % 7]; key.userData.hitHalfExtents = [0.0205, 0.07, 0.095]; }
-      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x101216, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.pitch = 49 + Math.floor(i / 7) * 12 + [0, 2, 0, 3, 5, 7, 0][i % 7]; key.userData.hitHalfExtents = [0.013, 0.07, 0.06]; }
+      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x101216, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + [1, 3, 0, 6, 8, 10, 0][i % 7]; key.userData.hitHalfExtents = [0.013, 0.07, 0.06]; }
       for (let i = 0; i < 5; i++) this.add(group, new CylinderGeometry(0.025, 0.025, 0.02, 16), 0xc38e4b, [0.32 + i * 0.09, 0.075, -0.1]);
     } else if (placement.objectType === 'instrument-track' && placement.instrumentType === 'drums') {
       // Compact tabletop electronic drum kit: kick, snare, toms and cymbal pads.
@@ -81,8 +81,10 @@ export class StudioSpatialAdapter {
       ];
       const drumPitches = [36, 38, 42, 45, 46, 49];
       pads.forEach(([x, y, z, color], index) => { const pad = this.add(group, new CylinderGeometry(0.115, 0.115, 0.055, 32), color, [x, y, z]); pad.userData.drumPad = true; pad.userData.pitch = drumPitches[index]; });
-      this.add(group, new CylinderGeometry(0.16, 0.16, 0.018, 32), 0xc6a64e, [-0.46, 0.28, -0.22], [1, 0.12, 1]);
-      this.add(group, new CylinderGeometry(0.16, 0.16, 0.018, 32), 0xc6a64e, [0.46, 0.28, 0.22], [1, 0.12, 1]);
+      const leftCymbal = this.add(group, new CylinderGeometry(0.16, 0.16, 0.018, 32), 0xc6a64e, [-0.46, 0.28, -0.22], [1, 0.12, 1]);
+      leftCymbal.userData.drumPad = true; leftCymbal.userData.pitch = 46;
+      const rightCymbal = this.add(group, new CylinderGeometry(0.16, 0.16, 0.018, 32), 0xc6a64e, [0.46, 0.28, 0.22], [1, 0.12, 1]);
+      rightCymbal.userData.drumPad = true; rightCymbal.userData.pitch = 51;
     } else if (placement.objectType === 'instrument-track') {
       // Compact keyboard/workstation: chassis, keybed, alternating black keys and control panel.
       this.add(group, new BoxGeometry(0.72,0.12,0.28), 0x34383e, [0,0,0]);
