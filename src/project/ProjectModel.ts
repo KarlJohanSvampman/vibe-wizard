@@ -5,7 +5,7 @@ import type { InstrumentType } from '../audio/InstrumentTypes.js';
 import { validateControllerInstance, validateControllerPreset, validateStudioPlacement } from '../controllers/ControllerModel.js';
 import type { ControllerInstance, ControllerPreset, StudioObjectPlacement } from '../controllers/ControllerModel.js';
 
-export const PROJECT_SCHEMA_VERSION = 8 as const;
+export const PROJECT_SCHEMA_VERSION = 9 as const;
 
 export interface SamplerSettings {
   readonly startPosition: number;
@@ -92,6 +92,16 @@ export interface ProjectLoopRegion {
   readonly endBeat: number;
 }
 
+export interface SharedReturnSettings {
+  readonly delay: Readonly<{ time: number; feedback: number }>;
+  readonly reverb: Readonly<{ decay: number }>;
+}
+
+export const DEFAULT_SHARED_RETURN_SETTINGS: SharedReturnSettings = {
+  delay: { time: 0.35, feedback: 0.25 },
+  reverb: { decay: 2.2 },
+};
+
 export interface ProjectSnapshot {
   readonly schemaVersion: typeof PROJECT_SCHEMA_VERSION;
   readonly id: string;
@@ -101,6 +111,8 @@ export interface ProjectSnapshot {
   readonly tempoBpm: number;
   readonly timeSignature: ProjectTimeSignature;
   readonly loopRegion: ProjectLoopRegion;
+  /** Project-wide effect parameters for the shared send/return channels. */
+  readonly sharedReturns: SharedReturnSettings;
   readonly activeTrackId: string;
   readonly tracks: readonly ProjectTrack[];
   readonly clips: readonly ProjectClip[];
@@ -139,6 +151,7 @@ export function createEmptyProject(now = new Date()): ProjectSnapshot {
     tempoBpm: 120,
     timeSignature: { numerator: 4, denominator: 4 },
     loopRegion: { enabled: false, startBeat: 0, endBeat: 16 },
+    sharedReturns: { delay: { ...DEFAULT_SHARED_RETURN_SETTINGS.delay }, reverb: { ...DEFAULT_SHARED_RETURN_SETTINGS.reverb } },
     activeTrackId: '',
     tracks: [],
     clips: [],
@@ -165,6 +178,7 @@ export function createDefaultProject(
     tempoBpm: 120,
     timeSignature: { numerator: 4, denominator: 4 },
     loopRegion: { enabled: false, startBeat: 0, endBeat: 16 },
+    sharedReturns: { delay: { ...DEFAULT_SHARED_RETURN_SETTINGS.delay }, reverb: { ...DEFAULT_SHARED_RETURN_SETTINGS.reverb } },
     activeTrackId: trackId,
     tracks: [{
       id: trackId,
@@ -281,6 +295,15 @@ export function setActiveProjectTrack(
     throw new Error('Cannot select unknown track: ' + trackId);
   }
   return { ...project, activeTrackId: trackId, updatedAt: now.toISOString() };
+}
+
+export function updateProjectSharedReturns(
+  snapshot: ProjectSnapshot,
+  sharedReturns: SharedReturnSettings,
+  now = new Date(),
+): ProjectSnapshot {
+  const project = validateProjectSnapshot(snapshot);
+  return validateProjectSnapshot({ ...project, sharedReturns: { delay: { ...sharedReturns.delay }, reverb: { ...sharedReturns.reverb } }, updatedAt: now.toISOString() });
 }
 
 export function updateProjectTiming(
@@ -733,7 +756,7 @@ export function migrateProjectRecord(value: unknown): unknown {
   if (!isRecord(value)) throw new Error('Project data must be an object.');
   if (value.schemaVersion === PROJECT_SCHEMA_VERSION) return value;
   if (
-    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5 && value.schemaVersion !== 6 && value.schemaVersion !== 7) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== 4 && value.schemaVersion !== 5 && value.schemaVersion !== 6 && value.schemaVersion !== 7 && value.schemaVersion !== 8) ||
     !Array.isArray(value.tracks)
   ) {
     throw new Error('Unsupported project schema version: ' + String(value.schemaVersion) + '.');
@@ -779,6 +802,7 @@ export function migrateProjectRecord(value: unknown): unknown {
     ...value,
     schemaVersion: PROJECT_SCHEMA_VERSION,
     tempoBpm,
+    sharedReturns: isRecord(value.sharedReturns) ? value.sharedReturns : { delay: { ...DEFAULT_SHARED_RETURN_SETTINGS.delay }, reverb: { ...DEFAULT_SHARED_RETURN_SETTINGS.reverb } },
     tracks,
     clips,
     controllerPresets: Array.isArray(value.controllerPresets) ? value.controllerPresets : [],
@@ -823,6 +847,10 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
     !finiteNumber(value.tempoBpm) || value.tempoBpm < 20 || value.tempoBpm > 300 ||
     !isRecord(value.timeSignature) ||
     !isRecord(value.loopRegion) ||
+    !isRecord(value.sharedReturns) || !isRecord(value.sharedReturns.delay) ||
+    !finiteNumber(value.sharedReturns.delay.time) || value.sharedReturns.delay.time < 0.01 || value.sharedReturns.delay.time > 2 ||
+    !finiteNumber(value.sharedReturns.delay.feedback) || value.sharedReturns.delay.feedback < 0 || value.sharedReturns.delay.feedback > 0.85 ||
+    !isRecord(value.sharedReturns.reverb) || !finiteNumber(value.sharedReturns.reverb.decay) || value.sharedReturns.reverb.decay < 0.1 || value.sharedReturns.reverb.decay > 8 ||
     typeof value.loopRegion.enabled !== 'boolean' ||
     !finiteNumber(value.loopRegion.startBeat) || value.loopRegion.startBeat < 0 ||
     !finiteNumber(value.loopRegion.endBeat) || value.loopRegion.endBeat <= value.loopRegion.startBeat ||
@@ -973,6 +1001,10 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       enabled: value.loopRegion.enabled,
       startBeat: value.loopRegion.startBeat,
       endBeat: value.loopRegion.endBeat,
+    },
+    sharedReturns: {
+      delay: { time: value.sharedReturns.delay.time, feedback: value.sharedReturns.delay.feedback },
+      reverb: { decay: value.sharedReturns.reverb.decay },
     },
     activeTrackId: value.activeTrackId,
     tracks,
