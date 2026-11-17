@@ -1321,3 +1321,62 @@ input[type="range"] { width: min(340px,55%); accent-color: #ba91ff; cursor: poin
 
 .shared-send-controls { margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,.09); }
 .shared-send-controls > strong { display:block; margin-bottom:8px; color:#b9a6d8; font-size:9px; letter-spacing:.12em; }
+
+
+/* Quest immersive DOM workbench: keep the existing workstation reachable and scrollable. */
+body.vr-immersive-ui,
+body.vr-immersive-ui #workbench-root {
+  height: 100%;
+  min-height: 100%;
+}
+body.vr-immersive-ui #workbench-root {
+  position: fixed;
+  inset: 0;
+  display: block;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  pointer-events: auto;
+}
+body.vr-immersive-ui .workbench-card {
+  display: grid;
+  grid-template-columns: minmax(145px, 18%) minmax(300px, 1fr) minmax(230px, 24%);
+  grid-template-rows: auto auto minmax(280px, 48vh) minmax(260px, auto) minmax(240px, auto);
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+  max-height: none;
+  overflow: visible;
+}
+body.vr-immersive-ui .studio-workspace { display: contents; }
+body.vr-immersive-ui .studio-dock-content,
+body.vr-immersive-ui .studio-browser,
+body.vr-immersive-ui .studio-track-sidebar .track-list,
+body.vr-immersive-ui .studio-arrangement .arrangement-wrap {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y pan-x;
+}
+body.vr-immersive-ui .studio-dock-content {
+  min-height: 260px;
+  max-height: 48vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.vr-immersive-ui .studio-browser {
+  min-height: 260px;
+  overflow-y: auto;
+}
+body.vr-immersive-ui .studio-track-sidebar .track-list {
+  min-height: 120px;
+}
+@media (max-width: 1000px) {
+  body.vr-immersive-ui .workbench-card {
+    grid-template-columns: minmax(120px, 24%) minmax(260px, 1fr);
+    grid-template-rows: auto auto minmax(260px, 42vh) minmax(240px, auto) minmax(240px, auto);
+  }
+  body.vr-immersive-ui .studio-browser { grid-column: 1 / -1; grid-row: 5; }
+  body.vr-immersive-ui .studio-dock { grid-column: 1 / -1; grid-row: 4; }
+}
