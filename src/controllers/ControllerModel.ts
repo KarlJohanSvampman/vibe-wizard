@@ -152,7 +152,9 @@ export function validateControllerInstance(value: unknown, presetIds?: ReadonlyS
 export function validateStudioPlacement(value: unknown): StudioObjectPlacement {
   if (!isRecord(value) || typeof value.id !== 'string' ||
       !['instrument-track','controller-instance','microphone','speaker','furniture'].includes(String(value.objectType)) ||
-      typeof value.objectRefId !== 'string' || !isRecord(value.position) ||
+      typeof value.objectRefId !== 'string' ||
+      (value.instrumentType !== undefined && !['synth','piano','drums','sampler'].includes(String(value.instrumentType))) ||
+      !isRecord(value.position) ||
       !isRecord(value.rotation) || !isRecord(value.scale) ||
       !['x','y','z'].every(key => finite(value.position[key]) && finite(value.rotation[key]) &&
         finite(value.scale[key]) && value.scale[key] > 0 && value.scale[key] <= 20)) {
