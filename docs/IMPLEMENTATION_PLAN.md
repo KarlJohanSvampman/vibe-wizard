@@ -40,7 +40,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Independent track level, pan, mute, and solo.
 - [x] Add module port metadata and connection validation.
 - [x] Add ordered, bypassable per-track delay and reverb insert chains.
-- [x] Persist effect types, enabled state, ordering, and parameters in project schema v7.
+- [x] Persist track insert effects and shared send/return levels and parameters through project schema v9.
 - [x] Add mixer controls for effect insertion, bypass, reordering, removal, and parameters.
 - [x] Add a project master bus with bounded output gain, a safety limiter, and post-limiter peak metering.
 - [x] Add insert effects and send/return routing with explicit ownership and disposal.
@@ -78,7 +78,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 ## Phase 5 — Projects, persistence, and sound library
 
 - [x] Versioned project model and IndexedDB project persistence.
-- [x] Schema migrations through version 4.
+- [x] Schema migrations through version 9.
 - [x] Separate IndexedDB binary asset store for imported/generated samples.
 - [x] Restore imported and generated sampler audio after reload.
 - [x] Persist turntable takes and refresh the sound library after saving.
