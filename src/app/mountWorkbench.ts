@@ -814,7 +814,29 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     controllerRuntime.dispose();
     turntable.dispose();
     unsubscribeController();
-    throw new Error('The workbench UI is missing a required control.');
+    const requiredControls = [
+      '#enable-audio', '#enter-vr', '#play-theremin', '#theremin-x', '#theremin-y',
+      '#audio-status', '#audio-status-dot', '#x-value', '#y-value', '#pitch-value',
+      '#project-name', '#saved-projects', '#project-open', '#project-new', '#project-save', '#project-status',
+      '#active-track-name', '#track-select', '#track-list', '#delete-track', '#new-instrument-type',
+      '#sample-import-row', '#sample-file', '#sample-status', '#sampler-editor', '#sample-duration',
+      '#sample-audition', '#sample-audition-stop', '#sampler-playback-mode', '#sampler-start', '#sampler-end',
+      '#sampler-loop', '#sampler-loop-start', '#sampler-loop-end', '#sampler-root-note',
+      '#sampler-start-time', '#sampler-end-time', '#sampler-loop-start-time', '#sampler-loop-end-time',
+      '#ai-service-url', '#ai-sample-prompt', '#ai-sample-duration', '#ai-generate-sample', '#ai-cancel-generation',
+      '#ai-generation-status', '#asset-refresh', '#asset-search', '#asset-filter', '#asset-browser-list',
+      '#sampler-transform-prompt', '#sampler-transform-duration', '#sampler-transform-strength',
+      '#sampler-transform', '#sampler-transform-status', '#instrument-editor', '#add-track', '#arm-track',
+      '#mute-track', '#solo-track', '#track-volume', '#track-pan', '#track-effect-list', '#add-delay-effect',
+      '#add-reverb-effect', '#master-volume', '#master-peak-meter', '#master-peak-label', '#master-limiter-label',
+      '#saved-clips', '#record-start', '#record-stop', '#clip-play', '#clip-stop', '#clip-duplicate',
+      '#clip-delete', '#clip-summary', '#arrangement-play', '#piano-roll-wrap', '#piano-roll', '#piano-note-label',
+      '#piano-velocity', '#piano-undo', '#piano-redo', '#piano-delete', '#arrangement-stop', '#tempo-bpm',
+      '#time-signature', '#grid-snap', '#loop-enabled', '#loop-start-bar', '#loop-end-bar',
+      '#arrangement-timeline', '#capture-status', '#clip-timeline',
+    ];
+    const missingControls = requiredControls.filter(selector => !get(selector));
+    throw new Error('The workbench UI is missing required controls: ' + missingControls.join(', '));
   }
 
   const aiEndpointStorageKey = 'vibe-wizard.ai-service-url';
