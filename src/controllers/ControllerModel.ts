@@ -60,6 +60,8 @@ export interface StudioObjectPlacement {
   readonly id: string;
   readonly objectType: 'instrument-track' | 'controller-instance' | 'microphone' | 'speaker' | 'furniture';
   readonly objectRefId: string;
+  /** Instrument family rendered for an instrument-track placement. */
+  readonly instrumentType?: 'synth' | 'piano' | 'drums' | 'sampler';
   readonly position: { readonly x: number; readonly y: number; readonly z: number };
   readonly rotation: { readonly x: number; readonly y: number; readonly z: number };
   readonly scale: { readonly x: number; readonly y: number; readonly z: number };
