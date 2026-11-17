@@ -1573,12 +1573,12 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         input.min = String(parameter.min); input.max = String(parameter.max); input.step = String(parameter.step); input.value = String(parameter.value);
         input.addEventListener('input', () => {
           const next: SharedReturnSettings = {
-            delay: { ...project.sharedReturns.delay },
-            reverb: { ...project.sharedReturns.reverb },
+            delay: {
+              time: parameter.id === 'delay-time' ? Number(input.value) : project.sharedReturns.delay.time,
+              feedback: parameter.id === 'delay-feedback' ? Number(input.value) : project.sharedReturns.delay.feedback,
+            },
+            reverb: { decay: parameter.id === 'reverb-decay' ? Number(input.value) : project.sharedReturns.reverb.decay },
           };
-          if (parameter.id === 'delay-time') next.delay = { ...next.delay, time: Number(input.value) };
-          else if (parameter.id === 'delay-feedback') next.delay = { ...next.delay, feedback: Number(input.value) };
-          else next.reverb = { decay: Number(input.value) };
           project = updateProjectSharedReturns(project, next);
           applySharedReturnSettings();
         });
