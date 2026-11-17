@@ -542,6 +542,14 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const browserPanel = document.createElement('aside');
     browserPanel.className = 'studio-browser';
 
+    // These two labels used to stay inside the legacy sequencer panel. That
+    // panel is removed during workstation composition, so move them explicitly.
+    const arrangementHeading = document.createElement('div');
+    arrangementHeading.className = 'section-heading';
+    const activeTrackHeading = take<HTMLElement>('#active-track-name', arrangementHeading);
+    const clipSummaryBadge = take<HTMLElement>('#clip-summary', arrangementHeading);
+    if (activeTrackHeading || clipSummaryBadge) arrangementPanel.append(arrangementHeading);
+
     const trackList = take<HTMLElement>('#track-list', trackSidebar);
     const trackToolbar = take<HTMLElement>('.track-toolbar', trackSidebar);
     const arrangementToolbar = take<HTMLElement>('.arrangement-toolbar', arrangementPanel);
