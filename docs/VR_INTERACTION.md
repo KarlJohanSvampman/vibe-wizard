@@ -71,3 +71,14 @@ The existing DOM workstation remains the primary editing surface in VR. When the
 ## Spatial instrument representations
 
 Instrument-track placements carry their instrument family. Piano tracks render a full-width keyboard model; drum tracks render an electronic tabletop pad kit with cymbal pads. These are currently visual spatial representations. The next interaction milestone is to bind tracked fingertip/controller contact to note-on/note-off events, including safe note release when tracking is lost. Do not treat the visual models alone as completed playable instruments.
+
+## Quick instrument placement gesture
+
+In immersive mode, use the **left hand** to place the currently selected track's instrument without reaching for the model or using the desktop placement controls:
+
+1. Select the track you want to position in the workstation before entering VR (or change the active track in the workstation).
+2. Bring the left hand into view and pinch the thumb and index fingertip together.
+3. Keep the pinch held and move the hand; the selected track's instrument follows the fingertip.
+4. Release the pinch to place it. The placement is saved to the current project.
+
+The gesture repositions that track's existing instrument rather than creating a duplicate. The right-hand pinch remains the grab-nearby-object / turntable-scratch gesture. If left-hand tracking is lost while placing, the last valid position is committed safely. Keep the instrument within comfortable reach and avoid placing it below the floor; verify the final feel on the target Quest headset.
