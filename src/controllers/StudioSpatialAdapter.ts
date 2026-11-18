@@ -13,7 +13,7 @@ export class StudioSpatialAdapter {
   private readonly forward = new Vector3();
   private readonly handWorld = new Vector3();
   private readonly handLocal = new Vector3();
-  private readonly activeInstrumentNotes = new Map<string, { trackId: string; noteId: string; sourceId: string; mesh: Mesh; baseScaleY: number; oneShot: boolean }>();
+  private readonly activeInstrumentNotes = new Map<string, { trackId: string; noteId: string; sourceId: string; mesh: Mesh; baseScaleY: number; oneShot: boolean; baseColor: number }>();
   private readonly previousFingerPositions = new Map<'left' | 'right', Vector3>();
   private readonly previousFingerTimes = new Map<'left' | 'right', number>();
   private readonly turntable = new Group();
@@ -80,11 +80,11 @@ export class StudioSpatialAdapter {
         [-0.32, 0.08, 0.16, 0x477b9d], [0, 0.08, 0.16, 0x9c4545], [0.32, 0.08, 0.16, 0x477b9d],
       ];
       const drumPitches = [36, 38, 42, 45, 46, 49];
-      pads.forEach(([x, y, z, color], index) => { const pad = this.add(group, new CylinderGeometry(0.115, 0.115, 0.055, 32), color, [x, y, z]); pad.userData.drumPad = true; pad.userData.pitch = drumPitches[index]; });
+      pads.forEach(([x, y, z, color], index) => { const pad = this.add(group, new CylinderGeometry(0.115, 0.115, 0.055, 32), color, [x, y, z]); pad.userData.drumPad = true; pad.userData.pitch = drumPitches[index]; pad.userData.hitRadius = 0.115; pad.userData.hitHalfHeight = 0.12; });
       const leftCymbal = this.add(group, new CylinderGeometry(0.16, 0.16, 0.018, 32), 0xc6a64e, [-0.46, 0.28, -0.22], [1, 0.12, 1]);
-      leftCymbal.userData.drumPad = true; leftCymbal.userData.pitch = 46;
+      leftCymbal.userData.drumPad = true; leftCymbal.userData.pitch = 46; leftCymbal.userData.hitRadius = 0.16; leftCymbal.userData.hitHalfHeight = 0.14;
       const rightCymbal = this.add(group, new CylinderGeometry(0.16, 0.16, 0.018, 32), 0xc6a64e, [0.46, 0.28, 0.22], [1, 0.12, 1]);
-      rightCymbal.userData.drumPad = true; rightCymbal.userData.pitch = 51;
+      rightCymbal.userData.drumPad = true; rightCymbal.userData.pitch = 51; rightCymbal.userData.hitRadius = 0.16; rightCymbal.userData.hitHalfHeight = 0.14;
     } else if (placement.objectType === 'instrument-track') {
       // Compact keyboard/workstation: chassis, keybed, alternating black keys and control panel.
       this.add(group, new BoxGeometry(0.72,0.12,0.28), 0x34383e, [0,0,0]);
@@ -177,7 +177,7 @@ export class StudioSpatialAdapter {
       const previousAt = this.previousFingerTimes.get(hand);
       const elapsed = previousAt === undefined ? 0 : Math.max(0.001, now - previousAt);
       const speed = previous ? point.distanceTo(previous) / elapsed : 0;
-      const velocity = Math.max(0.18, Math.min(1, 0.35 + speed * 0.22));
+      const velocity = Math.max(0.18, Math.min(1, 0.28 + speed * 0.3));
       this.previousFingerPositions.set(hand, point.clone());
       this.previousFingerTimes.set(hand, now);
 
@@ -209,7 +209,7 @@ export class StudioSpatialAdapter {
           const noteId = 'vr:' + key;
           const sourceId = placement.objectRefId;
           const oneShot = Boolean(data.drumPad);
-          this.activeInstrumentNotes.set(key, { trackId: placement.objectRefId, noteId, sourceId, mesh, baseScaleY: mesh.scale.y, oneShot });
+          const material = mesh.material as MeshStandardMaterial;\n          this.activeInstrumentNotes.set(key, { trackId: placement.objectRefId, noteId, sourceId, mesh, baseScaleY: mesh.scale.y, oneShot, baseColor: material.color.getHex() });
           this.onInstrumentNoteOn?.(placement.objectRefId, sourceId, noteId, Number(data.pitch), oneShot ? velocity : velocity, now);
           mesh.scale.y = oneShot ? 1.18 : 0.72;
         });
