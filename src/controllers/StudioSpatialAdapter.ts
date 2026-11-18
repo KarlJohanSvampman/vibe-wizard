@@ -289,6 +289,15 @@ export class StudioSpatialAdapter {
       note.mesh.scale.y = note.baseScaleY;
     }
     this.activeInstrumentNotes.clear();
+    // Release controller-held notes as well when XR tracking is lost or the
+    // adapter is disposed, so no instrument can sustain indefinitely.
+    for (const active of this.controllerActive.values()) {
+      if (!active.oneShot) this.onInstrumentNoteOff?.(active.trackId, active.sourceId, active.noteId, now);
+      active.mesh.scale.y = active.mesh.userData.controllerBaseScaleY ?? active.mesh.scale.y;
+      (active.mesh.material as MeshStandardMaterial).emissiveIntensity = 0;
+    }
+    this.controllerActive.clear();
+    this.controllerTriggerDown.clear();
     this.previousFingerPositions.clear();
     this.previousFingerTimes.clear();
   }
