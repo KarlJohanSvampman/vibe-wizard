@@ -1,7 +1,7 @@
 import { VisibilityState, type World } from '@iwsdk/core';
 import {
   AmbientLight, BoxGeometry, CircleGeometry, CylinderGeometry, DirectionalLight, Group, HemisphereLight, Mesh, MeshBasicMaterial, MeshStandardMaterial,
-  RingGeometry, SphereGeometry, Vector3, Quaternion, Raycaster, EdgesGeometry, LineBasicMaterial, LineSegments,
+  RingGeometry, SphereGeometry, Vector3, Quaternion, Raycaster, EdgesGeometry, LineBasicMaterial, LineSegments, CanvasTexture, PlaneGeometry,
 } from 'three';
 import type { StudioObjectPlacement } from './ControllerModel.js';
 
@@ -30,17 +30,27 @@ export class StudioSpatialAdapter {
   private slotPinchStartedAt = 0;
   private slotPinchConsumed = false;
   private slotHoverIndex = -1;
+  private leftWasPinching = false;
+  private menu?: Mesh;
+  private menuCanvas?: HTMLCanvasElement;
+  private menuContext?: CanvasRenderingContext2D;
+  private menuStage: 'tracks' | 'representations' = 'tracks';
+  private menuSlotIndex = -1;
+  private menuTrackId?: string;
+  private menuRows: Array<{ label: string; value: string }> = [];
+  private readonly representationGroups = new Map<number, Group>();
   private lastScratchNormalized = -1;
   private lastScratchAt = 0;
   private readonly stopFrame: () => void;
   private readonly stopVisibility: () => void;
 
-  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly getSelectedTrackId?: () => string | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void) {
+  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly getSelectedTrackId?: () => string | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void, private readonly getTrackOptions?: () => Array<{ id: string; name: string; instrumentType: string }>) {
     this.root.name = 'vibe-wizard-spatial-studio';
     this.root.visible = world.visibilityState.value !== VisibilityState.NonImmersive;
     this.buildLighting();
     this.buildTurntable();
     this.buildSlots();
+    this.buildMenu();
     world.scene.add(this.root);
     this.stopVisibility = world.visibilityState.subscribe(state => { this.root.visible = state !== VisibilityState.NonImmersive; });
     this.stopFrame = world.onXRFrame(frame => this.update(frame));
@@ -63,6 +73,9 @@ export class StudioSpatialAdapter {
     this.stopFrame(); this.stopVisibility(); this.releaseInstrumentNotes(); this.world.scene.remove(this.root);
     for (const group of this.meshes.values()) this.disposeGroup(group);
     this.meshes.clear(); this.disposeGroup(this.turntable);
+    if (this.menu) { this.root.remove(this.menu); this.disposeGroup(new Group().add(this.menu)); this.menu = undefined; }
+    for (const group of this.representationGroups.values()) { this.root.remove(group); this.disposeGroup(group); }
+    this.representationGroups.clear();
   }
 
   private buildLighting(): void {
@@ -70,6 +83,73 @@ export class StudioSpatialAdapter {
     this.root.add(new AmbientLight(0xffffff, 0.85));
     const key = new DirectionalLight(0xffffff, 2.2); key.position.set(-2, 3, 2); this.root.add(key);
     const fill = new DirectionalLight(0xb9d8ff, 1.15); fill.position.set(2, 1, -2); this.root.add(fill);
+  }
+
+  private buildMenu(): void {
+    const canvas = document.createElement('canvas'); canvas.width = 768; canvas.height = 768;
+    const context = canvas.getContext('2d'); if (!context) return;
+    this.menuCanvas = canvas; this.menuContext = context;
+    const texture = new CanvasTexture(canvas); texture.colorSpace = 'srgb';
+    const material = new MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, side: 2 });
+    this.menu = new Mesh(new PlaneGeometry(0.64, 0.64), material); this.menu.name = 'studio-slot-context-menu'; this.menu.visible = false; this.root.add(this.menu);
+  }
+
+  private renderMenu(title: string, rows: Array<{label:string;value:string}>): void {
+    const ctx = this.menuContext; if (!ctx) return;
+    this.menuRows = rows;
+    ctx.clearRect(0,0,768,768); ctx.fillStyle = 'rgba(12,18,26,0.96)'; ctx.fillRect(0,0,768,768);
+    ctx.strokeStyle = '#52f28c'; ctx.lineWidth = 8; ctx.strokeRect(8,8,752,752);
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 42px sans-serif'; ctx.fillText(title,36,66);
+    ctx.font = '26px sans-serif';
+    rows.forEach((row,index) => { const y=112+index*86; ctx.fillStyle=index%2?'#263545':'#1d2a38'; ctx.fillRect(24,y,720,72); ctx.fillStyle='#eaf5ef'; ctx.fillText(row.label.slice(0,38),46,y+46); });
+    const material=this.menu?.material as MeshBasicMaterial | undefined; material?.map?.needsUpdate && (material.map.needsUpdate=true);
+    if (material?.map) material.map.needsUpdate=true;
+  }
+
+  private openSlotMenu(slotIndex: number): void {
+    this.menuSlotIndex=slotIndex; this.menuStage='tracks'; this.menuTrackId=undefined;
+    const tracks=this.getTrackOptions?.() ?? [];
+    this.renderMenu('Choose a project track', tracks.map(track=>({label:track.name,value:track.id})));
+    if (!tracks.length) this.renderMenu('No tracks in project', [{label:'Add a track in the workstation',value:'noop'}]);
+    const slot=this.slotGroups[slotIndex];
+    if (this.menu && slot) { this.menu.position.set(slot.position.x,slot.position.y+0.46,slot.position.z); this.menu.rotation.set(0,0,0); this.menu.visible=true; }
+  }
+
+  private selectMenuRow(local: Vector3): void {
+    if (!this.menu?.visible) return;
+    const p=this.menu.worldToLocal(this.root.localToWorld(local.clone()));
+    const x=p.x+0.32, y=0.32-p.y;
+    if (x<0.02||x>0.62||y<0.09||y>0.64) return;
+    const row=Math.floor((y-0.09)/0.0717);
+    const choice=this.menuRows[row]; if (!choice || choice.value==='noop') return;
+    if (this.menuStage==='tracks') {
+      this.menuTrackId=choice.value; this.menuStage='representations';
+      this.renderMenu('Choose representation',[
+        {label:'Instrument',value:'instrument'}, {label:'Sequencer',value:'sequencer'},
+        {label:'Track editor',value:'editor'}, {label:'Controller surface',value:'controller'},
+        {label:'Cancel',value:'cancel'},
+      ]);
+      return;
+    }
+    if (choice.value==='cancel') { this.menu.visible=false; return; }
+    this.assignSlot(this.menuSlotIndex,this.menuTrackId!,choice.value);
+    this.menu.visible=false;
+  }
+
+  private assignSlot(slotIndex:number,trackId:string,representation:string):void {
+    const slot=this.slotGroups[slotIndex]; if(!slot)return;
+    const existing=this.placements.find(item=>item.objectType==='instrument-track'&&item.objectRefId===trackId);
+    if(representation==='instrument'&&existing){
+      const next=this.placements.map(item=>item.id===existing.id?{...item,position:{x:slot.position.x,y:slot.position.y-0.12,z:slot.position.z}}:item);
+      this.setLayout(next); this.onCommit(this.placements); return;
+    }
+    const old=this.representationGroups.get(slotIndex);
+    if(old){this.root.remove(old);this.disposeGroup(old);this.representationGroups.delete(slotIndex);}
+    const group=new Group(); group.position.set(slot.position.x,slot.position.y-0.08,slot.position.z);
+    const screen=new Mesh(new BoxGeometry(0.7,0.42,0.045),this.material(representation==='sequencer'?0x244e70:representation==='editor'?0x51416d:0x285846)); group.add(screen);
+    for(let i=0;i<5;i++){const bar=new Mesh(new BoxGeometry(0.08+i*0.025,0.018,0.012),this.material(0x75d9a0));bar.position.set(-0.22+i*0.1,0.08-i*0.035,0.03);group.add(bar);}
+    group.userData.trackId=trackId;group.userData.representation=representation;group.name='slot-'+slotIndex+'-'+representation;
+    this.root.add(group);this.representationGroups.set(slotIndex,group);
   }
 
   private buildSlots(): void {
@@ -171,6 +251,13 @@ export class StudioSpatialAdapter {
       this.world.player.updateMatrixWorld(true); this.world.player.localToWorld(point); this.world.player.localToWorld(thumb);
       const local = this.root.worldToLocal(point.clone());
       const pinching = point.distanceTo(thumb) < 0.028;
+      const pinchStarted = pinching && !this.leftWasPinching;
+      this.leftWasPinching = pinching;
+      if (this.menu?.visible) {
+        if (pinchStarted) this.selectMenuRow(local);
+        this.slotGroups.forEach((slot,index)=>{const fill=slot.children[0] as Mesh;(fill.material as MeshBasicMaterial).opacity=index===this.menuSlotIndex?0.16:0.075;});
+        this.slotPinchStartedAt=0; this.slotPinchConsumed=true; return;
+      }
       let hover = -1;
       this.slotGroups.forEach((slot, index) => {
         const p = slot.position;
@@ -190,9 +277,9 @@ export class StudioSpatialAdapter {
         if (performance.now() - this.slotPinchStartedAt >= 3000) {
           this.slotPinchConsumed = true;
           this.slotGroups[hover]!.userData.dwellConfirmed = true;
-          // A short visual confirmation pulse; no instrument is ever moved by a pinch.
           const fill = this.slotGroups[hover]!.children[0] as Mesh;
           (fill.material as MeshBasicMaterial).opacity = 0.38;
+          this.openSlotMenu(hover);
         }
       } else if (!pinching) {
         this.slotPinchStartedAt = 0;
@@ -200,7 +287,7 @@ export class StudioSpatialAdapter {
         if (hover >= 0) this.slotGroups[hover]!.userData.dwellConfirmed = false;
       }
     } else {
-      this.slotPinchStartedAt = 0; this.slotPinchConsumed = false; this.slotHoverIndex = -1;
+      this.slotPinchStartedAt = 0; this.slotPinchConsumed = false; this.slotHoverIndex = -1; this.leftWasPinching = false;
     }
 
     // Right-hand pinch is reserved for turntable scratching; it never grabs objects.
