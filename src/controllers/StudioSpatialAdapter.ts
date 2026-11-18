@@ -129,8 +129,9 @@ export class StudioSpatialAdapter {
     if(this.forward.lengthSq()<0.0001)this.forward.set(0,0,-1);else this.forward.normalize();
     this.root.position.copy(this.head).addScaledVector(this.forward,0.95);this.root.position.y-=0.38;
     this.root.rotation.set(0,Math.atan2(-this.forward.x,-this.forward.z),0);this.root.updateMatrixWorld(true);
-    this.updateControllerTriggers(frame, reference);\n    const source=this.world.input.xr.getPrimaryInputSource('right')??this.world.input.xr.getPrimaryInputSource('left');
+    const source=this.world.input.xr.getPrimaryInputSource('right')??this.world.input.xr.getPrimaryInputSource('left');
     const index=source?.hand?.get('index-finger-tip'),thumb=source?.hand?.get('thumb-tip'),reference=this.world.xrReferenceSpace;
+    if (reference) this.updateControllerTriggers(frame, reference);
     if (reference) this.updateInstrumentContacts(frame, reference); else this.releaseInstrumentNotes();
     const playbackPosition = this.getPlaybackPosition?.();
     if (playbackPosition !== undefined && Number.isFinite(playbackPosition)) this.record.rotation.y = playbackPosition * Math.PI * 8;
