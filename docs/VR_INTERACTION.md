@@ -72,13 +72,12 @@ The existing DOM workstation remains the primary editing surface in VR. When the
 
 Instrument-track placements carry their instrument family. Piano tracks render a full-width keyboard model; drum tracks render an electronic tabletop pad kit with cymbal pads. These are currently visual spatial representations. The next interaction milestone is to bind tracked fingertip/controller contact to note-on/note-off events, including safe note release when tracking is lost. Do not treat the visual models alone as completed playable instruments.
 
-## Quick instrument placement gesture
+## Fixed studio slots
 
-In immersive mode, use the **left hand** to place the currently selected track's instrument without reaching for the model or using the desktop placement controls:
+The immersive studio now uses six fixed docking bays arranged in a shallow arc in front of the player. Green transparent outlines indicate the available slot volumes. Instruments are no longer grabbed or repositioned by either hand: this avoids accidental movement while playing piano keys or drum pads.
 
-1. Select the track you want to position in the workstation before entering VR (or change the active track in the workstation).
-2. Bring the left hand into view and pinch the thumb and index fingertip together.
-3. Keep the pinch held and move the hand; the selected track's instrument follows the fingertip.
-4. Release the pinch to place it. The placement is saved to the current project.
+The left index fingertip is used to hover a slot. Pinch the left thumb and index finger together while remaining inside a slot for approximately three seconds to trigger its dwell confirmation. The slot gives a stronger green visual confirmation. This is the first interaction layer for the slot workflow; track/representation selection in a contextual menu is the next interaction increment and is not yet wired.
 
-The gesture repositions that track's existing instrument rather than creating a duplicate. The right-hand pinch remains the grab-nearby-object / turntable-scratch gesture. If left-hand tracking is lost while placing, the last valid position is committed safely. Keep the instrument within comfortable reach and avoid placing it below the floor; verify the final feel on the target Quest headset.
+The right-hand pinch is reserved for scratching the turntable record. It does not move studio objects. Fingertip contact with piano keys and drum pads remains independent of slot interaction.
+
+The studio adds hemisphere, ambient, and directional lighting, and the piano chassis/key materials have been brightened for better contrast. Validate lighting, slot reach, hand-tracking thresholds, and dwell timing on the target Quest headset; desktop/browser tests cannot establish headset ergonomics.
