@@ -241,8 +241,12 @@ export class StudioSpatialAdapter {
         if (pose) {
           const p = pose.transform.position, o = pose.transform.orientation;
           this.controllerRaycaster.ray.origin.set(p.x, p.y, p.z);
+          this.world.player.updateMatrixWorld(true);
+          this.world.player.localToWorld(this.controllerRaycaster.ray.origin);
           this.controllerQuaternion.set(o.x, o.y, o.z, o.w);
           this.controllerDirection.set(0, 0, -1).applyQuaternion(this.controllerQuaternion).normalize();
+          this.world.player.getWorldQuaternion(this.controllerQuaternion);
+          this.controllerDirection.applyQuaternion(this.controllerQuaternion).normalize();
           this.controllerRaycaster.ray.direction.copy(this.controllerDirection);
           const targets: Mesh[] = [];
           for (const placement of this.placements) {
