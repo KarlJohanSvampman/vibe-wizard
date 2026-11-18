@@ -357,7 +357,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     owner?.noteOff(event);
     noteOwners.delete(key);
     recordEvent(event);
-  });
+  }, () => project.tracks.map(track => ({ id: track.id, name: track.name, instrumentType: track.instrumentType })));
 
   const spatialAdapter = new ThereminSpatialAdapter(world, theremin, {
     handedness: 'right',
