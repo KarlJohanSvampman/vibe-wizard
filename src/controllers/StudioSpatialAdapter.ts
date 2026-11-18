@@ -28,12 +28,14 @@ export class StudioSpatialAdapter {
   private placements: StudioObjectPlacement[] = [];
   private draggingId?: string;
   private pinching = false;
+  private leftPinching = false;
+  private leftSpawnDraggingId?: string;
   private lastScratchNormalized = -1;
   private lastScratchAt = 0;
   private readonly stopFrame: () => void;
   private readonly stopVisibility: () => void;
 
-  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void) {
+  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly getSelectedTrackId?: () => string | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void) {
     this.root.name = 'vibe-wizard-spatial-studio';
     this.root.visible = world.visibilityState.value !== VisibilityState.NonImmersive;
     this.buildTurntable();
@@ -129,15 +131,47 @@ export class StudioSpatialAdapter {
     if(this.forward.lengthSq()<0.0001)this.forward.set(0,0,-1);else this.forward.normalize();
     this.root.position.copy(this.head).addScaledVector(this.forward,0.95);this.root.position.y-=0.38;
     this.root.rotation.set(0,Math.atan2(-this.forward.x,-this.forward.z),0);this.root.updateMatrixWorld(true);
-    const source=this.world.input.xr.getPrimaryInputSource('right')??this.world.input.xr.getPrimaryInputSource('left');
-    const index=source?.hand?.get('index-finger-tip'),thumb=source?.hand?.get('thumb-tip'),reference=this.world.xrReferenceSpace;
+    const reference=this.world.xrReferenceSpace;
     if (reference) this.updateControllerTriggers(frame, reference);
     if (reference) this.updateInstrumentContacts(frame, reference); else this.releaseInstrumentNotes();
     const playbackPosition = this.getPlaybackPosition?.();
     if (playbackPosition !== undefined && Number.isFinite(playbackPosition)) this.record.rotation.y = playbackPosition * Math.PI * 8;
+
+    // Left-hand pinch is the quick-placement gesture: it moves the selected
+    // track's existing instrument to the hand, without needing to find it first.
+    const leftSource=this.world.input.xr.getPrimaryInputSource('left');
+    const leftIndex=leftSource?.hand?.get('index-finger-tip');
+    const leftThumb=leftSource?.hand?.get('thumb-tip');
+    const leftIndexPose=reference&&leftIndex?frame.getPose(leftIndex,reference):undefined;
+    const leftThumbPose=reference&&leftThumb?frame.getPose(leftThumb,reference):undefined;
+    if(leftIndexPose&&leftThumbPose&&reference){
+      const leftWorld=new Vector3(leftIndexPose.transform.position.x,leftIndexPose.transform.position.y,leftIndexPose.transform.position.z);
+      const leftThumbWorld=new Vector3(leftThumbPose.transform.position.x,leftThumbPose.transform.position.y,leftThumbPose.transform.position.z);
+      this.world.player.updateMatrixWorld(true);
+      this.world.player.localToWorld(leftWorld);this.world.player.localToWorld(leftThumbWorld);
+      const leftLocal=this.root.worldToLocal(leftWorld.clone());
+      const leftPinching=leftWorld.distanceTo(leftThumbWorld)<0.035;
+      if(leftPinching&&!this.leftPinching){
+        const selectedId=this.getSelectedTrackId?.();
+        const placement=this.placements.find(item=>item.objectType==='instrument-track'&&item.objectRefId===selectedId);
+        this.leftSpawnDraggingId=placement?.id;
+      }
+      if(leftPinching&&this.leftSpawnDraggingId){
+        const group=this.meshes.get(this.leftSpawnDraggingId);
+        group?.position.copy(leftLocal);
+        this.placements=this.placements.map(item=>item.id===this.leftSpawnDraggingId?{...item,position:{x:leftLocal.x,y:leftLocal.y,z:leftLocal.z}}:item);
+      }
+      if(!leftPinching&&this.leftPinching)this.finishLeftSpawnDrag();
+      this.leftPinching=leftPinching;
+    } else if(this.leftPinching) this.finishLeftSpawnDrag();
+
+    // Existing right-hand pinch remains available for grabbing nearby objects
+    // and scratching the turntable.
+    const source=this.world.input.xr.getPrimaryInputSource('right');
+    const index=source?.hand?.get('index-finger-tip'),thumb=source?.hand?.get('thumb-tip');
     if(!index||!thumb||!reference){this.finishDrag();this.releaseInstrumentNotes();this.lastScratchNormalized=-1;return;}
     const indexPose=frame.getPose(index,reference),thumbPose=frame.getPose(thumb,reference);
-    if(!indexPose||!thumbPose){this.finishDrag();this.lastScratchNormalized=-1;return;}
+    if(!indexPose||!thumbPose){this.finishDrag();this.releaseInstrumentNotes();this.lastScratchNormalized=-1;return;}
     this.handWorld.set(indexPose.transform.position.x,indexPose.transform.position.y,indexPose.transform.position.z);
     this.world.player.updateMatrixWorld(true);this.world.player.localToWorld(this.handWorld);this.handLocal.copy(this.handWorld);this.root.worldToLocal(this.handLocal);
     const thumbWorld=new Vector3(thumbPose.transform.position.x,thumbPose.transform.position.y,thumbPose.transform.position.z);this.world.player.localToWorld(thumbWorld);
@@ -303,4 +337,5 @@ export class StudioSpatialAdapter {
   }
 
   private finishDrag():void{if(this.draggingId)this.onCommit(this.placements);this.draggingId=undefined;this.pinching=false;}
+  private finishLeftSpawnDrag():void{if(this.leftSpawnDraggingId)this.onCommit(this.placements);this.leftSpawnDraggingId=undefined;this.leftPinching=false;}
 }
