@@ -1,7 +1,7 @@
 import { VisibilityState, type World } from '@iwsdk/core';
 import {
-  BoxGeometry, CircleGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial,
-  RingGeometry, SphereGeometry, Vector3, Quaternion, Raycaster,
+  AmbientLight, BoxGeometry, CircleGeometry, CylinderGeometry, DirectionalLight, Group, HemisphereLight, Mesh, MeshBasicMaterial, MeshStandardMaterial,
+  RingGeometry, SphereGeometry, Vector3, Quaternion, Raycaster, EdgesGeometry, LineBasicMaterial, LineSegments,
 } from 'three';
 import type { StudioObjectPlacement } from './ControllerModel.js';
 
@@ -26,10 +26,10 @@ export class StudioSpatialAdapter {
   private readonly tonearm = new Group();
   private readonly turntablePosition = new Vector3(0.72, -0.26, -0.82);
   private placements: StudioObjectPlacement[] = [];
-  private draggingId?: string;
-  private pinching = false;
-  private leftPinching = false;
-  private leftSpawnDraggingId?: string;
+  private readonly slotGroups: Group[] = [];
+  private slotPinchStartedAt = 0;
+  private slotPinchConsumed = false;
+  private slotHoverIndex = -1;
   private lastScratchNormalized = -1;
   private lastScratchAt = 0;
   private readonly stopFrame: () => void;
@@ -38,7 +38,9 @@ export class StudioSpatialAdapter {
   constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly getSelectedTrackId?: () => string | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void) {
     this.root.name = 'vibe-wizard-spatial-studio';
     this.root.visible = world.visibilityState.value !== VisibilityState.NonImmersive;
+    this.buildLighting();
     this.buildTurntable();
+    this.buildSlots();
     world.scene.add(this.root);
     this.stopVisibility = world.visibilityState.subscribe(state => { this.root.visible = state !== VisibilityState.NonImmersive; });
     this.stopFrame = world.onXRFrame(frame => this.update(frame));
@@ -63,6 +65,25 @@ export class StudioSpatialAdapter {
     this.meshes.clear(); this.disposeGroup(this.turntable);
   }
 
+  private buildLighting(): void {
+    this.root.add(new HemisphereLight(0xeaf4ff, 0x46505b, 2.1));
+    this.root.add(new AmbientLight(0xffffff, 0.85));
+    const key = new DirectionalLight(0xffffff, 2.2); key.position.set(-2, 3, 2); this.root.add(key);
+    const fill = new DirectionalLight(0xb9d8ff, 1.15); fill.position.set(2, 1, -2); this.root.add(fill);
+  }
+
+  private buildSlots(): void {
+    // Six fixed, transparent green docking bays in a shallow arc in front of the user.
+    for (let i = 0; i < 6; i++) {
+      const slot = new Group(); slot.name = 'studio-slot-' + (i + 1);
+      const x = (i % 3 - 1) * 0.92; const z = -0.72 - Math.floor(i / 3) * 0.82;
+      slot.position.set(x, 0.02, z); slot.userData.slotIndex = i;
+      const fill = new Mesh(new BoxGeometry(0.78, 0.1, 0.56), new MeshBasicMaterial({ color: 0x35e879, transparent: true, opacity: 0.075, depthWrite: false }));
+      const outline = new LineSegments(new EdgesGeometry(new BoxGeometry(0.78, 0.1, 0.56)), new LineBasicMaterial({ color: 0x48f58b, transparent: true, opacity: 0.9 }));
+      slot.add(fill, outline); this.root.add(slot); this.slotGroups.push(slot);
+    }
+  }
+
   private material(color: number, metalness = 0.08, roughness = 0.55): MeshStandardMaterial {
     return new MeshStandardMaterial({ color, metalness, roughness });
   }
@@ -73,11 +94,11 @@ export class StudioSpatialAdapter {
     const group = new Group();
     if (placement.objectType === 'instrument-track' && placement.instrumentType === 'piano') {
       // Full-width playable-looking keyboard with alternating black keys.
-      this.add(group, new BoxGeometry(1.12, 0.12, 0.34), 0x292d34, [0, 0, 0]);
-      this.add(group, new BoxGeometry(1.02, 0.018, 0.22), 0xe9e5dc, [0, -0.018, 0.035]);
+      this.add(group, new BoxGeometry(1.12, 0.12, 0.34), 0x59616d, [0, 0, 0]);
+      this.add(group, new BoxGeometry(1.02, 0.018, 0.22), 0xffffff, [0, -0.018, 0.035]);
       const whitePitches = [0, 2, 4, 5, 7, 9, 11];
-      for (let i = 0; i < 24; i++) { const key = this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xf6f2e8, [-0.48 + i * 0.0417, 0.002, 0.035]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + whitePitches[i % 7]; key.userData.hitHalfExtents = [0.0205, 0.07, 0.095]; }
-      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x101216, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + [1, 3, 0, 6, 8, 10, 0][i % 7]; key.userData.hitHalfExtents = [0.013, 0.07, 0.06]; }
+      for (let i = 0; i < 24; i++) { const key = this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xffffff, [-0.48 + i * 0.0417, 0.002, 0.035]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + whitePitches[i % 7]; key.userData.hitHalfExtents = [0.0205, 0.07, 0.095]; }
+      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x080a0e, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + [1, 3, 0, 6, 8, 10, 0][i % 7]; key.userData.hitHalfExtents = [0.013, 0.07, 0.06]; }
       for (let i = 0; i < 5; i++) this.add(group, new CylinderGeometry(0.025, 0.025, 0.02, 16), 0xc38e4b, [0.32 + i * 0.09, 0.075, -0.1]);
     } else if (placement.objectType === 'instrument-track' && placement.instrumentType === 'drums') {
       // Compact tabletop electronic drum kit: kick, snare, toms and cymbal pads.
@@ -137,41 +158,57 @@ export class StudioSpatialAdapter {
     const playbackPosition = this.getPlaybackPosition?.();
     if (playbackPosition !== undefined && Number.isFinite(playbackPosition)) this.record.rotation.y = playbackPosition * Math.PI * 8;
 
-    // Left-hand pinch is the quick-placement gesture: it moves the selected
-    // track's existing instrument to the hand, without needing to find it first.
-    const leftSource=this.world.input.xr.getPrimaryInputSource('left');
-    const leftIndex=leftSource?.hand?.get('index-finger-tip');
-    const leftThumb=leftSource?.hand?.get('thumb-tip');
-    const leftIndexPose=reference&&leftIndex?frame.getPose(leftIndex,reference):undefined;
-    const leftThumbPose=reference&&leftThumb?frame.getPose(leftThumb,reference):undefined;
-    if(leftIndexPose&&leftThumbPose&&reference){
-      const leftWorld=new Vector3(leftIndexPose.transform.position.x,leftIndexPose.transform.position.y,leftIndexPose.transform.position.z);
-      const leftThumbWorld=new Vector3(leftThumbPose.transform.position.x,leftThumbPose.transform.position.y,leftThumbPose.transform.position.z);
-      this.world.player.updateMatrixWorld(true);
-      this.world.player.localToWorld(leftWorld);this.world.player.localToWorld(leftThumbWorld);
-      const leftLocal=this.root.worldToLocal(leftWorld.clone());
-      const leftPinching=leftWorld.distanceTo(leftThumbWorld)<0.035;
-      if(leftPinching&&!this.leftPinching){
-        const selectedId=this.getSelectedTrackId?.();
-        const placement=this.placements.find(item=>item.objectType==='instrument-track'&&item.objectRefId===selectedId);
-        this.leftSpawnDraggingId=placement?.id;
+    // Fixed-slot dwell gesture: a stable pinch over a bay is detected once.
+    // Assignment UI is deliberately not coupled to instrument contact/play gestures.
+    const leftSource = this.world.input.xr.getPrimaryInputSource('left');
+    const leftIndex = leftSource?.hand?.get('index-finger-tip');
+    const leftThumb = leftSource?.hand?.get('thumb-tip');
+    const leftIndexPose = reference && leftIndex ? frame.getPose(leftIndex, reference) : undefined;
+    const leftThumbPose = reference && leftThumb ? frame.getPose(leftThumb, reference) : undefined;
+    if (leftIndexPose && leftThumbPose && reference) {
+      const point = new Vector3(leftIndexPose.transform.position.x, leftIndexPose.transform.position.y, leftIndexPose.transform.position.z);
+      const thumb = new Vector3(leftThumbPose.transform.position.x, leftThumbPose.transform.position.y, leftThumbPose.transform.position.z);
+      this.world.player.updateMatrixWorld(true); this.world.player.localToWorld(point); this.world.player.localToWorld(thumb);
+      const local = this.root.worldToLocal(point.clone());
+      const pinching = point.distanceTo(thumb) < 0.028;
+      let hover = -1;
+      this.slotGroups.forEach((slot, index) => {
+        const p = slot.position;
+        if (Math.abs(local.x - p.x) < 0.39 && Math.abs(local.y - p.y) < 0.12 && Math.abs(local.z - p.z) < 0.28) hover = index;
+      });
+      if (hover !== this.slotHoverIndex) {
+        this.slotHoverIndex = hover;
+        this.slotPinchStartedAt = 0;
+        this.slotPinchConsumed = false;
       }
-      if(leftPinching&&this.leftSpawnDraggingId){
-        const group=this.meshes.get(this.leftSpawnDraggingId);
-        group?.position.copy(leftLocal);
-        this.placements=this.placements.map(item=>item.id===this.leftSpawnDraggingId?{...item,position:{x:leftLocal.x,y:leftLocal.y,z:leftLocal.z}}:item);
+      this.slotGroups.forEach((slot, index) => {
+        const fill = slot.children[0] as Mesh;
+        (fill.material as MeshBasicMaterial).opacity = index === hover ? 0.2 : 0.075;
+      });
+      if (pinching && hover >= 0 && !this.slotPinchConsumed) {
+        if (!this.slotPinchStartedAt) this.slotPinchStartedAt = performance.now();
+        if (performance.now() - this.slotPinchStartedAt >= 3000) {
+          this.slotPinchConsumed = true;
+          this.slotGroups[hover]!.userData.dwellConfirmed = true;
+          // A short visual confirmation pulse; no instrument is ever moved by a pinch.
+          const fill = this.slotGroups[hover]!.children[0] as Mesh;
+          (fill.material as MeshBasicMaterial).opacity = 0.38;
+        }
+      } else if (!pinching) {
+        this.slotPinchStartedAt = 0;
+        this.slotPinchConsumed = false;
+        if (hover >= 0) this.slotGroups[hover]!.userData.dwellConfirmed = false;
       }
-      if(!leftPinching&&this.leftPinching)this.finishLeftSpawnDrag();
-      this.leftPinching=leftPinching;
-    } else if(this.leftPinching) this.finishLeftSpawnDrag();
+    } else {
+      this.slotPinchStartedAt = 0; this.slotPinchConsumed = false; this.slotHoverIndex = -1;
+    }
 
-    // Existing right-hand pinch remains available for grabbing nearby objects
-    // and scratching the turntable.
+    // Right-hand pinch is reserved for turntable scratching; it never grabs objects.
     const source=this.world.input.xr.getPrimaryInputSource('right');
     const index=source?.hand?.get('index-finger-tip'),thumb=source?.hand?.get('thumb-tip');
-    if(!index||!thumb||!reference){this.finishDrag();this.releaseInstrumentNotes();this.lastScratchNormalized=-1;return;}
+    if(!index||!thumb||!reference){this.releaseInstrumentNotes();this.lastScratchNormalized=-1;return;}
     const indexPose=frame.getPose(index,reference),thumbPose=frame.getPose(thumb,reference);
-    if(!indexPose||!thumbPose){this.finishDrag();this.releaseInstrumentNotes();this.lastScratchNormalized=-1;return;}
+    if(!indexPose||!thumbPose){this.releaseInstrumentNotes();this.lastScratchNormalized=-1;return;}
     this.handWorld.set(indexPose.transform.position.x,indexPose.transform.position.y,indexPose.transform.position.z);
     this.world.player.updateMatrixWorld(true);this.world.player.localToWorld(this.handWorld);this.handLocal.copy(this.handWorld);this.root.worldToLocal(this.handLocal);
     const thumbWorld=new Vector3(thumbPose.transform.position.x,thumbPose.transform.position.y,thumbPose.transform.position.z);this.world.player.localToWorld(thumbWorld);
@@ -188,14 +225,7 @@ export class StudioSpatialAdapter {
         this.onScratch?.(normalized);this.lastScratchNormalized=normalized;this.lastScratchAt=now;
       }
     } else if(!pinching) this.lastScratchNormalized=-1;
-    if(pinching&&!this.pinching){
-      let nearest:{id:string;distance:number}|undefined;
-      for(const [id,group] of this.meshes){const distance=group.position.distanceTo(this.handLocal);if(distance<0.24&&(!nearest||distance<nearest.distance))nearest={id,distance};}
-      this.draggingId=nearest?.id;
-    }
-    if(pinching&&this.draggingId){const group=this.meshes.get(this.draggingId);group?.position.copy(this.handLocal);this.placements=this.placements.map(item=>item.id===this.draggingId?{...item,position:{x:this.handLocal.x,y:this.handLocal.y,z:this.handLocal.z}}:item);}
-    if(!pinching&&this.pinching)this.finishDrag();
-    this.pinching=pinching;
+    // No freehand object dragging: instrument models stay docked and stable.
   }
 
   private updateInstrumentContacts(frame: XRFrame, reference: XRReferenceSpace): void {
@@ -336,6 +366,5 @@ export class StudioSpatialAdapter {
     this.previousFingerTimes.clear();
   }
 
-  private finishDrag():void{if(this.draggingId)this.onCommit(this.placements);this.draggingId=undefined;this.pinching=false;}
-  private finishLeftSpawnDrag():void{if(this.leftSpawnDraggingId)this.onCommit(this.placements);this.leftSpawnDraggingId=undefined;this.leftPinching=false;}
+
 }
