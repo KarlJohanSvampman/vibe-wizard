@@ -1,7 +1,7 @@
 import { VisibilityState, type World } from '@iwsdk/core';
 import {
   BoxGeometry, CircleGeometry, CylinderGeometry, Group, Mesh, MeshStandardMaterial,
-  RingGeometry, SphereGeometry, Vector3,
+  RingGeometry, SphereGeometry, Vector3, Quaternion, Raycaster,
 } from 'three';
 import type { StudioObjectPlacement } from './ControllerModel.js';
 
@@ -16,6 +16,11 @@ export class StudioSpatialAdapter {
   private readonly activeInstrumentNotes = new Map<string, { trackId: string; noteId: string; sourceId: string; mesh: Mesh; baseScaleY: number; oneShot: boolean; baseColor: number }>();
   private readonly previousFingerPositions = new Map<'left' | 'right', Vector3>();
   private readonly previousFingerTimes = new Map<'left' | 'right', number>();
+  private readonly controllerTriggerDown = new Map<'left' | 'right', boolean>();
+  private readonly controllerActive = new Map<'left' | 'right', { trackId: string; sourceId: string; noteId: string; mesh: Mesh; oneShot: boolean }>();
+  private readonly controllerRaycaster = new Raycaster();
+  private readonly controllerDirection = new Vector3(0, 0, -1);
+  private readonly controllerQuaternion = new Quaternion();
   private readonly turntable = new Group();
   private readonly record = new Mesh(new CylinderGeometry(0.31, 0.31, 0.018, 48), new MeshStandardMaterial({ color: 0x202124, roughness: 0.42 }));
   private readonly tonearm = new Group();
@@ -43,7 +48,7 @@ export class StudioSpatialAdapter {
     for (const [id, group] of this.meshes) if (!active.has(id)) { this.root.remove(group); this.disposeGroup(group); this.meshes.delete(id); }
     for (const placement of this.placements) {
       let group = this.meshes.get(placement.id);
-      if (!group) { group = this.createStudioObject(placement); group.name = placement.id; this.meshes.set(placement.id, group); this.root.add(group); }
+      if (!group || group.userData.instrumentType !== placement.instrumentType || group.userData.objectType !== placement.objectType) { if (group) { this.root.remove(group); this.disposeGroup(group); } group = this.createStudioObject(placement); group.name = placement.id; group.userData.instrumentType = placement.instrumentType; group.userData.objectType = placement.objectType; this.meshes.set(placement.id, group); this.root.add(group); }
       group.position.set(placement.position.x, placement.position.y, placement.position.z);
       group.rotation.set(placement.rotation.x, placement.rotation.y, placement.rotation.z);
       group.scale.set(placement.scale.x, placement.scale.y, placement.scale.z);
@@ -124,7 +129,7 @@ export class StudioSpatialAdapter {
     if(this.forward.lengthSq()<0.0001)this.forward.set(0,0,-1);else this.forward.normalize();
     this.root.position.copy(this.head).addScaledVector(this.forward,0.95);this.root.position.y-=0.38;
     this.root.rotation.set(0,Math.atan2(-this.forward.x,-this.forward.z),0);this.root.updateMatrixWorld(true);
-    const source=this.world.input.xr.getPrimaryInputSource('right')??this.world.input.xr.getPrimaryInputSource('left');
+    this.updateControllerTriggers(frame, reference);\n    const source=this.world.input.xr.getPrimaryInputSource('right')??this.world.input.xr.getPrimaryInputSource('left');
     const index=source?.hand?.get('index-finger-tip'),thumb=source?.hand?.get('thumb-tip'),reference=this.world.xrReferenceSpace;
     if (reference) this.updateInstrumentContacts(frame, reference); else this.releaseInstrumentNotes();
     const playbackPosition = this.getPlaybackPosition?.();
@@ -223,6 +228,54 @@ export class StudioSpatialAdapter {
     }
   }
 
+  /** Controller trigger plays the instrument under the pointing ray. */
+  private updateControllerTriggers(frame: XRFrame, reference: XRReferenceSpace): void {
+    const now = performance.now() / 1000;
+    for (const hand of ['left', 'right'] as const) {
+      const source = this.world.input.xr.getPrimaryInputSource(hand);
+      const pressed = Boolean(source?.gamepad?.buttons?.[0]?.pressed);
+      const wasPressed = this.controllerTriggerDown.get(hand) ?? false;
+      if (pressed && !wasPressed && source?.targetRaySpace) {
+        const pose = frame.getPose(source.targetRaySpace, reference);
+        if (pose) {
+          const p = pose.transform.position, o = pose.transform.orientation;
+          this.controllerRaycaster.ray.origin.set(p.x, p.y, p.z);
+          this.controllerQuaternion.set(o.x, o.y, o.z, o.w);
+          this.controllerDirection.set(0, 0, -1).applyQuaternion(this.controllerQuaternion).normalize();
+          this.controllerRaycaster.ray.direction.copy(this.controllerDirection);
+          const targets: Mesh[] = [];
+          for (const placement of this.placements) {
+            if (placement.objectType !== 'instrument-track' || (placement.instrumentType !== 'piano' && placement.instrumentType !== 'drums')) continue;
+            const group = this.meshes.get(placement.id); if (!group) continue; group.updateMatrixWorld(true);
+            group.traverse(obj => { const mesh = obj as Mesh; if (mesh.userData.instrumentKey || mesh.userData.drumPad) targets.push(mesh); });
+          }
+          const hit = this.controllerRaycaster.intersectObjects(targets, false)[0]?.object as Mesh | undefined;
+          if (hit) {
+            const group = hit.parent;
+            const placement = this.placements.find(item => this.meshes.get(item.id) === group);
+            const trackId = placement?.objectRefId;
+            if (trackId) {
+              const noteId = 'vr:controller:' + hand + ':' + placement!.id + ':' + String(hit.userData.pitch);
+              const oneShot = Boolean(hit.userData.drumPad);
+              this.onInstrumentNoteOn?.(trackId, trackId, noteId, Number(hit.userData.pitch), 0.85, now);
+              const material = hit.material as MeshStandardMaterial;
+              hit.userData.controllerBaseScaleY ??= hit.scale.y;
+              hit.scale.y = oneShot ? 1.2 : 0.76; material.emissive.setHex(0x385b80); material.emissiveIntensity = 0.5;
+              this.controllerActive.set(hand, { trackId, sourceId: trackId, noteId, mesh: hit, oneShot });
+              if (oneShot) setTimeout(() => { hit.scale.y = hit.userData.controllerBaseScaleY ?? hit.scale.y; material.emissiveIntensity = 0; }, 140);
+            }
+          }
+        }
+      }
+      if (!pressed && wasPressed) {
+        const active = this.controllerActive.get(hand);
+        if (active && !active.oneShot) this.onInstrumentNoteOff?.(active.trackId, active.sourceId, active.noteId, now);
+        if (active) { active.mesh.scale.y = active.mesh.userData.controllerBaseScaleY ?? active.mesh.scale.y; (active.mesh.material as MeshStandardMaterial).emissiveIntensity = 0; }
+        this.controllerActive.delete(hand);
+      }
+      this.controllerTriggerDown.set(hand, pressed);
+    }
+  }
   private releaseInstrumentNotes(): void {
     const now = performance.now() / 1000;
     for (const note of this.activeInstrumentNotes.values()) {
