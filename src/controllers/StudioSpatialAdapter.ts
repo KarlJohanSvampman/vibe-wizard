@@ -120,7 +120,7 @@ export class StudioSpatialAdapter {
     const p=this.menu.worldToLocal(this.root.localToWorld(local.clone()));
     const x=p.x+0.32, y=0.32-p.y;
     if (x<0.02||x>0.62||y<0.09||y>0.64) return;
-    const row=Math.floor((y-0.09)/0.0717);
+    const row=Math.floor((y-0.09)/0.112);
     const choice=this.menuRows[row]; if (!choice || choice.value==='noop') return;
     if (this.menuStage==='tracks') {
       this.menuTrackId=choice.value; this.menuStage='representations';
