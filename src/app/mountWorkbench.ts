@@ -340,7 +340,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     void persistProject().catch(error => { if (projectStatus) projectStatus.textContent = error instanceof Error ? error.message : 'Could not save VR studio placement.'; });
   }, normalizedPosition => {
     if (turntable.isLoaded) turntable.scratch(normalizedPosition * turntable.duration);
-  }, () => turntable.isPlaying ? turntable.currentPosition() : undefined, (trackId, _sourceId, noteId, pitch, velocity, timestamp) => {
+  }, () => turntable.isPlaying ? turntable.currentPosition() : undefined, () => activeTrack()?.id, (trackId, _sourceId, noteId, pitch, velocity, timestamp) => {
     const track = project.tracks.find(item => item.id === trackId);
     const resources = audioReady ? resourceFor(trackId) : undefined;
     if (!track || !resources) return;
