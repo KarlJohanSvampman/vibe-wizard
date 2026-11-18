@@ -214,8 +214,9 @@ export class StudioSpatialAdapter {
           const noteId = 'vr:' + key;
           const sourceId = placement.objectRefId;
           const oneShot = Boolean(data.drumPad);
-          const material = mesh.material as MeshStandardMaterial;\n          this.activeInstrumentNotes.set(key, { trackId: placement.objectRefId, noteId, sourceId, mesh, baseScaleY: mesh.scale.y, oneShot, baseColor: material.color.getHex() });
-          this.onInstrumentNoteOn?.(placement.objectRefId, sourceId, noteId, Number(data.pitch), oneShot ? velocity : velocity, now);
+          const material = mesh.material as MeshStandardMaterial;
+          this.activeInstrumentNotes.set(key, { trackId: placement.objectRefId, noteId, sourceId, mesh, baseScaleY: mesh.scale.y, oneShot, baseColor: material.color.getHex() });
+          this.onInstrumentNoteOn?.(placement.objectRefId, sourceId, noteId, Number(data.pitch), velocity, now);
           mesh.scale.y = oneShot ? 1.18 : 0.72;
         });
       }
