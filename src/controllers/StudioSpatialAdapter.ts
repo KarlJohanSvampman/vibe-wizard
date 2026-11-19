@@ -177,7 +177,7 @@ export class StudioSpatialAdapter {
       this.add(group, new BoxGeometry(1.12, 0.12, 0.34), 0x59616d, [0, 0, 0]);
       this.add(group, new BoxGeometry(1.02, 0.018, 0.22), 0xffffff, [0, -0.018, 0.035]);
       const whitePitches = [0, 2, 4, 5, 7, 9, 11];
-      for (let i = 0; i < 24; i++) { const key = this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xffffff, [-0.48 + i * 0.0417, 0.002, 0.035]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + whitePitches[i % 7]; key.userData.hitHalfExtents = [0.0205, 0.07, 0.095]; }
+      for (let i = 0; i < 24; i++) { const key = this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xffffff, [-0.48 + i * 0.0417, 0.002, 0.035]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + whitePitches[i % 7]; key.userData.hitHalfExtents = [0.0205, 0.055, 0.095]; }
       for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x080a0e, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + [1, 3, 0, 6, 8, 10, 0][i % 7]; key.userData.hitHalfExtents = [0.013, 0.07, 0.06]; }
       for (let i = 0; i < 5; i++) this.add(group, new CylinderGeometry(0.025, 0.025, 0.02, 16), 0xc38e4b, [0.32 + i * 0.09, 0.075, -0.1]);
     } else if (placement.objectType === 'instrument-track' && placement.instrumentType === 'drums') {
@@ -358,8 +358,10 @@ export class StudioSpatialAdapter {
               Math.abs(local.z) <= half[2]!;
           } else {
             const radius = 0.115;
+            // Accept a fingertip just above the pad surface, but reject
+            // hands merely hovering well above or passing underneath it.
             touching = local.x * local.x + local.z * local.z <= radius * radius &&
-              Math.abs(local.y) <= 0.12;
+              local.y >= -0.045 && local.y <= 0.065;
           }
           if (!touching) return;
           const key = placement.id + ':' + hand + ':' + String(data.pitch);
