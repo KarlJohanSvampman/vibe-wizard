@@ -178,7 +178,7 @@ export class StudioSpatialAdapter {
       this.add(group, new BoxGeometry(1.02, 0.018, 0.22), 0xffffff, [0, -0.018, 0.035]);
       const whitePitches = [0, 2, 4, 5, 7, 9, 11];
       for (let i = 0; i < 24; i++) { const key = this.add(group, new BoxGeometry(0.041, 0.025, 0.19), 0xffffff, [-0.48 + i * 0.0417, 0.002, 0.035]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + whitePitches[i % 7]; key.userData.hitHalfExtents = [0.0205, 0.055, 0.095]; }
-      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x080a0e, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + [1, 3, 0, 6, 8, 10, 0][i % 7]; key.userData.hitHalfExtents = [0.013, 0.07, 0.06]; }
+      for (let i = 0; i < 23; i++) if (![2, 6].includes(i % 7)) { const key = this.add(group, new BoxGeometry(0.026, 0.038, 0.12), 0x080a0e, [-0.459 + i * 0.0417, 0.018, -0.005]); key.userData.instrumentKey = true; key.userData.blackKey = true; key.userData.pitch = 48 + Math.floor(i / 7) * 12 + [1, 3, 0, 6, 8, 10, 0][i % 7]; key.userData.hitHalfExtents = [0.013, 0.07, 0.06]; }
       for (let i = 0; i < 5; i++) this.add(group, new CylinderGeometry(0.025, 0.025, 0.02, 16), 0xc38e4b, [0.32 + i * 0.09, 0.075, -0.1]);
     } else if (placement.objectType === 'instrument-track' && placement.instrumentType === 'drums') {
       // Compact tabletop electronic drum kit: kick, snare, toms and cymbal pads.
@@ -343,6 +343,7 @@ export class StudioSpatialAdapter {
       this.previousFingerPositions.set(hand, point.clone());
       this.previousFingerTimes.set(hand, now);
 
+      let best: { placement: StudioObjectPlacement; mesh: Mesh; pitch: number; oneShot: boolean; score: number } | undefined;
       for (const placement of this.placements) {
         if (placement.objectType !== 'instrument-track' || (placement.instrumentType !== 'piano' && placement.instrumentType !== 'drums')) continue;
         const group = this.meshes.get(placement.id);
@@ -360,19 +361,30 @@ export class StudioSpatialAdapter {
               Math.abs(local.y) <= half[1]! &&
               Math.abs(local.z) <= half[2]!;
           } else {
-            const radius = 0.115;
-            // Accept a fingertip just above the pad surface, but reject
-            // hands merely hovering well above or passing underneath it.
+            const radius = Number(data.hitRadius ?? 0.115);
+            const halfHeight = Number(data.hitHalfHeight ?? 0.12);
+            // Include cymbal-specific radii and reject hover well above pads.
             touching = local.x * local.x + local.z * local.z <= radius * radius &&
-              local.y >= -0.045 && local.y <= 0.065;
+              local.y >= -0.045 && local.y <= Math.min(0.065, halfHeight);
           }
           if (!touching) return;
-          const key = placement.id + ':' + hand + ':' + String(data.pitch);
-          seen.add(key);
-          if (this.activeInstrumentNotes.has(key)) return;
+          const center = mesh.getWorldPosition(new Vector3());
+          const blackKeyPriority = data.instrumentKey && data.blackKey ? -0.035 : 0;
+          const score = point.distanceTo(center) + blackKeyPriority;
+          if (!best || score < best.score) {
+            best = { placement, mesh, pitch: Number(data.pitch), oneShot: Boolean(data.drumPad), score };
+          }
+        });
+      }
+      // One fingertip should play one key/pad. Black keys win where their
+      // physical hit zones overlap the neighbouring white keys.
+      if (best) {
+        const { placement, mesh, pitch, oneShot } = best;
+        const key = placement.id + ':' + hand + ':' + String(pitch);
+        seen.add(key);
+        if (!this.activeInstrumentNotes.has(key)) {
           const noteId = 'vr:' + key;
           const sourceId = placement.objectRefId;
-          const oneShot = Boolean(data.drumPad);
           const material = mesh.material as MeshStandardMaterial;
           this.activeInstrumentNotes.set(key, {
             trackId: placement.objectRefId, noteId, sourceId, mesh,
@@ -380,12 +392,14 @@ export class StudioSpatialAdapter {
             baseEmissive: material.emissive.getHex(),
             baseEmissiveIntensity: material.emissiveIntensity,
           });
-          this.onInstrumentNoteOn?.(placement.objectRefId, sourceId, noteId, Number(data.pitch), velocity, now);
-          // Keys visibly depress; pads flash brightly on impact.
+          this.onInstrumentNoteOn?.(placement.objectRefId, sourceId, noteId, pitch, velocity, now);
+          // One-shot drums are recorded with a short gate even though their
+          // synthesized voice plays to completion independently.
+          if (oneShot) this.onInstrumentNoteOff?.(placement.objectRefId, sourceId, noteId, now + 0.08);
           mesh.scale.y = oneShot ? 1.2 : 0.68;
           material.emissive.setHex(oneShot ? 0xffb347 : 0x55c8ff);
           material.emissiveIntensity = oneShot ? 0.95 : 0.42;
-        });
+        }
       }
     }
     for (const [key, note] of this.activeInstrumentNotes) {
@@ -432,7 +446,10 @@ export class StudioSpatialAdapter {
             if (trackId) {
               const noteId = 'vr:controller:' + hand + ':' + placement!.id + ':' + String(hit.userData.pitch);
               const oneShot = Boolean(hit.userData.drumPad);
-              this.onInstrumentNoteOn?.(trackId, trackId, noteId, Number(hit.userData.pitch), 0.85, now);
+              const triggerValue = Number(source?.gamepad?.buttons?.[0]?.value ?? (pressed ? 1 : 0));
+              const velocity = Math.max(0.2, Math.min(1, 0.2 + triggerValue * 0.8));
+              this.onInstrumentNoteOn?.(trackId, trackId, noteId, Number(hit.userData.pitch), velocity, now);
+              if (oneShot) this.onInstrumentNoteOff?.(trackId, trackId, noteId, now + 0.08);
               const material = hit.material as MeshStandardMaterial;
               hit.userData.controllerBaseScaleY ??= hit.scale.y;
               hit.scale.y = oneShot ? 1.2 : 0.76; material.emissive.setHex(0x385b80); material.emissiveIntensity = 0.5;
