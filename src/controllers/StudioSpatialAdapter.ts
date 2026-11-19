@@ -293,9 +293,11 @@ export class StudioSpatialAdapter {
     // Right-hand pinch is reserved for turntable scratching; it never grabs objects.
     const source=this.world.input.xr.getPrimaryInputSource('right');
     const index=source?.hand?.get('index-finger-tip'),thumb=source?.hand?.get('thumb-tip');
-    if(!index||!thumb||!reference){this.releaseInstrumentNotes();this.lastScratchNormalized=-1;return;}
+    // Scratch input is optional: losing the right hand must not silence notes
+    // currently being played by the left hand (or by a controller).
+    if(!index||!thumb||!reference){this.lastScratchNormalized=-1;return;}
     const indexPose=frame.getPose(index,reference),thumbPose=frame.getPose(thumb,reference);
-    if(!indexPose||!thumbPose){this.releaseInstrumentNotes();this.lastScratchNormalized=-1;return;}
+    if(!indexPose||!thumbPose){this.lastScratchNormalized=-1;return;}
     this.handWorld.set(indexPose.transform.position.x,indexPose.transform.position.y,indexPose.transform.position.z);
     this.world.player.updateMatrixWorld(true);this.world.player.localToWorld(this.handWorld);this.handLocal.copy(this.handWorld);this.root.worldToLocal(this.handLocal);
     const thumbWorld=new Vector3(thumbPose.transform.position.x,thumbPose.transform.position.y,thumbPose.transform.position.z);this.world.player.localToWorld(thumbWorld);
