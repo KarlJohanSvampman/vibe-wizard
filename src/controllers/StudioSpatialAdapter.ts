@@ -13,7 +13,7 @@ export class StudioSpatialAdapter {
   private readonly forward = new Vector3();
   private readonly handWorld = new Vector3();
   private readonly handLocal = new Vector3();
-  private readonly activeInstrumentNotes = new Map<string, { trackId: string; noteId: string; sourceId: string; mesh: Mesh; baseScaleY: number; oneShot: boolean; baseColor: number }>();
+  private readonly activeInstrumentNotes = new Map<string, { trackId: string; noteId: string; sourceId: string; mesh: Mesh; baseScaleY: number; oneShot: boolean; baseEmissive: number; baseEmissiveIntensity: number }>();
   private readonly previousFingerPositions = new Map<'left' | 'right', Vector3>();
   private readonly previousFingerTimes = new Map<'left' | 'right', number>();
   private readonly controllerTriggerDown = new Map<'left' | 'right', boolean>();
@@ -335,8 +335,11 @@ export class StudioSpatialAdapter {
       const previous = this.previousFingerPositions.get(hand);
       const previousAt = this.previousFingerTimes.get(hand);
       const elapsed = previousAt === undefined ? 0 : Math.max(0.001, now - previousAt);
-      const speed = previous ? point.distanceTo(previous) / elapsed : 0;
-      const velocity = Math.max(0.18, Math.min(1, 0.28 + speed * 0.3));
+      // MIDI velocity follows the downward strike component, not sideways
+      // hand travel. A soft floor keeps gentle presses audible; fast strikes
+      // reach the top of the range without being affected by frame rate.
+      const downwardSpeed = previous && elapsed > 0 ? Math.max(0, (previous.y - point.y) / elapsed) : 0;
+      const velocity = Math.max(0.18, Math.min(1, 0.22 + downwardSpeed * 0.72));
       this.previousFingerPositions.set(hand, point.clone());
       this.previousFingerTimes.set(hand, now);
 
@@ -371,9 +374,17 @@ export class StudioSpatialAdapter {
           const sourceId = placement.objectRefId;
           const oneShot = Boolean(data.drumPad);
           const material = mesh.material as MeshStandardMaterial;
-          this.activeInstrumentNotes.set(key, { trackId: placement.objectRefId, noteId, sourceId, mesh, baseScaleY: mesh.scale.y, oneShot, baseColor: material.color.getHex() });
+          this.activeInstrumentNotes.set(key, {
+            trackId: placement.objectRefId, noteId, sourceId, mesh,
+            baseScaleY: mesh.scale.y, oneShot,
+            baseEmissive: material.emissive.getHex(),
+            baseEmissiveIntensity: material.emissiveIntensity,
+          });
           this.onInstrumentNoteOn?.(placement.objectRefId, sourceId, noteId, Number(data.pitch), velocity, now);
-          mesh.scale.y = oneShot ? 1.18 : 0.72;
+          // Keys visibly depress; pads flash brightly on impact.
+          mesh.scale.y = oneShot ? 1.2 : 0.68;
+          material.emissive.setHex(oneShot ? 0xffb347 : 0x55c8ff);
+          material.emissiveIntensity = oneShot ? 0.95 : 0.42;
         });
       }
     }
@@ -381,6 +392,9 @@ export class StudioSpatialAdapter {
       if (seen.has(key)) continue;
       if (!note.oneShot) this.onInstrumentNoteOff?.(note.trackId, note.sourceId, note.noteId, now);
       note.mesh.scale.y = note.baseScaleY;
+      const material = note.mesh.material as MeshStandardMaterial;
+      material.emissive.setHex(note.baseEmissive);
+      material.emissiveIntensity = note.baseEmissiveIntensity;
       this.activeInstrumentNotes.delete(key);
     }
   }
@@ -442,6 +456,9 @@ export class StudioSpatialAdapter {
     for (const note of this.activeInstrumentNotes.values()) {
       if (!note.oneShot) this.onInstrumentNoteOff?.(note.trackId, note.sourceId, note.noteId, now);
       note.mesh.scale.y = note.baseScaleY;
+      const material = note.mesh.material as MeshStandardMaterial;
+      material.emissive.setHex(note.baseEmissive);
+      material.emissiveIntensity = note.baseEmissiveIntensity;
     }
     this.activeInstrumentNotes.clear();
     // Release controller-held notes as well when XR tracking is lost or the
