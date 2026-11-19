@@ -343,7 +343,7 @@ export class StudioSpatialAdapter {
       this.previousFingerPositions.set(hand, point.clone());
       this.previousFingerTimes.set(hand, now);
 
-      let best: { placement: StudioObjectPlacement; mesh: Mesh; pitch: number; oneShot: boolean; score: number } | undefined;
+      const candidates: Array<{ placement: StudioObjectPlacement; mesh: Mesh; pitch: number; oneShot: boolean; score: number }> = [];
       for (const placement of this.placements) {
         if (placement.objectType !== 'instrument-track' || (placement.instrumentType !== 'piano' && placement.instrumentType !== 'drums')) continue;
         const group = this.meshes.get(placement.id);
@@ -371,13 +371,13 @@ export class StudioSpatialAdapter {
           const center = mesh.getWorldPosition(new Vector3());
           const blackKeyPriority = data.instrumentKey && data.blackKey ? -0.035 : 0;
           const score = point.distanceTo(center) + blackKeyPriority;
-          if (!best || score < best.score) {
-            best = { placement, mesh, pitch: Number(data.pitch), oneShot: Boolean(data.drumPad), score };
-          }
+          candidates.push({ placement, mesh, pitch: Number(data.pitch), oneShot: Boolean(data.drumPad), score });
         });
       }
       // One fingertip should play one key/pad. Black keys win where their
       // physical hit zones overlap the neighbouring white keys.
+      candidates.sort((a, b) => a.score - b.score);
+      const best = candidates[0];
       if (best) {
         const { placement, mesh, pitch, oneShot } = best;
         const key = placement.id + ':' + hand + ':' + String(pitch);
