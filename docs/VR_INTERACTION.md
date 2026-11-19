@@ -68,9 +68,18 @@ The repository implementation is not a substitute for this physical-device valid
 
 The existing DOM workstation remains the primary editing surface in VR. When the world enters an immersive visibility state, the page switches to an expanded scrollable layout: the root can scroll vertically, and the dock, browser, track list, and arrangement retain independent scroll regions. Scroll containers use touch/overscroll settings intended for headset pointer and touch interaction. Validate actual Quest Browser DOM-overlay scrolling with both hand and controller input; browser/OS-level scroll gesture behavior can vary by runtime.
 
-## Spatial instrument representations
+## Playable spatial piano and drums
 
-Instrument-track placements carry their instrument family. Piano tracks render a full-width keyboard model; drum tracks render an electronic tabletop pad kit with cymbal pads. These are currently visual spatial representations. The next interaction milestone is to bind tracked fingertip/controller contact to note-on/note-off events, including safe note release when tracking is lost. Do not treat the visual models alone as completed playable instruments.
+Instrument-track placements carry their instrument family. Piano tracks render a full-width keyboard; drum tracks render an electronic tabletop kit with six pads and two cymbals.
+
+- Both index fingertips can play instruments independently. Piano keys send gated note-on/note-off events; drum pads and cymbals send one-shot hits.
+- A controller trigger ray can also play the key or pad it intersects.
+- Piano strike velocity is estimated from downward fingertip speed, with a quiet but audible minimum and a capped maximum. Sideways hand movement does not increase velocity.
+- Pressed piano keys depress and glow blue. Drum pads compress and flash amber. Feedback returns to the material's original appearance on release.
+- Contact is evaluated against each key or pad's local hit region. A lost fingertip releases its held piano notes; adapter disposal and XR reference-space loss also release held notes.
+- The VR adapter sends the same timestamped musical note events into the track's instrument and recorder path as other live input. To capture a performance, select the target track, arm it, press Record, play the spatial instrument, then Stop. The recorded take follows the existing clip/arrangement workflow.
+
+The contact thresholds, hand ergonomics, controller ray alignment, and audio timing still require validation on a physical Quest headset. Desktop/browser CI cannot establish headset behavior.
 
 ## Fixed studio slots
 
