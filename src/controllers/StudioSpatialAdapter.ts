@@ -21,7 +21,9 @@ export class StudioSpatialAdapter {
   private readonly controllerRaycaster = new Raycaster();
   private readonly controllerDirection = new Vector3(0, 0, -1);
   private readonly controllerQuaternion = new Quaternion();
+  private readonly roomRoot = new Group();
   private readonly room = new Group();
+  private roomAnchored = false;
   private readonly turntable = new Group();
   private readonly record = new Mesh(new CylinderGeometry(0.31, 0.31, 0.018, 48), new MeshStandardMaterial({ color: 0x202124, roughness: 0.42 }));
   private readonly tonearm = new Group();
@@ -48,13 +50,14 @@ export class StudioSpatialAdapter {
   constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly getSelectedTrackId?: () => string | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void, private readonly getTrackOptions?: () => Array<{ id: string; name: string; instrumentType: string }>) {
     this.root.name = 'vibe-wizard-spatial-studio';
     this.root.visible = world.visibilityState.value !== VisibilityState.NonImmersive;
+    this.roomRoot.visible = this.root.visible;
     this.buildRoom();
     this.buildLighting();
     this.buildTurntable();
     this.buildSlots();
     this.buildMenu();
     world.scene.add(this.root);
-    this.stopVisibility = world.visibilityState.subscribe(state => { this.root.visible = state !== VisibilityState.NonImmersive; });
+    this.stopVisibility = world.visibilityState.subscribe(state => { this.root.visible = state !== VisibilityState.NonImmersive; this.roomRoot.visible = this.root.visible; });
     this.stopFrame = world.onXRFrame(frame => this.update(frame));
   }
 
@@ -72,7 +75,7 @@ export class StudioSpatialAdapter {
   }
 
   dispose(): void {
-    this.stopFrame(); this.stopVisibility(); this.releaseInstrumentNotes(); this.world.scene.remove(this.root);
+    this.stopFrame(); this.stopVisibility(); this.releaseInstrumentNotes(); this.world.scene.remove(this.root); this.world.scene.remove(this.roomRoot);
     for (const group of this.meshes.values()) this.disposeGroup(group);
     this.meshes.clear(); this.disposeGroup(this.turntable); this.disposeGroup(this.room);
     if (this.menu) { this.root.remove(this.menu); this.disposeGroup(new Group().add(this.menu)); this.menu = undefined; }
@@ -100,7 +103,8 @@ export class StudioSpatialAdapter {
     panel(new BoxGeometry(3.7, 0.035, 0.035), 0x56b9e9, [0, -0.72, -3.22]);
     for (let x = -1.8; x <= 1.8; x += 0.45) panel(new BoxGeometry(0.012, 0.006, 4.05), 0x657381, [x, -1.055, -1.15], 0.72);
     for (let z = -3.0; z <= 0.7; z += 0.45) panel(new BoxGeometry(3.9, 0.006, 0.012), 0x657381, [0, -1.055, z], 0.72);
-    this.root.add(this.room);
+    this.roomRoot.add(this.room);
+    this.world.scene.add(this.roomRoot);
   }
 
   private buildLighting(): void {
@@ -284,6 +288,7 @@ export class StudioSpatialAdapter {
     if(this.forward.lengthSq()<0.0001)this.forward.set(0,0,-1);else this.forward.normalize();
     this.root.position.copy(this.head).addScaledVector(this.forward,0.95);this.root.position.y-=0.38;
     this.root.rotation.set(0,Math.atan2(-this.forward.x,-this.forward.z),0);this.root.updateMatrixWorld(true);
+    if (!this.roomAnchored) { this.roomRoot.position.copy(this.root.position); this.roomRoot.rotation.copy(this.root.rotation); this.roomRoot.updateMatrixWorld(true); this.roomAnchored = true; }
     const reference=this.world.xrReferenceSpace;
     if (reference) this.updateControllerTriggers(frame, reference);
     if (reference) this.updateInstrumentContacts(frame, reference); else this.releaseInstrumentNotes();
