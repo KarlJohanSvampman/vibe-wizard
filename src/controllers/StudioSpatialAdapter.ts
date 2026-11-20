@@ -176,7 +176,7 @@ export class StudioSpatialAdapter {
         position: { x: slot.position.x, y: slot.position.y - 0.12, z: slot.position.z },
         rotation: { x: 0, y: slot.rotation.y, z: 0 }, scale: { x: 1, y: 1, z: 1 },
       };
-      const next=this.placements.filter(item=>item.objectRefId!==trackId);
+      const next=this.placements.filter(item=>item.objectRefId!==trackId && Math.hypot(item.position.x-slot.position.x, item.position.z-slot.position.z)>0.35);
       next.push(placement);
       this.setLayout(next); this.onCommit(this.placements); return;
     }
