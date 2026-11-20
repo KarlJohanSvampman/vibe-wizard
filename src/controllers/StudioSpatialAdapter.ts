@@ -203,6 +203,15 @@ export class StudioSpatialAdapter {
       const outline = new LineSegments(new EdgesGeometry(new BoxGeometry(0.9, 0.11, 0.62)), new LineBasicMaterial({ color: 0x63ffad, transparent: true, opacity: 1 }));
       const marker = new Mesh(new BoxGeometry(0.42, 0.018, 0.035), new MeshBasicMaterial({ color: 0x9affc7 }));
       marker.position.set(0, 0.07, 0.25);
+      const labelCanvas = document.createElement('canvas'); labelCanvas.width = 512; labelCanvas.height = 128;
+      const labelContext = labelCanvas.getContext('2d');
+      if (labelContext) {
+        labelContext.fillStyle = '#07131b'; labelContext.fillRect(0, 0, 512, 128);
+        labelContext.fillStyle = '#aaffd0'; labelContext.font = 'bold 64px sans-serif'; labelContext.textAlign = 'center';
+        labelContext.fillText(station.name, 256, 86);
+        const label = new Mesh(new PlaneGeometry(0.46, 0.115), new MeshBasicMaterial({ map: new CanvasTexture(labelCanvas), transparent: true, side: 2 }));
+        label.position.set(0, 0.16, 0.28); slot.add(label);
+      }
       slot.add(fill, outline, marker); this.root.add(slot); this.slotGroups.push(slot);
     });
   }
