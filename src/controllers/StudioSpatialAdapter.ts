@@ -21,6 +21,7 @@ export class StudioSpatialAdapter {
   private readonly controllerRaycaster = new Raycaster();
   private readonly controllerDirection = new Vector3(0, 0, -1);
   private readonly controllerQuaternion = new Quaternion();
+  private readonly room = new Group();
   private readonly turntable = new Group();
   private readonly record = new Mesh(new CylinderGeometry(0.31, 0.31, 0.018, 48), new MeshStandardMaterial({ color: 0x202124, roughness: 0.42 }));
   private readonly tonearm = new Group();
@@ -47,6 +48,7 @@ export class StudioSpatialAdapter {
   constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly getSelectedTrackId?: () => string | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void, private readonly getTrackOptions?: () => Array<{ id: string; name: string; instrumentType: string }>) {
     this.root.name = 'vibe-wizard-spatial-studio';
     this.root.visible = world.visibilityState.value !== VisibilityState.NonImmersive;
+    this.buildRoom();
     this.buildLighting();
     this.buildTurntable();
     this.buildSlots();
@@ -72,17 +74,40 @@ export class StudioSpatialAdapter {
   dispose(): void {
     this.stopFrame(); this.stopVisibility(); this.releaseInstrumentNotes(); this.world.scene.remove(this.root);
     for (const group of this.meshes.values()) this.disposeGroup(group);
-    this.meshes.clear(); this.disposeGroup(this.turntable);
+    this.meshes.clear(); this.disposeGroup(this.turntable); this.disposeGroup(this.room);
     if (this.menu) { this.root.remove(this.menu); this.disposeGroup(new Group().add(this.menu)); this.menu = undefined; }
     for (const group of this.representationGroups.values()) { this.root.remove(group); this.disposeGroup(group); }
     this.representationGroups.clear();
   }
 
+  private buildRoom(): void {
+    this.room.name = 'vibe-wizard-studio-room';
+    const panel = (geometry: BoxGeometry, color: number, position: [number, number, number], opacity = 1): void => {
+      const mesh = new Mesh(geometry, new MeshBasicMaterial({ color, transparent: opacity < 1, opacity, side: 2 }));
+      mesh.position.set(...position); this.room.add(mesh);
+    };
+    panel(new BoxGeometry(4.2, 0.12, 4.4), 0x343b46, [0, -1.12, -1.15]);
+    panel(new BoxGeometry(4.2, 2.9, 0.12), 0x293440, [0, 0.32, -3.32]);
+    panel(new BoxGeometry(0.12, 2.9, 4.4), 0x202b36, [-2.1, 0.32, -1.15]);
+    panel(new BoxGeometry(0.12, 2.9, 4.4), 0x202b36, [2.1, 0.32, -1.15]);
+    panel(new BoxGeometry(4.2, 0.08, 4.4), 0x202a35, [0, 1.78, -1.15], 0.78);
+    for (let i = 0; i < 5; i++) {
+      const x = -1.48 + i * 0.74;
+      panel(new BoxGeometry(0.48, 1.15, 0.035), 0x435363, [x, 0.48, -3.245]);
+      panel(new BoxGeometry(0.52, 0.025, 0.045), 0x42d995, [x, 1.16, -3.22]);
+    }
+    panel(new BoxGeometry(3.7, 0.035, 0.035), 0x56b9e9, [0, 1.58, -3.22]);
+    panel(new BoxGeometry(3.7, 0.035, 0.035), 0x56b9e9, [0, -0.72, -3.22]);
+    for (let x = -1.8; x <= 1.8; x += 0.45) panel(new BoxGeometry(0.012, 0.006, 4.05), 0x657381, [x, -1.055, -1.15], 0.72);
+    for (let z = -3.0; z <= 0.7; z += 0.45) panel(new BoxGeometry(3.9, 0.006, 0.012), 0x657381, [0, -1.055, z], 0.72);
+    this.root.add(this.room);
+  }
+
   private buildLighting(): void {
-    this.root.add(new HemisphereLight(0xeaf4ff, 0x46505b, 2.1));
-    this.root.add(new AmbientLight(0xffffff, 0.85));
-    const key = new DirectionalLight(0xffffff, 2.2); key.position.set(-2, 3, 2); this.root.add(key);
-    const fill = new DirectionalLight(0xb9d8ff, 1.15); fill.position.set(2, 1, -2); this.root.add(fill);
+    this.root.add(new HemisphereLight(0xeaf4ff, 0x46505b, 2.8));
+    this.root.add(new AmbientLight(0xffffff, 1.35));
+    const key = new DirectionalLight(0xffffff, 3.2); key.position.set(-2, 3, 2); this.root.add(key);
+    const fill = new DirectionalLight(0xb9d8ff, 1.8); fill.position.set(2, 1, -2); this.root.add(fill);
   }
 
   private buildMenu(): void {
@@ -120,7 +145,10 @@ export class StudioSpatialAdapter {
     const p=this.menu.worldToLocal(this.root.localToWorld(local.clone()));
     const x=p.x+0.32, y=0.32-p.y;
     if (x<0.02||x>0.62||y<0.09||y>0.64) return;
-    const row=Math.floor((y-0.09)/0.112);
+    this.selectMenuChoice(Math.floor((y-0.09)/0.112));
+  }
+
+  private selectMenuChoice(row: number): void {
     const choice=this.menuRows[row]; if (!choice || choice.value==='noop') return;
     if (this.menuStage==='tracks') {
       this.menuTrackId=choice.value; this.menuStage='representations';
@@ -139,8 +167,17 @@ export class StudioSpatialAdapter {
   private assignSlot(slotIndex:number,trackId:string,representation:string):void {
     const slot=this.slotGroups[slotIndex]; if(!slot)return;
     const existing=this.placements.find(item=>item.objectType==='instrument-track'&&item.objectRefId===trackId);
-    if(representation==='instrument'&&existing){
-      const next=this.placements.map(item=>item.id===existing.id?{...item,position:{x:slot.position.x,y:slot.position.y-0.12,z:slot.position.z}}:item);
+    if(representation==='instrument'){
+      const track=this.getTrackOptions?.().find(item=>item.id===trackId);
+      if(!track)return;
+      const placement: StudioObjectPlacement = {
+        id: existing?.id ?? 'track:' + trackId, objectType: 'instrument-track', objectRefId: trackId,
+        instrumentType: track.instrumentType as StudioObjectPlacement['instrumentType'],
+        position: { x: slot.position.x, y: slot.position.y - 0.12, z: slot.position.z },
+        rotation: { x: 0, y: slot.rotation.y, z: 0 }, scale: { x: 1, y: 1, z: 1 },
+      };
+      const next=this.placements.filter(item=>item.objectRefId!==trackId);
+      next.push(placement);
       this.setLayout(next); this.onCommit(this.placements); return;
     }
     const old=this.representationGroups.get(slotIndex);
@@ -153,15 +190,21 @@ export class StudioSpatialAdapter {
   }
 
   private buildSlots(): void {
-    // Six fixed, transparent green docking bays in a shallow arc in front of the user.
-    for (let i = 0; i < 6; i++) {
-      const slot = new Group(); slot.name = 'studio-slot-' + (i + 1);
-      const x = (i % 3 - 1) * 0.92; const z = -0.72 - Math.floor(i / 3) * 0.82;
-      slot.position.set(x, 0.02, z); slot.userData.slotIndex = i;
-      const fill = new Mesh(new BoxGeometry(0.78, 0.1, 0.56), new MeshBasicMaterial({ color: 0x35e879, transparent: true, opacity: 0.075, depthWrite: false }));
-      const outline = new LineSegments(new EdgesGeometry(new BoxGeometry(0.78, 0.1, 0.56)), new LineBasicMaterial({ color: 0x48f58b, transparent: true, opacity: 0.9 }));
-      slot.add(fill, outline); this.root.add(slot); this.slotGroups.push(slot);
-    }
+    const stations = [
+      { name: 'FRONT', x: 0, z: -1.18, yaw: 0 },
+      { name: 'LEFT', x: -1.08, z: -0.58, yaw: -0.52 },
+      { name: 'RIGHT', x: 1.08, z: -0.58, yaw: 0.52 },
+    ];
+    stations.forEach((station, index) => {
+      const slot = new Group(); slot.name = 'studio-slot-' + (index + 1);
+      slot.position.set(station.x, -0.48, station.z); slot.rotation.y = station.yaw; slot.userData.slotIndex = index;
+      const shape = new BoxGeometry(0.9, 0.11, 0.62);
+      const fill = new Mesh(shape, new MeshBasicMaterial({ color: 0x35e879, transparent: true, opacity: 0.16, depthWrite: false }));
+      const outline = new LineSegments(new EdgesGeometry(new BoxGeometry(0.9, 0.11, 0.62)), new LineBasicMaterial({ color: 0x63ffad, transparent: true, opacity: 1 }));
+      const marker = new Mesh(new BoxGeometry(0.42, 0.018, 0.035), new MeshBasicMaterial({ color: 0x9affc7 }));
+      marker.position.set(0, 0.07, 0.25);
+      slot.add(fill, outline, marker); this.root.add(slot); this.slotGroups.push(slot);
+    });
   }
 
   private material(color: number, metalness = 0.08, roughness = 0.55): MeshStandardMaterial {
@@ -432,6 +475,20 @@ export class StudioSpatialAdapter {
           this.world.player.getWorldQuaternion(this.controllerQuaternion);
           this.controllerDirection.applyQuaternion(this.controllerQuaternion).normalize();
           this.controllerRaycaster.ray.direction.copy(this.controllerDirection);
+          if (this.menu?.visible) {
+            const menuHit = this.controllerRaycaster.intersectObject(this.menu, false)[0];
+            if (menuHit?.uv) this.selectMenuChoice(Math.floor(((1 - menuHit.uv.y) * 768 - 112) / 86));
+            this.controllerTriggerDown.set(hand, pressed);
+            continue;
+          }
+          const slotHit = this.controllerRaycaster.intersectObjects(this.slotGroups, true)[0]?.object;
+          if (slotHit) {
+            let slotGroup: Group | null = slotHit as Group;
+            while (slotGroup && !Number.isInteger(slotGroup.userData.slotIndex)) slotGroup = slotGroup.parent as Group | null;
+            if (slotGroup) this.openSlotMenu(Number(slotGroup.userData.slotIndex));
+            this.controllerTriggerDown.set(hand, pressed);
+            continue;
+          }
           const targets: Mesh[] = [];
           for (const placement of this.placements) {
             if (placement.objectType !== 'instrument-track' || (placement.instrumentType !== 'piano' && placement.instrumentType !== 'drums')) continue;
