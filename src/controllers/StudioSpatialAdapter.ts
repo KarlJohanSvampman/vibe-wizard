@@ -163,9 +163,9 @@ export class StudioSpatialAdapter {
       ]);
       return;
     }
-    if (choice.value==='cancel') { this.menu.visible=false; return; }
+    if (choice.value==='cancel') { if (this.menu) this.menu.visible=false; return; }
     this.assignSlot(this.menuSlotIndex,this.menuTrackId!,choice.value);
-    this.menu.visible=false;
+    if (this.menu) this.menu.visible=false;
   }
 
   private assignSlot(slotIndex:number,trackId:string,representation:string):void {
