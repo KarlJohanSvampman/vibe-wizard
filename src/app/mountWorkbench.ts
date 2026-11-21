@@ -360,7 +360,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     owner?.noteOff(event);
     noteOwners.delete(key);
     recordEvent(event);
-  }, () => project.tracks.map(track => ({ id: track.id, name: track.name, instrumentType: track.instrumentType })));
+  }, () => [
+    ...project.tracks.map(track => ({ id: track.id, name: track.name, instrumentType: track.instrumentType, objectType: 'instrument-track' as const })),
+    ...project.controllerInstances.map(instance => ({ id: instance.id, name: instance.name, instrumentType: 'controller', objectType: 'controller-instance' as const })),
+  ]);
 
   const spatialAdapter = new ThereminSpatialAdapter(world, theremin, {
     handedness: 'right',
@@ -2058,6 +2061,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const refs = [
       ...project.tracks.map((track, index) => ({ id: 'track:' + track.id, objectType: 'instrument-track' as const, objectRefId: track.id, instrumentType: track.instrumentType, label: track.name, index })),
       ...project.controllerInstances.map((instance, index) => ({ id: 'controller:' + instance.id, objectType: 'controller-instance' as const, objectRefId: instance.id, label: instance.name, index })),
+      ...existing.filter(item => item.objectType === 'furniture').map((item, index) => ({ id: item.id, objectType: 'furniture' as const, objectRefId: item.objectRefId, label: item.objectRefId.split(':')[0] + ' · ' + item.objectRefId.split(':').slice(1).join(':'), index: project.tracks.length + project.controllerInstances.length + index })),
     ];
     studioDraftPlacements = refs.map(ref => ({ ...(existing.find(item => item.id === ref.id) ?? {
       id: ref.id, objectType: ref.objectType, objectRefId: ref.objectRefId,
@@ -2065,7 +2069,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 },
     }), position: { ...(existing.find(item => item.id === ref.id)?.position ?? { x: (ref.index % 4) * 1.5 - 2.25, y: -0.45, z: -1 - Math.floor(ref.index / 4) * 1.2 }), y: Math.min(existing.find(item => item.id === ref.id)?.position.y ?? -0.45, -0.45) }, ...(ref.objectType === 'instrument-track' ? { instrumentType: ref.instrumentType } : {}) }));
     // Only explicitly saved dock assignments are rendered in the headset; the desktop layout editor can still list every track.
-    studioSpatialAdapter.setLayout(studioDraftPlacements.filter(item => existing.some(saved => saved.id === item.id)).slice(0, 3));
+    studioSpatialAdapter.setLayout(studioDraftPlacements.filter(item => existing.some(saved => saved.id === item.id)));
     studioObjectSelect.replaceChildren();
     refs.forEach(ref => { const option = document.createElement('option'); option.value = ref.id; option.textContent = ref.label; studioObjectSelect.append(option); });
     studioRoom.querySelectorAll('.studio-object').forEach(node => node.remove());
