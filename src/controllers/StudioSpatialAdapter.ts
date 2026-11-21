@@ -47,7 +47,7 @@ export class StudioSpatialAdapter {
   private readonly stopFrame: () => void;
   private readonly stopVisibility: () => void;
 
-  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly getSelectedTrackId?: () => string | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void, private readonly getTrackOptions?: () => Array<{ id: string; name: string; instrumentType: string }>) {
+  constructor(private readonly world: World, private readonly onCommit: (placements: readonly StudioObjectPlacement[]) => void, private readonly onScratch?: (normalizedPosition: number) => void, private readonly getPlaybackPosition?: () => number | undefined, private readonly getSelectedTrackId?: () => string | undefined, private readonly onInstrumentNoteOn?: (trackId: string, sourceId: string, noteId: string, pitch: number, velocity: number, timestamp: number) => void, private readonly onInstrumentNoteOff?: (trackId: string, sourceId: string, noteId: string, timestamp: number) => void, private readonly getTrackOptions?: () => Array<{ id: string; name: string; instrumentType: string; objectType?: 'instrument-track' | 'controller-instance' }>) {
     this.root.name = 'vibe-wizard-spatial-studio';
     this.root.visible = world.visibilityState.value !== VisibilityState.NonImmersive;
     this.roomRoot.visible = this.root.visible;
@@ -175,9 +175,11 @@ export class StudioSpatialAdapter {
     if(representation==='instrument'){
       const track=this.getTrackOptions?.().find(item=>item.id===trackId);
       if(!track)return;
+      const objectType = track.objectType ?? 'instrument-track';
       const placement: StudioObjectPlacement = {
-        id: existing?.id ?? 'track:' + trackId, objectType: 'instrument-track', objectRefId: trackId,
-        instrumentType: track.instrumentType as StudioObjectPlacement['instrumentType'],
+        id: existing?.id ?? (objectType === 'controller-instance' ? 'controller:' : 'track:') + trackId,
+        objectType, objectRefId: trackId,
+        ...(objectType === 'instrument-track' ? { instrumentType: track.instrumentType as StudioObjectPlacement['instrumentType'] } : {}),
         position: { x: slot.position.x, y: slot.position.y - 0.12, z: slot.position.z },
         rotation: { x: 0, y: slot.rotation.y, z: 0 }, scale: { x: 1, y: 1, z: 1 },
       };
