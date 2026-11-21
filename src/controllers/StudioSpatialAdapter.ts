@@ -163,9 +163,10 @@ export class StudioSpatialAdapter {
       ]);
       return;
     }
-    if (choice.value==='cancel') { if (this.menu) this.menu.visible=false; return; }
+    const menu = this.menu;
+    if (choice.value==='cancel') { if (menu) menu.visible = false; return; }
     this.assignSlot(this.menuSlotIndex,this.menuTrackId!,choice.value);
-    if (this.menu) this.menu.visible=false;
+    if (menu) menu.visible = false;
   }
 
   private assignSlot(slotIndex:number,trackId:string,representation:string):void {
@@ -184,13 +185,15 @@ export class StudioSpatialAdapter {
       next.push(placement);
       this.setLayout(next); this.onCommit(this.placements); return;
     }
-    const old=this.representationGroups.get(slotIndex);
-    if(old){this.root.remove(old);this.disposeGroup(old);this.representationGroups.delete(slotIndex);}
-    const group=new Group(); group.position.set(slot.position.x,slot.position.y-0.08,slot.position.z);
-    const screen=new Mesh(new BoxGeometry(0.7,0.42,0.045),this.material(representation==='sequencer'?0x244e70:representation==='editor'?0x51416d:0x285846)); group.add(screen);
-    for(let i=0;i<5;i++){const bar=new Mesh(new BoxGeometry(0.08+i*0.025,0.018,0.012),this.material(0x75d9a0));bar.position.set(-0.22+i*0.1,0.08-i*0.035,0.03);group.add(bar);}
-    group.userData.trackId=trackId;group.userData.representation=representation;group.name='slot-'+slotIndex+'-'+representation;
-    this.root.add(group);this.representationGroups.set(slotIndex,group);
+    const placement: StudioObjectPlacement = {
+      id: 'slot:' + slotIndex, objectType: 'furniture', objectRefId: representation + ':' + trackId,
+      position: { x: slot.position.x, y: slot.position.y - 0.08, z: slot.position.z },
+      rotation: { x: 0, y: slot.rotation.y, z: 0 }, scale: { x: 1, y: 1, z: 1 },
+    };
+    const next = this.placements.filter(item => item.id !== placement.id &&
+      Math.hypot(item.position.x - slot.position.x, item.position.z - slot.position.z) > 0.35);
+    next.push(placement);
+    this.setLayout(next); this.onCommit(this.placements);
   }
 
   private buildSlots(): void {
