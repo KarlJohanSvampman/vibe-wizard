@@ -138,7 +138,7 @@ export class StudioSpatialAdapter {
   private openSlotMenu(slotIndex: number): void {
     this.menuSlotIndex=slotIndex; this.menuStage='tracks'; this.menuTrackId=undefined;
     const tracks=this.getTrackOptions?.() ?? [];
-    this.renderMenu('Choose a project track', tracks.map(track=>({label:track.name,value:track.id})));
+    this.renderMenu('Choose a project object', tracks.map(track=>({label:(track.objectType === 'controller-instance' ? 'CONTROLLER · ' : 'TRACK · ') + track.name,value:track.id})));
     if (!tracks.length) this.renderMenu('No tracks in project', [{label:'Add a track in the workstation',value:'noop'}]);
     const slot=this.slotGroups[slotIndex];
     if (this.menu && slot) { this.menu.position.set(slot.position.x,slot.position.y+0.46,slot.position.z); this.menu.rotation.set(0,0,0); this.menu.visible=true; }
@@ -171,7 +171,7 @@ export class StudioSpatialAdapter {
 
   private assignSlot(slotIndex:number,trackId:string,representation:string):void {
     const slot=this.slotGroups[slotIndex]; if(!slot)return;
-    const existing=this.placements.find(item=>item.objectType==='instrument-track'&&item.objectRefId===trackId);
+    const existing=this.placements.find(item=>(item.objectType==='instrument-track'||item.objectType==='controller-instance')&&item.objectRefId===trackId);
     if(representation==='instrument'){
       const track=this.getTrackOptions?.().find(item=>item.id===trackId);
       if(!track)return;
