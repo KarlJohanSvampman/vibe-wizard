@@ -156,10 +156,13 @@ export class StudioSpatialAdapter {
     const choice=this.menuRows[row]; if (!choice || choice.value==='noop') return;
     if (this.menuStage==='tracks') {
       this.menuTrackId=choice.value; this.menuStage='representations';
-      this.renderMenu('Choose representation',[
+      const selectedObject=this.getTrackOptions?.().find(item=>item.id===choice.value);
+      const isController=selectedObject?.objectType==='controller-instance';
+      this.renderMenu(isController?'Place controller surface':'Choose representation',isController?[
+        {label:'Controller surface',value:'instrument'}, {label:'Cancel',value:'cancel'},
+      ]:[
         {label:'Instrument',value:'instrument'}, {label:'Sequencer',value:'sequencer'},
-        {label:'Track editor',value:'editor'}, {label:'Controller surface',value:'controller'},
-        {label:'Cancel',value:'cancel'},
+        {label:'Track editor',value:'editor'}, {label:'Cancel',value:'cancel'},
       ]);
       return;
     }
