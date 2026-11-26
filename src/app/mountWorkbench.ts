@@ -787,7 +787,6 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   let vocalGuideAnalysis: VocalAnalysisResult | undefined;
   let vocalGuideBuffer: AudioBuffer | undefined;
   let vocalGuideSource: AudioBufferSourceNode | undefined;
-  let vocalGuideAssetId: string | undefined;
   const aiServiceUrlInput = get<HTMLInputElement>('#ai-service-url');
   const aiSamplePromptInput = get<HTMLTextAreaElement>('#ai-sample-prompt');
   const aiSampleDurationInput = get<HTMLInputElement>('#ai-sample-duration');
@@ -2926,7 +2925,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   vocalGuideFileInput.addEventListener('change', () => {
     const file = vocalGuideFileInput.files?.[0];
     vocalGuideFile = undefined; vocalGuideData = undefined; vocalGuideBuffer = undefined;
-    vocalGuideAnalysis = undefined; vocalGuideAssetId = undefined;
+    vocalGuideAnalysis = undefined;
     vocalGuideAnalyzeButton.disabled = true; vocalGuidePreviewButton.disabled = true;
     vocalGuideAddTrackButton.disabled = true;
     vocalGuideReadout.textContent = '';
@@ -2988,6 +2987,17 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       vocalGuideStopButton.disabled = false;
     } catch (error) { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Could not preview vocal.'; }
   });
+  vocalGuideBpmInput.addEventListener('change', () => {
+    const bpm = Number(vocalGuideBpmInput.value);
+    if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) {
+      vocalGuideBpmInput.value = String(project.tempoBpm);
+      vocalGuideReadout.textContent = 'Choose a tempo between 40 and 240 BPM.';
+      return;
+    }
+    commitTimingChange({ tempoBpm: bpm });
+    vocalGuideReadout.textContent = 'Project tempo set to ' + bpm + ' BPM. The vocal remains unchanged.';
+  });
+
   vocalGuideStopButton.addEventListener('click', () => {
     try { vocalGuideSource?.stop(); } catch { /* Already stopped. */ }
     vocalGuideSource = undefined; vocalGuideStopButton.disabled = true;
@@ -3019,7 +3029,6 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       ensureTrackRuntime(track, false);
       if (audioReady) await ensureTrackAudioReady(track.id);
       await persistProject(); updateProjectUi(); await refreshAssetBrowser();
-      vocalGuideAssetId = assetId;
       vocalGuideReadout.textContent = 'Added "' + track.name + '" to the project. BPM is ' +
         Math.round(Number(vocalGuideBpmInput.value)) + ' — adjust the project tempo separately when ready for the backing track.';
     })().catch(error => { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Could not add vocal track.'; });
