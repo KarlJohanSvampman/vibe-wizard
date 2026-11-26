@@ -130,3 +130,25 @@ Never ship hosted-provider secrets in the browser bundle or project document. Th
 - Instrument package generation with key/velocity zones, loop points, envelopes, filters, tuning, and preview.
 - Sound library search/tagging and provenance-aware reuse.
 - Composition and arrangement assistance using the existing project model, with explicit user approval before applying edits.
+
+
+## Vocal-to-Beat Studio (in progress)
+
+The first implementation slice is a provider-independent vocal-guide analysis module at `src/ai/VocalGuideAnalysis.ts`. It accepts decoded mono PCM and sample rate, then reports duration, peak/RMS level, up to three tempo candidates, and coarse phrase regions based on the amplitude envelope. It never alters the source recording. Tempo is deliberately presented as a suggestion: vocal phrasing is often syncopated and can produce half-time/double-time ambiguities.
+
+The next UI slice should let the user import or record a vocal, decode it locally, display the waveform and phrase regions, audition the original, and manually override the suggested BPM before generation. Key detection is not yet included; a reliable vocal key estimate needs pitch tracking and confidence reporting rather than a guess from noisy polyphonic material.
+
+### Vocal-conditioned accompaniment provider research
+
+A dedicated add-instrumental API is documented by SunoAPI.org. It accepts a publicly accessible vocal/audio URL plus style tags and returns an asynchronous task ID; the task can be polled through its record-info endpoint. This is a third-party API wrapper, not an ElevenLabs feature, and must be treated as an optional provider adapter pending account access, pricing, rights/retention review, and an end-to-end quality test. Do not route vocal files to it without explicit user action. See the [Add Instrumental API](https://docs.sunoapi.org/suno-api/add-instrumental) and [task status API](https://docs.sunoapi.org/suno-api/get-music-generation-details).
+
+ElevenLabs Music Audio Reference remains unsuitable as the sole vocal-to-beat engine: it guides sound/style and does not promise to preserve or accompany the uploaded vocal. Its stem-separation API can still be evaluated as a separate downstream step, but separation should not be conflated with accompaniment generation.
+
+Planned sequence:
+
+1. Vocal import/record, waveform, phrase regions, editable BPM (current analysis foundation).
+2. Provider adapter for vocal-conditioned instrumental generation, keeping the original vocal as a separate project track.
+3. Stem separation and import of each returned stem as an independent project track with provenance.
+4. Drum-hit detection/slicing into Sampler assets, followed by optional MIDI reconstruction.
+
+Generated accompaniment is not considered finished until the original vocal and generated parts are aligned in the arrangement and remain independently editable.
