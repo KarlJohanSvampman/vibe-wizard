@@ -1380,3 +1380,24 @@ body.vr-immersive-ui .studio-track-sidebar .track-list {
   body.vr-immersive-ui .studio-browser { grid-column: 1 / -1; grid-row: 5; }
   body.vr-immersive-ui .studio-dock { grid-column: 1 / -1; grid-row: 4; }
 }
+
+
+/* Vocal-to-Beat Studio */
+.vocal-beat-studio {
+  display: grid; gap: 11px; margin: 0 0 16px; padding: 14px;
+  border: 1px solid rgba(99, 220, 165, .25); border-radius: 11px;
+  background: linear-gradient(135deg, rgba(36, 68, 56, .24), rgba(15, 13, 25, .48));
+}
+.vocal-beat-studio .section-heading { margin: 0; }
+.vocal-beat-studio .section-heading h3 { margin: 0; color: #d8c9ee; font-size: 14px; }
+.vocal-studio-intro, .vocal-guide-note { margin: 0; color: #a69db5; font-size: 10px; line-height: 1.55; }
+.vocal-beat-studio > label { display: grid; gap: 6px; }
+.vocal-beat-studio label > span { color: #8e879e; font-size: 8px; font-weight: 800; letter-spacing: .14em; }
+.vocal-beat-studio input[type="file"] { max-width: 100%; padding: 8px; border: 1px solid rgba(99, 220, 165, .2); border-radius: 7px; color: #d8c9ee; background: #11151a; font: inherit; font-size: 10px; }
+#vocal-guide-waveform { display: block; width: 100%; height: auto; min-height: 90px; border: 1px solid rgba(190, 171, 226, .14); border-radius: 8px; background: #100f18; }
+.vocal-guide-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.vocal-guide-controls label { display: grid; gap: 5px; width: 120px; }
+.vocal-guide-controls input { width: 100%; padding: 8px; border: 1px solid rgba(99, 220, 165, .2); border-radius: 7px; color: #f3eefb; background: #11151a; font: inherit; font-size: 11px; }
+.vocal-guide-readout { min-height: 34px; padding: 9px 10px; border-radius: 7px; color: #b9e8d0; background: rgba(5, 10, 9, .36); font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; }
+.vocal-beat-studio button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 560px) { .vocal-guide-controls label { flex: 1 1 100%; width: auto; } .vocal-guide-controls .transport-button { flex: 1 1 40%; } }
