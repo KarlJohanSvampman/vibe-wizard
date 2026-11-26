@@ -12,6 +12,7 @@ import { getInstrumentLabel, isInstrumentType } from '../audio/InstrumentTypes.j
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
 import { HttpAudioGenerationProvider } from '../ai/AudioGenerationProvider.js';
 import { HttpAudioTransformationProvider } from '../ai/AudioTransformationProvider.js';
+import { analyzeVocalGuide, type VocalAnalysisResult } from '../ai/VocalGuideAnalysis.js';
 import { Rack } from '../rack/Rack.js';
 import { ParameterBus } from '../rack/ParameterBus.js';
 import { TrackAudioBus } from '../rack/TrackAudioBus.js';
@@ -474,7 +475,22 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '        <p class="ai-generation-status" id="sampler-transform-status" role="status">Enable audio and select a Sampler track with a loaded sample. Requires Eleven Music API access. Upload and generation may both consume credits. Source audio is uploaded to ElevenLabs; only use audio you have rights to use.</p>',
     '      </section>',
     '    </section>',
-    '    <section class="ai-sample-studio">',
+    '    <section class="vocal-beat-studio">',
+    '      <div class="section-heading"><div><p class="eyebrow">VOCAL → MUSIC</p><h3>Vocal-to-Beat Studio</h3></div><span class="module-chip">VB-1 · VOCAL GUIDE</span></div>',
+    '      <p class="vocal-studio-intro">Start with your voice. Analyse its phrasing, find a useful tempo, then build an instrumental around the performance.</p>',
+    '      <label for="vocal-guide-file"><span>LEAD VOCAL · AUDIO FILE</span><input id="vocal-guide-file" type="file" accept="audio/*" /></label>',
+    '      <canvas id="vocal-guide-waveform" width="960" height="150" aria-label="Vocal waveform and detected phrases"></canvas>',
+    '      <div class="vocal-guide-controls">',
+    '        <label for="vocal-guide-bpm"><span>PROJECT TEMPO · BPM</span><input id="vocal-guide-bpm" type="number" min="40" max="240" step="1" value="120" /></label>',
+    '        <button class="transport-button" id="vocal-guide-analyze" type="button" disabled>Analyse vocal</button>',
+    '        <button class="transport-button" id="vocal-guide-preview" type="button" disabled>▶ Preview vocal</button>',
+    '        <button class="transport-button" id="vocal-guide-stop" type="button" disabled>Stop</button>',
+    '        <button class="transport-button" id="vocal-guide-add-track" type="button" disabled>＋ Add vocal track</button>',
+    '      </div>',
+    '      <div class="vocal-guide-readout" id="vocal-guide-readout" role="status" aria-live="polite">Import a lead vocal to begin. Analysis runs locally in your browser.</div>',
+    '      <p class="vocal-guide-note">Your vocal stays local for this analysis step. Tempo and phrase detection are estimates; you can override BPM before accompaniment generation.</p>',
+    '    </section>',
+    '    <section class="ai-sample-studio">
     '      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
     '      <label for="ai-service-url"><span>AI SERVICE URL</span><input id="ai-service-url" type="text" placeholder="/api (same-origin gateway)" autocomplete="url" /></label>',
     '      <label for="ai-sample-prompt"><span>SOUND PROMPT</span><textarea id="ai-sample-prompt" rows="3" maxlength="4000" placeholder="A warm, evolving analog bass with a soft attack, subtle tape saturation, and a clean low end."></textarea></label>',
@@ -758,6 +774,20 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const samplerEndTime = get<HTMLElement>('#sampler-end-time');
   const samplerLoopStartTime = get<HTMLElement>('#sampler-loop-start-time');
   const samplerLoopEndTime = get<HTMLElement>('#sampler-loop-end-time');
+  const vocalGuideFileInput = get<HTMLInputElement>('#vocal-guide-file');
+  const vocalGuideCanvas = get<HTMLCanvasElement>('#vocal-guide-waveform');
+  const vocalGuideBpmInput = get<HTMLInputElement>('#vocal-guide-bpm');
+  const vocalGuideAnalyzeButton = get<HTMLButtonElement>('#vocal-guide-analyze');
+  const vocalGuidePreviewButton = get<HTMLButtonElement>('#vocal-guide-preview');
+  const vocalGuideStopButton = get<HTMLButtonElement>('#vocal-guide-stop');
+  const vocalGuideAddTrackButton = get<HTMLButtonElement>('#vocal-guide-add-track');
+  const vocalGuideReadout = get<HTMLElement>('#vocal-guide-readout');
+  let vocalGuideFile: File | undefined;
+  let vocalGuideData: ArrayBuffer | undefined;
+  let vocalGuideAnalysis: VocalAnalysisResult | undefined;
+  let vocalGuideBuffer: AudioBuffer | undefined;
+  let vocalGuideSource: AudioBufferSourceNode | undefined;
+  let vocalGuideAssetId: string | undefined;
   const aiServiceUrlInput = get<HTMLInputElement>('#ai-service-url');
   const aiSamplePromptInput = get<HTMLTextAreaElement>('#ai-sample-prompt');
   const aiSampleDurationInput = get<HTMLInputElement>('#ai-sample-duration');
@@ -854,6 +884,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       '#sample-audition', '#sample-audition-stop', '#sampler-playback-mode', '#sampler-start', '#sampler-end',
       '#sampler-loop', '#sampler-loop-start', '#sampler-loop-end', '#sampler-root-note',
       '#sampler-start-time', '#sampler-end-time', '#sampler-loop-start-time', '#sampler-loop-end-time',
+      '#vocal-guide-file', '#vocal-guide-waveform', '#vocal-guide-bpm', '#vocal-guide-analyze', '#vocal-guide-preview', '#vocal-guide-stop', '#vocal-guide-add-track', '#vocal-guide-readout',
       '#ai-service-url', '#ai-sample-prompt', '#ai-sample-duration', '#ai-generate-sample', '#ai-cancel-generation',
       '#ai-generation-status', '#asset-refresh', '#asset-search', '#asset-filter', '#asset-browser-list',
       '#sampler-transform-prompt', '#sampler-transform-duration', '#sampler-transform-strength',
@@ -2859,6 +2890,140 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     saveSamplerSettings({ loopEnd: Number(samplerLoopEndInput.value) }));
   samplerRootNoteInput.addEventListener('change', () =>
     saveSamplerSettings({ rootNote: Number(samplerRootNoteInput.value) }));
+
+  const drawVocalWaveform = (buffer: AudioBuffer, phrases: VocalAnalysisResult['phrases'] = []): void => {
+    const canvas = vocalGuideCanvas;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const width = canvas.width; const height = canvas.height;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = '#100f18'; context.fillRect(0, 0, width, height);
+    const samples = buffer.getChannelData(0);
+    const columns = width;
+    const stride = Math.max(1, Math.floor(samples.length / columns));
+    context.strokeStyle = 'rgba(145, 132, 174, .5)'; context.lineWidth = 1;
+    for (let x = 0; x < columns; x += 1) {
+      let peak = 0;
+      const start = x * stride;
+      for (let i = start; i < Math.min(samples.length, start + stride); i += 1) peak = Math.max(peak, Math.abs(samples[i] ?? 0));
+      const bar = Math.max(1, peak * (height * 0.82));
+      context.beginPath(); context.moveTo(x + 0.5, (height - bar) / 2); context.lineTo(x + 0.5, (height + bar) / 2); context.stroke();
+    }
+    context.fillStyle = 'rgba(65, 205, 145, .12)';
+    for (const phrase of phrases) {
+      const x = phrase.startSeconds / buffer.duration * width;
+      const w = (phrase.endSeconds - phrase.startSeconds) / buffer.duration * width;
+      context.fillRect(x, 0, w, height);
+    }
+    context.strokeStyle = 'rgba(99, 220, 165, .9)'; context.lineWidth = 1;
+    for (const phrase of phrases) {
+      const x = phrase.startSeconds / buffer.duration * width;
+      const end = phrase.endSeconds / buffer.duration * width;
+      context.beginPath(); context.moveTo(x, 0); context.lineTo(x, height); context.moveTo(end, 0); context.lineTo(end, height); context.stroke();
+    }
+  };
+
+  vocalGuideFileInput.addEventListener('change', () => {
+    const file = vocalGuideFileInput.files?.[0];
+    vocalGuideFile = undefined; vocalGuideData = undefined; vocalGuideBuffer = undefined;
+    vocalGuideAnalysis = undefined; vocalGuideAssetId = undefined;
+    vocalGuideAnalyzeButton.disabled = true; vocalGuidePreviewButton.disabled = true;
+    vocalGuideAddTrackButton.disabled = true;
+    vocalGuideReadout.textContent = '';
+    if (!file) return;
+    if (!file.type.toLowerCase().startsWith('audio/')) {
+      vocalGuideReadout.textContent = 'Choose an audio file.';
+      vocalGuideFileInput.value = ''; return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      vocalGuideReadout.textContent = 'Vocal files must be 25 MB or smaller.';
+      vocalGuideFileInput.value = ''; return;
+    }
+    vocalGuideFile = file;
+    vocalGuideReadout.textContent = 'Ready to analyse ' + file.name + ' · ' + (file.size / 1024 / 1024).toFixed(2) + ' MB.';
+    vocalGuideAnalyzeButton.disabled = false;
+    void file.arrayBuffer().then(data => { if (vocalGuideFile === file) vocalGuideData = data; })
+      .catch(error => { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Could not read vocal file.'; });
+  });
+
+  vocalGuideAnalyzeButton.addEventListener('click', () => {
+    if (!vocalGuideFile || !vocalGuideData) {
+      vocalGuideReadout.textContent = 'Wait for the vocal file to finish loading.'; return;
+    }
+    try {
+      const context = audioRuntime.prepareContext();
+      void context.decodeAudioData(vocalGuideData.slice(0)).then(buffer => {
+        if (!vocalGuideFile) return;
+        const mono = new Float32Array(buffer.length);
+        for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+          const data = buffer.getChannelData(channel);
+          for (let i = 0; i < data.length; i += 1) mono[i] = (mono[i] ?? 0) + (data[i] ?? 0) / buffer.numberOfChannels;
+        }
+        vocalGuideBuffer = buffer;
+        vocalGuideAnalysis = analyzeVocalGuide(mono, buffer.sampleRate);
+        if (vocalGuideAnalysis.suggestedBpm) vocalGuideBpmInput.value = String(vocalGuideAnalysis.suggestedBpm);
+        drawVocalWaveform(buffer, vocalGuideAnalysis.phrases);
+        const candidates = vocalGuideAnalysis.tempoCandidates.map(item => item.bpm + ' BPM (' + Math.round(item.confidence * 100) + '%)').join(' · ');
+        vocalGuideReadout.textContent = buffer.duration.toFixed(1) + ' s · ' + buffer.numberOfChannels + ' channel(s) · ' +
+          vocalGuideAnalysis.phrases.length + ' phrase region(s) · Tempo suggestions: ' + (candidates || 'not confident — set BPM manually') + '.';
+        vocalGuidePreviewButton.disabled = false;
+        vocalGuideAddTrackButton.disabled = false;
+      }).catch(error => { vocalGuideReadout.textContent = error instanceof Error ? 'Analysis failed: ' + error.message : 'Analysis failed.'; });
+    } catch (error) {
+      vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Could not prepare audio analysis.';
+    }
+  });
+
+  vocalGuidePreviewButton.addEventListener('click', () => {
+    if (!vocalGuideBuffer) return;
+    try {
+      const context = audioRuntime.prepareContext();
+      if (context.state === 'suspended') void context.resume();
+      vocalGuideSource?.stop();
+      const source = context.createBufferSource();
+      source.buffer = vocalGuideBuffer;
+      source.connect(context.destination);
+      source.onended = () => { if (vocalGuideSource === source) { vocalGuideSource = undefined; vocalGuideStopButton.disabled = true; } };
+      vocalGuideSource = source; source.start();
+      vocalGuideStopButton.disabled = false;
+    } catch (error) { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Could not preview vocal.'; }
+  });
+  vocalGuideStopButton.addEventListener('click', () => {
+    try { vocalGuideSource?.stop(); } catch { /* Already stopped. */ }
+    vocalGuideSource = undefined; vocalGuideStopButton.disabled = true;
+  });
+
+  vocalGuideAddTrackButton.addEventListener('click', () => {
+    if (!vocalGuideFile || !vocalGuideData || !vocalGuideAnalysis) return;
+    if (recorder.isRecording || anyTransportPlaying()) {
+      vocalGuideReadout.textContent = 'Stop recording and playback before adding the vocal track.'; return;
+    }
+    void (async () => {
+      const assetId = 'vocal-guide-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+      const createdAt = new Date().toISOString();
+      await sampleAssets.save({
+        id: assetId, name: vocalGuideFile!.name, mimeType: vocalGuideFile!.type || 'application/octet-stream',
+        data: vocalGuideData!.slice(0), updatedAt: createdAt,
+        origin: { kind: 'user-import', createdAt },
+      });
+      const beforeEdit = project;
+      const moduleId = 'sampler-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+      project = addInstrumentTrack(project, 'Lead Vocal', moduleId, new Date(), 'sampler');
+      const track = activeTrack();
+      if (!track) throw new Error('Could not create the vocal track.');
+      project = updateProjectTrack(project, track.id, {
+        sampleAssetId: assetId, sampleFileName: vocalGuideFile!.name,
+        samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS, playbackMode: 'one-shot' },
+      });
+      projectHistory.commit(beforeEdit, project);
+      ensureTrackRuntime(track, false);
+      if (audioReady) await ensureTrackAudioReady(track.id);
+      await persistProject(); updateProjectUi(); await refreshAssetBrowser();
+      vocalGuideAssetId = assetId;
+      vocalGuideReadout.textContent = 'Added "' + track.name + '" to the project. BPM is ' +
+        Math.round(Number(vocalGuideBpmInput.value)) + ' — adjust the project tempo separately when ready for the backing track.';
+    })().catch(error => { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Could not add vocal track.'; });
+  });
 
   aiCancelButton.addEventListener('click', () => {
     generationAbortController?.abort();
