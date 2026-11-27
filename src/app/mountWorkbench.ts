@@ -13,6 +13,7 @@ import type { InstrumentType } from '../audio/InstrumentTypes.js';
 import { HttpAudioGenerationProvider } from '../ai/AudioGenerationProvider.js';
 import { HttpAudioTransformationProvider } from '../ai/AudioTransformationProvider.js';
 import { HttpStemSeparationProvider } from '../ai/StemSeparationProvider.js';
+import { detectDrumHits, encodeMonoWav } from '../ai/DrumHitExtraction.js';
 import { analyzeVocalGuide, type VocalAnalysisResult } from '../ai/VocalGuideAnalysis.js';
 import { Rack } from '../rack/Rack.js';
 import { ParameterBus } from '../rack/ParameterBus.js';
@@ -3047,9 +3048,37 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
         ensureTrackRuntime(track, false);
         if (audioReady) await ensureTrackAudioReady(track.id);
         createdTracks.push(track.name);
+        if (/drum/i.test(stem.name) && stem.mimeType.startsWith('audio/')) {
+          const decoded = await audioRuntime.prepareContext().decodeAudioData(stem.data.slice(0));
+          const mono = new Float32Array(decoded.length);
+          for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) {
+            const samples = decoded.getChannelData(channel);
+            for (let i = 0; i < samples.length; i += 1) mono[i] = (mono[i] ?? 0) + (samples[i] ?? 0) / decoded.numberOfChannels;
+          }
+          const hits = detectDrumHits(mono, decoded.sampleRate, { maxHits: 32, minGapMs: 85, tailMs: 420 });
+          for (let hitIndex = 0; hitIndex < hits.length; hitIndex += 1) {
+            const hit = hits[hitIndex]!;
+            const hitData = encodeMonoWav(mono.slice(hit.startSample, hit.endSample), decoded.sampleRate);
+            const hitName = 'Drum Hit ' + String(hitIndex + 1).padStart(2, '0') + '.wav';
+            const hitAssetId = 'drum-hit-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+            const createdAt = new Date().toISOString();
+            await sampleAssets.save({ id: hitAssetId, name: hitName, mimeType: 'audio/wav', data: hitData, updatedAt: createdAt, origin: { kind: 'ai-transformed', sourceAssetId: assetId, providerId: 'local-drum-transient-slicer', jobId: result.jobId, prompt: 'Transient slice ' + (hitIndex + 1) + ' from ' + stem.name, createdAt } });
+            const hitModuleId = 'sampler-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+            project = addInstrumentTrack(project, hitName.replace(/\\.wav$/i, ''), hitModuleId, new Date(), 'sampler');
+            const hitTrack = activeTrack();
+            if (!hitTrack) throw new Error('Could not create a Sampler track for ' + hitName + '.');
+            project = updateProjectTrack(project, hitTrack.id, { sampleAssetId: hitAssetId, sampleFileName: hitName, samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS, playbackMode: 'one-shot' } });
+            ensureTrackRuntime(hitTrack, false);
+            if (audioReady) await ensureTrackAudioReady(hitTrack.id);
+            createdTracks.push(hitTrack.name);
+          }
+          vocalGuideReadout.textContent = hits.length
+            ? 'Detected ' + hits.length + ' drum transients and added them as individual sample tracks…'
+            : 'Drum stem imported; no clear transients detected for slicing.';
+        }
       }
       projectHistory.commit(before, project); await persistProject(); updateProjectUi(); await refreshAssetBrowser();
-      vocalGuideReadout.textContent = 'Imported ' + createdTracks.length + ' separated stems as individual Sampler tracks: ' + createdTracks.join(', ') + '.';
+      vocalGuideReadout.textContent = 'Imported ' + createdTracks.length + ' Sampler tracks, including any detected drum-hit slices: ' + createdTracks.join(', ') + '.';
     })().catch(error => { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Stem separation failed.'; })
       .finally(() => { if (generationAbortController === controller) generationAbortController = undefined; vocalStemSeparateButton.disabled = !latestVocalBackingFile; updateProjectUi(); });
   });
