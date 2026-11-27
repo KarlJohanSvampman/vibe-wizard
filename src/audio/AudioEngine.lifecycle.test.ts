@@ -151,3 +151,52 @@ describe('AudioEngine voice lifecycle', () => {
     expect(() => engine.noteOn({ kind: 'note-on', sourceId: 'live', noteId: 'b', pitch: 62, velocity: 1, timestamp: 10 })).toThrow();
   });
 });
+
+
+  it('reclaims completed voices and disconnects their graph nodes', async () => {
+    const h = createHarness();
+    const engine = new AudioEngine('synth-cleanup', h.runtime);
+    await engine.start();
+    engine.noteOn({ kind: 'note-on', sourceId: 'live', noteId: 'ended', pitch: 60, velocity: 1, timestamp: 10 });
+
+    expect(engine.activeVoiceCount).toBe(1);
+    h.sources[0]!.onended?.();
+
+    expect(engine.activeVoiceCount).toBe(0);
+    expect(h.sources[0]!.disconnect).toHaveBeenCalledOnce();
+    expect(h.gains[1]!.disconnect).toHaveBeenCalledOnce();
+    await engine.dispose();
+  });
+
+  it('panic stops autonomous drum one-shots as well as held notes', async () => {
+    const h = createHarness();
+    const engine = new AudioEngine('drums-panic', h.runtime, 'drums');
+    await engine.start();
+    engine.noteOn({ kind: 'note-on', sourceId: 'sequencer', noteId: 'kick', pitch: 36, velocity: 1, timestamp: 10 });
+
+    engine.panic();
+
+    expect(engine.activeVoiceCount).toBe(0);
+    expect(h.sources[0]!.stop).toHaveBeenCalled();
+    expect(h.sources[0]!.disconnect).toHaveBeenCalledOnce();
+    await engine.dispose();
+  });
+
+  it('clamps configurable polyphony to the supported range', async () => {
+    const h = createHarness();
+    const engine = new AudioEngine('synth-bounds', h.runtime);
+    await engine.start();
+
+    engine.setMaxPolyphony(0);
+    engine.noteOn({ kind: 'note-on', sourceId: 'test', noteId: 'a', pitch: 60, velocity: 1, timestamp: 10 });
+    engine.noteOn({ kind: 'note-on', sourceId: 'test', noteId: 'b', pitch: 62, velocity: 1, timestamp: 10 });
+    expect(engine.activeVoiceCount).toBe(1);
+
+    engine.setMaxPolyphony(128);
+    for (let index = 0; index < 128; index += 1) {
+      engine.noteOn({ kind: 'note-on', sourceId: 'test', noteId: String(index), pitch: 60, velocity: 0.5, timestamp: 10 });
+    }
+    expect(engine.activeVoiceCount).toBe(128);
+    await engine.dispose();
+  });
+});
