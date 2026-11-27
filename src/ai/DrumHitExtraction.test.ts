@@ -30,3 +30,27 @@ describe('encodeMonoWav', () => {
     expect(view.getUint32(40, true)).toBe(6);
   });
 });
+
+describe('classifyDrumHit', () => {
+  it('suggests kick for a low-frequency tone burst', async () => {
+    const { classifyDrumHit } = await import('./DrumHitExtraction.js');
+    const sampleRate = 16000;
+    const pcm = new Float32Array(sampleRate / 2);
+    for (let i = 0; i < pcm.length; i += 1) {
+      const envelope = Math.exp(-i / (sampleRate * 0.12));
+      pcm[i] = Math.sin((2 * Math.PI * 70 * i) / sampleRate) * envelope * 0.8;
+    }
+    expect(classifyDrumHit(pcm, sampleRate).suggestedType).toBe('kick');
+  });
+
+  it('suggests hi-hat for a short high-frequency burst', async () => {
+    const { classifyDrumHit } = await import('./DrumHitExtraction.js');
+    const sampleRate = 16000;
+    const pcm = new Float32Array(sampleRate / 4);
+    for (let i = 0; i < pcm.length; i += 1) {
+      const envelope = Math.exp(-i / (sampleRate * 0.018));
+      pcm[i] = (i % 2 ? 1 : -1) * envelope * 0.5;
+    }
+    expect(classifyDrumHit(pcm, sampleRate).suggestedType).toBe('hi-hat');
+  });
+});
