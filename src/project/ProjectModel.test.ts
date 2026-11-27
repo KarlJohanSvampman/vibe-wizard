@@ -500,6 +500,40 @@ describe('project model', () => {
     })).toThrow(/metadata|loop/i);
   });
 
+  it('persists sampler ADSR settings and supplies defaults to older schema-v9 sampler tracks', () => {
+    const base = createDefaultProject('synth-main');
+    const withSampler = addInstrumentTrack(base, 'Sampler', 'sampler-main', new Date(), 'sampler');
+    const samplerTrack = withSampler.tracks.find(track => track.instrumentType === 'sampler')!;
+    const configured = updateProjectTrack(withSampler, samplerTrack.id, {
+      samplerSettings: {
+        ...samplerTrack.samplerSettings!,
+        attackSeconds: 0.32,
+        decaySeconds: 0.75,
+        sustainLevel: 0.42,
+        releaseSeconds: 1.1,
+      },
+    });
+    expect(validateProjectSnapshot(configured).tracks.find(track => track.id === samplerTrack.id)?.samplerSettings)
+      .toMatchObject({ attackSeconds: 0.32, decaySeconds: 0.75, sustainLevel: 0.42, releaseSeconds: 1.1 });
+
+    const legacy = {
+      ...withSampler,
+      tracks: withSampler.tracks.map(track => {
+        if (track.id !== samplerTrack.id) return track;
+        const { attackSeconds: _attack, decaySeconds: _decay, sustainLevel: _sustain, releaseSeconds: _release, ...settings } = track.samplerSettings!;
+        return { ...track, samplerSettings: settings };
+      }),
+    };
+    expect(validateProjectSnapshot(legacy).tracks.find(track => track.id === samplerTrack.id)?.samplerSettings)
+      .toMatchObject({ attackSeconds: 0.008, decaySeconds: 0.12, sustainLevel: 0.8, releaseSeconds: 0.14 });
+    expect(() => validateProjectSnapshot({
+      ...configured,
+      tracks: configured.tracks.map(track => track.id === samplerTrack.id
+        ? { ...track, samplerSettings: { ...track.samplerSettings!, attackSeconds: 9 } }
+        : track),
+    })).toThrow(/invalid track/i);
+  });
+
   it('rejects invalid track mix values, duplicate module assignments, and unsupported schemas', () => {
     const project = createDefaultProject('synth-main');
     expect(() => validateProjectSnapshot({ ...project, schemaVersion: 99 }))
