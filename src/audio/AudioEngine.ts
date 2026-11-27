@@ -13,6 +13,10 @@ export interface SamplerPlaybackSettings {
   readonly loopEnd: number;
   readonly rootNote: number;
   readonly playbackMode: 'one-shot' | 'gate';
+  readonly attackSeconds: number;
+  readonly decaySeconds: number;
+  readonly sustainLevel: number;
+  readonly releaseSeconds: number;
 }
 
 interface PitchControl {
@@ -30,6 +34,12 @@ interface InstrumentVoice {
   readonly velocity: number;
   readonly startTime: number;
   readonly oneShot: boolean;
+  readonly samplerEnvelope?: {
+    readonly attackSeconds: number;
+    readonly decaySeconds: number;
+    readonly sustainLevel: number;
+    readonly releaseSeconds: number;
+  };
   remainingSources: number;
   releaseTime?: number;
 }
@@ -56,6 +66,7 @@ export class AudioEngine implements RackModule {
   private samplerSettings: SamplerPlaybackSettings = {
     startPosition: 0, endPosition: 1, loopEnabled: false,
     loopStart: 0, loopEnd: 1, rootNote: 60, playbackMode: 'gate',
+    attackSeconds: 0.008, decaySeconds: 0.12, sustainLevel: 0.8, releaseSeconds: 0.14,
   };
   private readonly auditionNoteId = '__sampler-audition__';
   private noiseBuffer: AudioBuffer | undefined;
@@ -213,6 +224,24 @@ export class AudioEngine implements RackModule {
     envelope.gain.linearRampToValueAtTime(amplitude, startTime + 0.008);
     envelope.connect(this.masterGain);
 
+    const samplerEnvelope = this.instrumentType === 'sampler' && !oneShot
+      ? {
+          attackSeconds: clamp(this.samplerSettings.attackSeconds, 0.001, 2),
+          decaySeconds: clamp(this.samplerSettings.decaySeconds, 0.001, 5),
+          sustainLevel: clamp(this.samplerSettings.sustainLevel, 0.01, 1),
+          releaseSeconds: clamp(this.samplerSettings.releaseSeconds, 0.01, 5),
+        }
+      : undefined;
+    if (samplerEnvelope) {
+      envelope.gain.cancelScheduledValues(startTime);
+      envelope.gain.setValueAtTime(0.0001, startTime);
+      envelope.gain.linearRampToValueAtTime(amplitude, startTime + samplerEnvelope.attackSeconds);
+      envelope.gain.linearRampToValueAtTime(
+        amplitude * samplerEnvelope.sustainLevel,
+        startTime + samplerEnvelope.attackSeconds + samplerEnvelope.decaySeconds,
+      );
+    }
+
     const addOscillator = (
       type: OscillatorType,
       harmonic: number,
@@ -336,6 +365,7 @@ export class AudioEngine implements RackModule {
       velocity,
       startTime,
       oneShot,
+      samplerEnvelope,
       remainingSources: sources.length,
     };
     this.voices.set(key, voice);
@@ -390,7 +420,7 @@ export class AudioEngine implements RackModule {
     return buffer;
   }
 
-  noteOff(event: NoteOffEvent, releaseSeconds = 0.14): void {
+  noteOff(event: NoteOffEvent, releaseSeconds?: number): void {
     const key = voiceKey(event.sourceId, event.noteId);
     const voice = this.voices.get(key);
     const context = this.runtime.context;
@@ -409,9 +439,22 @@ export class AudioEngine implements RackModule {
       return;
     }
 
-    const release = Math.max(0.015, releaseSeconds);
+    const release = Math.max(0.015, releaseSeconds ?? voice.samplerEnvelope?.releaseSeconds ?? 0.14);
     voice.envelope.gain.cancelScheduledValues(releaseTime);
-    voice.envelope.gain.setValueAtTime(Math.max(0.0001, voice.velocity), releaseTime);
+    const samplerEnvelope = voice.samplerEnvelope;
+    let releaseLevel = 1;
+    if (samplerEnvelope) {
+      const elapsed = Math.max(0, releaseTime - voice.startTime);
+      if (elapsed < samplerEnvelope.attackSeconds) {
+        releaseLevel = elapsed / samplerEnvelope.attackSeconds;
+      } else if (elapsed < samplerEnvelope.attackSeconds + samplerEnvelope.decaySeconds) {
+        const decayProgress = (elapsed - samplerEnvelope.attackSeconds) / samplerEnvelope.decaySeconds;
+        releaseLevel = 1 - (1 - samplerEnvelope.sustainLevel) * decayProgress;
+      } else {
+        releaseLevel = samplerEnvelope.sustainLevel;
+      }
+    }
+    voice.envelope.gain.setValueAtTime(Math.max(0.0001, voice.velocity * releaseLevel), releaseTime);
     voice.envelope.gain.linearRampToValueAtTime(0.0001, releaseTime + release);
     for (const source of voice.sources) {
       try { source.stop(releaseTime + release + 0.02); } catch { /* already stopped */ }
