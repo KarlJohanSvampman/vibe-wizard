@@ -1,6 +1,6 @@
 # Vibe-Wizard Implementation Plan
 
-Last reconciled: 2026-11-16
+Last reconciled: 2026-11-27
 
 This plan reflects the implementation currently present on `main`. Completed items are not reopened simply because this document previously lagged behind the codebase. Continue in small, testable increments and keep the global rack, platform-neutral audio domain, typed event streams, local-first asset storage, and asynchronous AI boundary intact.
 
@@ -29,7 +29,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Add deterministic voice stealing: oldest releasing voice first, otherwise oldest active voice.
 - [x] Scope note identity by event source and note ID; immediately retire a voice on same-ID retrigger.
 - [x] Add immediate panic semantics for every voice, including one-shots, and use them during disposal.
-- [ ] Add end-to-end Web Audio tests for rapid retrigger, track switching, stop, loop wrap, and disposal.
+- [x] Add deterministic AudioEngine lifecycle tests for source-scoped note identity, rapid retrigger, polyphony bounds/stealing, panic, disposal, one-shot cleanup, and multi-source voice cleanup.\n- [x] Cover arrangement stop and loop-wrap note release in ArrangementTransport tests.\n- [ ] Add an app-level track-switching regression test and manual long-session/clipping smoke tests.
 - [ ] Add audio lifecycle/resource-leak tests and manual clipping/long-session smoke tests.
 
 ## Phase 2 — Global rack, routing, and mixing
@@ -45,7 +45,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Add a project master bus with bounded output gain, a safety limiter, and post-limiter peak metering.
 - [x] Add insert effects and send/return routing with explicit ownership and disposal.
 - [x] Persist shared delay time/feedback and reverb decay in project schema v9; expose project-wide return controls in the Mixer.
-- [ ] Build a dedicated mixer/rack view.
+- [x] Build a dedicated Mixer dock with track level/pan, insert effects, shared sends/returns, master gain, peak meter, and limiter status.\n- [x] Add a global Rack dock listing instruments, effects, controllers, and utility modules, with track selection from instrument entries.
 - [ ] Persist rack presets and editable parameter mappings.
 
 ## Phase 3 — Controllers and spatial performance
@@ -111,10 +111,10 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 
 ## Recommended execution order
 
-1. **Audio reliability:** complete the remaining end-to-end Web Audio lifecycle tests, then verify note ownership under rapid retrigger, track switching, stop, loop wrap, and disposal.
-2. **Master mixer:** add shared send/return routing and expand the dedicated mixer/rack view.
-3. **Effect routing integration:** wire per-track insert chains into the master path, then add shared send/return buses and a mixer UI.
-4. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
+1. **Audio reliability:** add the remaining app-level track-switching regression and perform manual long-session/clipping smoke tests.
+2. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
+3. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
+4. **AI transformation and music assistant:** build on the now-stable asset and arrangement contracts.
 5. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
 6. **AI transformation and music assistant:** build on the now-stable asset and arrangement contracts.
 
