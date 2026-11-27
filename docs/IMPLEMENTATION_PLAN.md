@@ -29,8 +29,8 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Add deterministic voice stealing: oldest releasing voice first, otherwise oldest active voice.
 - [x] Scope note identity by event source and note ID; immediately retire a voice on same-ID retrigger.
 - [x] Add immediate panic semantics for every voice, including one-shots, and use them during disposal.
-- [x] Add deterministic AudioEngine lifecycle tests for source-scoped note identity, rapid retrigger, polyphony bounds/stealing, panic, disposal, one-shot cleanup, and multi-source voice cleanup.\n- [x] Cover arrangement stop and loop-wrap note release in ArrangementTransport tests.\n- [ ] Add an app-level track-switching regression test and manual long-session/clipping smoke tests.
-- [ ] Add audio lifecycle/resource-leak tests and manual clipping/long-session smoke tests.
+- [x] Add deterministic AudioEngine lifecycle tests for source-scoped note identity, rapid retrigger, polyphony bounds/stealing, panic, disposal, one-shot cleanup, and multi-source voice cleanup.
+- [x] Cover arrangement stop and loop-wrap note release in ArrangementTransport tests.\n- [ ] Add an app-level track-switching regression test and manual long-session/clipping smoke tests.
 
 ## Phase 2 — Global rack, routing, and mixing
 
@@ -92,7 +92,8 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 - [x] Implement modular reverb and delay.
 - [ ] Implement EQ, distortion, compressor/limiter, chorus, and phaser.
 - [ ] Add effect parameter metadata, presets, and automation support.
-- [ ] Expand sampler to zones, root-key ranges, velocity layers, loop points, envelopes, and pitch mapping.
+- [x] Add persisted sampler ADSR envelopes for gate-mode playback, with legacy-project defaults and editor controls.
+- [ ] Expand sampler to multi-sample zones, root-key ranges, velocity layers, and per-zone loop/pitch mapping.
 - [ ] Add sample trimming and time-stretching as separate, testable capabilities.
 - [ ] Add a flexible drum-pad/sample-player instrument.
 - [ ] Add feature-detected, permission-gated MIDI input and output.
@@ -112,7 +113,7 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 ## Recommended execution order
 
 1. **Audio reliability:** add the remaining app-level track-switching regression and perform manual long-session/clipping smoke tests.
-2. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
+2. **Sampler depth:** add multi-sample zones, velocity layers, and per-zone mapping; single-sample projects now have persisted ADSR envelope controls.
 3. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
 4. **AI transformation and music assistant:** build on the now-stable asset and arrangement contracts.
 
