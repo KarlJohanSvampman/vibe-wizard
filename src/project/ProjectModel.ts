@@ -15,11 +15,16 @@ export interface SamplerSettings {
   readonly loopEnd: number;
   readonly rootNote: number;
   readonly playbackMode: 'one-shot' | 'gate';
+  readonly attackSeconds: number;
+  readonly decaySeconds: number;
+  readonly sustainLevel: number;
+  readonly releaseSeconds: number;
 }
 
 export const DEFAULT_SAMPLER_SETTINGS: SamplerSettings = {
   startPosition: 0, endPosition: 1, loopEnabled: false,
   loopStart: 0, loopEnd: 1, rootNote: 60, playbackMode: 'gate',
+  attackSeconds: 0.008, decaySeconds: 0.12, sustainLevel: 0.8, releaseSeconds: 0.14,
 };
 
 export interface ProjectTimeSignature {
@@ -881,7 +886,11 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
         !finiteNumber(item.samplerSettings.loopStart) || item.samplerSettings.loopStart < item.samplerSettings.startPosition || item.samplerSettings.loopStart >= 1 ||
         !finiteNumber(item.samplerSettings.loopEnd) || item.samplerSettings.loopEnd > item.samplerSettings.endPosition || item.samplerSettings.loopEnd <= item.samplerSettings.loopStart ||
         !finiteNumber(item.samplerSettings.rootNote) || !Number.isInteger(item.samplerSettings.rootNote) || item.samplerSettings.rootNote < 0 || item.samplerSettings.rootNote > 127 ||
-        (item.samplerSettings.playbackMode !== 'one-shot' && item.samplerSettings.playbackMode !== 'gate'))) ||
+        (item.samplerSettings.playbackMode !== 'one-shot' && item.samplerSettings.playbackMode !== 'gate') ||
+        (item.samplerSettings.attackSeconds !== undefined && (!finiteNumber(item.samplerSettings.attackSeconds) || item.samplerSettings.attackSeconds < 0.001 || item.samplerSettings.attackSeconds > 2)) ||
+        (item.samplerSettings.decaySeconds !== undefined && (!finiteNumber(item.samplerSettings.decaySeconds) || item.samplerSettings.decaySeconds < 0.001 || item.samplerSettings.decaySeconds > 5)) ||
+        (item.samplerSettings.sustainLevel !== undefined && (!finiteNumber(item.samplerSettings.sustainLevel) || item.samplerSettings.sustainLevel < 0.01 || item.samplerSettings.sustainLevel > 1)) ||
+        (item.samplerSettings.releaseSeconds !== undefined && (!finiteNumber(item.samplerSettings.releaseSeconds) || item.samplerSettings.releaseSeconds < 0.01 || item.samplerSettings.releaseSeconds > 5))) ||
       !finiteNumber(item.order) ||
       typeof item.muted !== 'boolean' || typeof item.solo !== 'boolean' ||
       typeof item.armed !== 'boolean' ||
@@ -911,7 +920,9 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
       effectIds.add(effect.id);
     }
     return { ...item, instrumentType, effects, sends: (item.sends ?? { delay: 0, reverb: 0 }) as ProjectTrack['sends'],
-      ...(instrumentType === 'sampler' ? { samplerSettings: item.samplerSettings ?? { ...DEFAULT_SAMPLER_SETTINGS } } : {}),
+      ...(instrumentType === 'sampler' ? {
+        samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS, ...(isRecord(item.samplerSettings) ? item.samplerSettings : {}) },
+      } : {}),
     } as unknown as ProjectTrack;
   });
 
