@@ -12,6 +12,7 @@ import { getInstrumentLabel, isInstrumentType } from '../audio/InstrumentTypes.j
 import type { InstrumentType } from '../audio/InstrumentTypes.js';
 import { HttpAudioGenerationProvider } from '../ai/AudioGenerationProvider.js';
 import { HttpAudioTransformationProvider } from '../ai/AudioTransformationProvider.js';
+import { HttpStemSeparationProvider } from '../ai/StemSeparationProvider.js';
 import { analyzeVocalGuide, type VocalAnalysisResult } from '../ai/VocalGuideAnalysis.js';
 import { Rack } from '../rack/Rack.js';
 import { ParameterBus } from '../rack/ParameterBus.js';
@@ -490,7 +491,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <div class="vocal-guide-readout" id="vocal-guide-readout" role="status" aria-live="polite">Import a lead vocal to begin. Analysis runs locally in your browser.</div>',
     '      <label for="vocal-backing-prompt"><span>BACKING STYLE / ARRANGEMENT</span><textarea id="vocal-backing-prompt" rows="2" maxlength="4000" placeholder="Modern punchy hip-hop beat, deep bass, tight kick and snare, crisp hi-hats. Leave space for the lead vocal."></textarea></label>',
     '      <div class="vocal-guide-controls"><label for="vocal-backing-duration"><span>BACKING · SECONDS</span><input id="vocal-backing-duration" type="number" min="3" max="30" step="1" value="15" /></label><button class="transport-button" id="vocal-backing-generate" type="button" disabled>✦ Generate backing (experimental)</button></div>',
-    '      <p class="vocal-guide-note">Generating backing uploads the selected vocal to ElevenLabs Music. This experimental reference workflow may be inspired by the vocal but does not guarantee exact accompaniment, timing, or vocal preservation. Only upload audio you have rights to use; generation may consume credits.</p>',
+    '      <div class="vocal-guide-controls"><label for="vocal-stem-variation"><span>STEM SEPARATION</span><select id="vocal-stem-variation"><option value="six_stems_v1">Six stems · vocals, drums, bass, guitar, keys, other</option><option value="two_stems_v1">Two stems · vocals and instrumental</option></select></label><button class="transport-button" id="vocal-stem-separate" type="button" disabled>Separate latest backing into tracks</button></div>',
+    '      <p class="vocal-guide-note">Generating backing uploads the selected vocal to ElevenLabs Music. Stem separation uploads the generated backing to ElevenLabs and imports each returned stem as its own Sampler track. Six-stem separation does not split drums into individual hits. Only upload audio you have rights to use; provider usage may consume credits.</p>',
     '    </section>',
     '    <section class="ai-sample-studio">',
     '      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
@@ -787,7 +789,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const vocalBackingPromptInput = get<HTMLTextAreaElement>('#vocal-backing-prompt');
   const vocalBackingDurationInput = get<HTMLInputElement>('#vocal-backing-duration');
   const vocalBackingGenerateButton = get<HTMLButtonElement>('#vocal-backing-generate');
+  const vocalStemVariation = get<HTMLSelectElement>('#vocal-stem-variation');
+  const vocalStemSeparateButton = get<HTMLButtonElement>('#vocal-stem-separate');
   let vocalGuideFile: File | undefined;
+  let latestVocalBackingFile: File | undefined;
   let vocalGuideData: ArrayBuffer | undefined;
   let vocalGuideAnalysis: VocalAnalysisResult | undefined;
   let vocalGuideBuffer: AudioBuffer | undefined;
@@ -2896,7 +2901,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   samplerRootNoteInput.addEventListener('change', () =>
     saveSamplerSettings({ rootNote: Number(samplerRootNoteInput.value) }));
 
-  if (!vocalGuideFileInput || !vocalGuideCanvas || !vocalGuideBpmInput || !vocalGuideAnalyzeButton || !vocalGuidePreviewButton || !vocalGuideStopButton || !vocalGuideAddTrackButton || !vocalGuideReadout || !vocalBackingPromptInput || !vocalBackingDurationInput || !vocalBackingGenerateButton) return;
+  if (!vocalGuideFileInput || !vocalGuideCanvas || !vocalGuideBpmInput || !vocalGuideAnalyzeButton || !vocalGuidePreviewButton || !vocalGuideStopButton || !vocalGuideAddTrackButton || !vocalGuideReadout || !vocalBackingPromptInput || !vocalBackingDurationInput || !vocalBackingGenerateButton || !vocalStemVariation || !vocalStemSeparateButton) return;
 
   const drawVocalWaveform = (buffer: AudioBuffer, phrases: VocalAnalysisResult['phrases'] = []): void => {
     const canvas = vocalGuideCanvas;
@@ -3019,6 +3024,36 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       vocalGuideReadout.textContent = 'Backing generated as a separate Sampler track. Check alignment against your vocal; exact accompaniment and vocal preservation are not guaranteed.';
     })().catch(error => { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Backing generation failed.'; }).finally(() => { if (generationAbortController === controller) generationAbortController = undefined; vocalBackingGenerateButton.disabled = !vocalGuideAnalysis; updateProjectUi(); });
   });
+  vocalStemSeparateButton.addEventListener('click', () => {
+    if (!latestVocalBackingFile) return;
+    if (recorder.isRecording || anyTransportPlaying() || generationAbortController) { vocalGuideReadout.textContent = 'Stop playback and other AI jobs before separating stems.'; return; }
+    const controller = new AbortController(); generationAbortController = controller; vocalStemSeparateButton.disabled = true;
+    vocalGuideReadout.textContent = 'Uploading generated backing for stem separation…';
+    void (async () => {
+      const provider = new HttpStemSeparationProvider(aiServiceUrlInput.value.trim());
+      const result = await provider.separate(latestVocalBackingFile!, vocalStemVariation.value as 'two_stems_v1' | 'six_stems_v1', progress => {
+        vocalGuideReadout.textContent = (progress.message || 'Separating stems ' + progress.status) + (progress.progress === undefined ? '' : ' · ' + Math.round(progress.progress) + '%');
+      }, controller.signal);
+      const before = project; const createdTracks: string[] = [];
+      for (const stem of result.stems) {
+        const assetId = 'separated-stem-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+        const now = new Date().toISOString();
+        await sampleAssets.save({ id: assetId, name: stem.name, mimeType: stem.mimeType, data: stem.data, updatedAt: now, origin: { kind: 'ai-transformed', providerId: provider.id, jobId: result.jobId, prompt: 'Stem separation: ' + stem.name, createdAt: now } });
+        const moduleId = 'sampler-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+        project = addInstrumentTrack(project, stem.name.replace(/\\.[^.]+$/, ''), moduleId, new Date(), 'sampler');
+        const track = activeTrack();
+        if (!track) throw new Error('Could not create a Sampler track for ' + stem.name + '.');
+        project = updateProjectTrack(project, track.id, { sampleAssetId: assetId, sampleFileName: stem.name, samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS, playbackMode: 'one-shot' } });
+        ensureTrackRuntime(track, false);
+        if (audioReady) await ensureTrackAudioReady(track.id);
+        createdTracks.push(track.name);
+      }
+      projectHistory.commit(before, project); await persistProject(); updateProjectUi(); await refreshAssetBrowser();
+      vocalGuideReadout.textContent = 'Imported ' + createdTracks.length + ' separated stems as individual Sampler tracks: ' + createdTracks.join(', ') + '.';
+    })().catch(error => { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Stem separation failed.'; })
+      .finally(() => { if (generationAbortController === controller) generationAbortController = undefined; vocalStemSeparateButton.disabled = !latestVocalBackingFile; updateProjectUi(); });
+  });
+
   vocalGuideBpmInput.addEventListener('change', () => {
     const bpm = Number(vocalGuideBpmInput.value);
     if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) {
