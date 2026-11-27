@@ -490,8 +490,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <div class="vocal-guide-readout" id="vocal-guide-readout" role="status" aria-live="polite">Import a lead vocal to begin. Analysis runs locally in your browser.</div>',
     '      <p class="vocal-guide-note">Your vocal stays local for this analysis step. Tempo and phrase detection are estimates; you can override BPM before accompaniment generation.</p>',
     '    </section>',
-    '    <section class="ai-sample-studio">
-    '      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
+    '    <section class="ai-sample-studio">',      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
     '      <label for="ai-service-url"><span>AI SERVICE URL</span><input id="ai-service-url" type="text" placeholder="/api (same-origin gateway)" autocomplete="url" /></label>',
     '      <label for="ai-sample-prompt"><span>SOUND PROMPT</span><textarea id="ai-sample-prompt" rows="3" maxlength="4000" placeholder="A warm, evolving analog bass with a soft attack, subtle tape saturation, and a clean low end."></textarea></label>',
     '      <div class="ai-generation-actions">',
