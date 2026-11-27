@@ -166,6 +166,24 @@ describe('AudioEngine voice lifecycle', () => {
     await engine.dispose();
   });
 
+  it('cleans a multi-source piano voice once after every source ends', async () => {
+    const h = createHarness();
+    const engine = new AudioEngine('piano-cleanup', h.runtime, 'piano');
+    await engine.start();
+    engine.noteOn({ kind: 'note-on', sourceId: 'keyboard', noteId: 'C4', pitch: 60, velocity: 0.8, timestamp: 10 });
+
+    expect(h.sources).toHaveLength(4);
+    h.sources[0]!.onended?.();
+    expect(engine.activeVoiceCount).toBe(1);
+    expect(h.sources[0]!.disconnect).toHaveBeenCalledOnce();
+    expect(h.sources[1]!.disconnect).not.toHaveBeenCalled();
+
+    h.sources.slice(1).forEach(source => source.onended?.());
+    expect(engine.activeVoiceCount).toBe(0);
+    for (const source of h.sources) expect(source.disconnect).toHaveBeenCalledOnce();
+    await engine.dispose();
+  });
+
   it('panic stops autonomous drum one-shots', async () => {
     const h = createHarness();
     const engine = new AudioEngine('drums-panic', h.runtime, 'drums');
