@@ -488,7 +488,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '        <button class="transport-button" id="vocal-guide-add-track" type="button" disabled>＋ Add vocal track</button>',
     '      </div>',
     '      <div class="vocal-guide-readout" id="vocal-guide-readout" role="status" aria-live="polite">Import a lead vocal to begin. Analysis runs locally in your browser.</div>',
-    '      <p class="vocal-guide-note">Your vocal stays local for this analysis step. Tempo and phrase detection are estimates; you can override BPM before accompaniment generation.</p>',
+    '      <label for="vocal-backing-prompt"><span>BACKING STYLE / ARRANGEMENT</span><textarea id="vocal-backing-prompt" rows="2" maxlength="4000" placeholder="Modern punchy hip-hop beat, deep bass, tight kick and snare, crisp hi-hats. Leave space for the lead vocal."></textarea></label>',
+    '      <div class="vocal-guide-controls"><label for="vocal-backing-duration"><span>BACKING · SECONDS</span><input id="vocal-backing-duration" type="number" min="3" max="30" step="1" value="15" /></label><button class="transport-button" id="vocal-backing-generate" type="button" disabled>✦ Generate backing (experimental)</button></div>',
+    '      <p class="vocal-guide-note">Generating backing uploads the selected vocal to ElevenLabs Music. This experimental reference workflow may be inspired by the vocal but does not guarantee exact accompaniment, timing, or vocal preservation. Only upload audio you have rights to use; generation may consume credits.</p>',
     '    </section>',
     '    <section class="ai-sample-studio">',      <div class="section-heading"><div><p class="eyebrow">AI SOUND GENERATION</p><h3>Generate a playable sample</h3></div><span class="module-chip">ASYNC · LOCAL ASSETS</span></div>',
     '      <label for="ai-service-url"><span>AI SERVICE URL</span><input id="ai-service-url" type="text" placeholder="/api (same-origin gateway)" autocomplete="url" /></label>',
@@ -781,6 +783,9 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const vocalGuideStopButton = get<HTMLButtonElement>('#vocal-guide-stop');
   const vocalGuideAddTrackButton = get<HTMLButtonElement>('#vocal-guide-add-track');
   const vocalGuideReadout = get<HTMLElement>('#vocal-guide-readout');
+  const vocalBackingPromptInput = get<HTMLTextAreaElement>('#vocal-backing-prompt');
+  const vocalBackingDurationInput = get<HTMLInputElement>('#vocal-backing-duration');
+  const vocalBackingGenerateButton = get<HTMLButtonElement>('#vocal-backing-generate');
   let vocalGuideFile: File | undefined;
   let vocalGuideData: ArrayBuffer | undefined;
   let vocalGuideAnalysis: VocalAnalysisResult | undefined;
@@ -883,6 +888,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       '#sampler-loop', '#sampler-loop-start', '#sampler-loop-end', '#sampler-root-note',
       '#sampler-start-time', '#sampler-end-time', '#sampler-loop-start-time', '#sampler-loop-end-time',
       '#vocal-guide-file', '#vocal-guide-waveform', '#vocal-guide-bpm', '#vocal-guide-analyze', '#vocal-guide-preview', '#vocal-guide-stop', '#vocal-guide-add-track', '#vocal-guide-readout',
+      '#vocal-backing-prompt', '#vocal-backing-duration', '#vocal-backing-generate',
       '#ai-service-url', '#ai-sample-prompt', '#ai-sample-duration', '#ai-generate-sample', '#ai-cancel-generation',
       '#ai-generation-status', '#asset-refresh', '#asset-search', '#asset-filter', '#asset-browser-list',
       '#sampler-transform-prompt', '#sampler-transform-duration', '#sampler-transform-strength',
@@ -2966,6 +2972,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
           vocalGuideAnalysis.phrases.length + ' phrase region(s) · Tempo suggestions: ' + (candidates || 'not confident — set BPM manually') + '.';
         vocalGuidePreviewButton.disabled = false;
         vocalGuideAddTrackButton.disabled = false;
+        vocalBackingGenerateButton.disabled = false;
       }).catch(error => { vocalGuideReadout.textContent = error instanceof Error ? 'Analysis failed: ' + error.message : 'Analysis failed.'; });
     } catch (error) {
       vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Could not prepare audio analysis.';
@@ -2985,6 +2992,29 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       vocalGuideSource = source; source.start();
       vocalGuideStopButton.disabled = false;
     } catch (error) { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Could not preview vocal.'; }
+  });
+  vocalBackingGenerateButton.addEventListener('click', () => {
+    if (!vocalGuideFile || !vocalGuideAnalysis) return;
+    if (recorder.isRecording || anyTransportPlaying() || generationAbortController) { vocalGuideReadout.textContent = 'Stop playback and other AI jobs first.'; return; }
+    const endpoint = aiServiceUrlInput.value.trim();
+    const prompt = vocalBackingPromptInput.value.trim();
+    const durationSeconds = Number(vocalBackingDurationInput.value);
+    if (!endpoint || !prompt || !Number.isInteger(durationSeconds) || durationSeconds < 3 || durationSeconds > 30) { vocalGuideReadout.textContent = 'Set the AI service URL, describe the backing, and choose 3–30 seconds.'; return; }
+    const controller = new AbortController(); generationAbortController = controller; vocalBackingGenerateButton.disabled = true;
+    vocalGuideReadout.textContent = 'Uploading vocal to ElevenLabs Music…';
+    void (async () => {
+      const provider = new HttpAudioTransformationProvider(endpoint);
+      const result = await provider.transformSample({ prompt: '[Instrumental backing only; no lead vocals.] ' + prompt + '. Aim for ' + Math.round(Number(vocalGuideBpmInput.value)) + ' BPM.', durationSeconds, referenceStartMs: 0, referenceEndMs: Math.min(30000, Math.max(50, Math.round(vocalGuideAnalysis!.durationSeconds * 1000))), conditionStrength: 'high' }, vocalGuideFile!, progress => { vocalGuideReadout.textContent = (progress.message || 'Generating backing ' + progress.status) + (progress.progress === undefined ? '' : ' · ' + Math.round(progress.progress) + '%'); }, controller.signal);
+      const id = 'vocal-backing-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)); const now = new Date().toISOString();
+      await sampleAssets.save({ id, name: result.fileName, mimeType: result.mimeType, data: result.data, updatedAt: now, origin: { kind: 'ai-transformed', providerId: result.providerId, jobId: result.jobId, prompt, createdAt: now } });
+      const before = project; const moduleId = 'sampler-' + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+      project = addInstrumentTrack(project, 'AI Vocal Backing', moduleId, new Date(), 'sampler'); const track = activeTrack();
+      if (!track) throw new Error('Could not create backing track.');
+      project = updateProjectTrack(project, track.id, { sampleAssetId: id, sampleFileName: result.fileName, samplerSettings: { ...DEFAULT_SAMPLER_SETTINGS, playbackMode: 'one-shot' } });
+      projectHistory.commit(before, project); ensureTrackRuntime(track, false); if (audioReady) await ensureTrackAudioReady(track.id);
+      await persistProject(); updateProjectUi(); await refreshAssetBrowser();
+      vocalGuideReadout.textContent = 'Backing generated as a separate Sampler track. Check alignment against your vocal; exact accompaniment and vocal preservation are not guaranteed.';
+    })().catch(error => { vocalGuideReadout.textContent = error instanceof Error ? error.message : 'Backing generation failed.'; }).finally(() => { if (generationAbortController === controller) generationAbortController = undefined; vocalBackingGenerateButton.disabled = !vocalGuideAnalysis; updateProjectUi(); });
   });
   vocalGuideBpmInput.addEventListener('change', () => {
     const bpm = Number(vocalGuideBpmInput.value);
