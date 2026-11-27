@@ -198,6 +198,27 @@ describe('AudioEngine voice lifecycle', () => {
     await engine.dispose();
   });
 
+  it('schedules sampler attack and decay and releases from the current envelope level', async () => {
+    const h = createHarness();
+    const engine = new AudioEngine('sampler-adsr', h.runtime, 'sampler');
+    await engine.start();
+    engine.setSamplerSettings({
+      startPosition: 0, endPosition: 1, loopEnabled: false,
+      loopStart: 0, loopEnd: 1, rootNote: 60, playbackMode: 'gate',
+      attackSeconds: 0.2, decaySeconds: 0.4, sustainLevel: 0.25, releaseSeconds: 0.6,
+    });
+    engine.noteOn({ kind: 'note-on', sourceId: 'keyboard', noteId: 'held', pitch: 60, velocity: 0.8, timestamp: 10 });
+
+    const envelope = h.gains[1]!.gain;
+    expect(envelope.linearRampToValueAtTime).toHaveBeenCalledWith(0.8, 10.2);
+    expect(envelope.linearRampToValueAtTime).toHaveBeenCalledWith(0.2, 10.6);
+
+    engine.noteOff({ kind: 'note-off', sourceId: 'keyboard', noteId: 'held', timestamp: 11 });
+    expect(envelope.setValueAtTime).toHaveBeenLastCalledWith(0.2, 11);
+    expect(envelope.linearRampToValueAtTime).toHaveBeenLastCalledWith(0.0001, 11.6);
+    await engine.dispose();
+  });
+
   it('clamps configurable polyphony to the supported range', async () => {
     const h = createHarness();
     const engine = new AudioEngine('synth-bounds', h.runtime);
