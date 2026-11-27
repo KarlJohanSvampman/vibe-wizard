@@ -46,6 +46,7 @@ export class AudioEngine implements RackModule {
   private masterGain: GainNode | undefined;
   private outputNode: AudioNode | undefined;
   private readonly voices = new Map<string, InstrumentVoice>();
+  private readonly disconnectedVoiceNodes = new WeakSet<AudioNode>();
   private masterVolume = 0.35;
   private maxPolyphony: number;
   private synthWaveform: OscillatorType = 'sawtooth';
@@ -347,11 +348,11 @@ export class AudioEngine implements RackModule {
           // source ends. The source is included in nodes, so disconnecting it
           // both here and in this loop needlessly duplicated cleanup.
           for (const node of nodes) {
-            try { node.disconnect(); } catch { /* already disconnected */ }
+            this.disconnectVoiceNode(node);
           }
           if (this.voices.get(key) === voice) this.voices.delete(key);
         } else {
-          try { source.disconnect(); } catch { /* already disconnected */ }
+          this.disconnectVoiceNode(source);
         }
       };
       if (this.instrumentType === 'sampler' && source === sources[0]) {
@@ -369,6 +370,12 @@ export class AudioEngine implements RackModule {
     if (sources.length === 0) {
       this.voices.delete(key);
     }
+  }
+
+  private disconnectVoiceNode(node: AudioNode): void {
+    if (this.disconnectedVoiceNodes.has(node)) return;
+    this.disconnectedVoiceNodes.add(node);
+    try { node.disconnect(); } catch { /* already disconnected or context closed */ }
   }
 
   private getNoiseBuffer(context: AudioContext): AudioBuffer {
@@ -457,7 +464,7 @@ export class AudioEngine implements RackModule {
       try { source.stop(now); } catch { /* source may already have stopped */ }
     }
     for (const node of voice.nodes) {
-      try { node.disconnect(); } catch { /* already disconnected */ }
+      this.disconnectVoiceNode(node);
     }
   }
 
