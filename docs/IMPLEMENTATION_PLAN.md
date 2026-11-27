@@ -115,8 +115,6 @@ Vibe-Wizard is a local-first, browser-first DAW with a shared desktop/VR workflo
 2. **Sampler depth:** add sample zones and loop/envelope controls without breaking existing single-sample projects.
 3. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
 4. **AI transformation and music assistant:** build on the now-stable asset and arrangement contracts.
-5. **Sound library and export:** improve asset discovery/management and render complete arrangements to audio.
-6. **AI transformation and music assistant:** build on the now-stable asset and arrangement contracts.
 
 ## Quality gates
 
