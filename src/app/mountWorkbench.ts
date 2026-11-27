@@ -550,6 +550,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '</section>',
   ].join('');
 
+  let refreshRackView: () => void = () => undefined;
+
   // Recompose the existing functional controls into a DAW-style workstation.
   // Moving nodes (rather than cloning them) preserves their event handlers and IDs.
   const studioCard = root.querySelector<HTMLElement>('.workbench-card');
@@ -632,11 +634,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const dockContent = document.createElement('div');
     dockContent.className = 'studio-dock-content';
     const instrumentPane = makePanel('studio-dock-pane', '');
+    const rackPane = makePanel('studio-dock-pane', '');
     const mixerPane = makePanel('studio-dock-pane', '');
     const controllersPane = makePanel('studio-dock-pane', '');
     const editorPane = makePanel('studio-dock-pane', '');
     const dockDefinitions = [
       ['Instrument', instrumentPane],
+      ['Rack', rackPane],
       ['Mixer', mixerPane],
       ['Controllers', controllersPane],
       ['Editor', editorPane],
@@ -659,6 +663,53 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
       dockTabs.append(button);
       dockContent.append(pane);
     }
+    const rackInventory = document.createElement('div');
+    rackInventory.className = 'rack-module-list';
+    rackInventory.setAttribute('role', 'list');
+    rackInventory.setAttribute('aria-label', 'Global rack modules');
+    const rackSummary = document.createElement('p');
+    rackSummary.className = 'controller-status';
+    rackSummary.textContent = 'The global rack is shared by every project track. Select an instrument module to open its track editor.';
+    rackPane.append(rackSummary, rackInventory);
+    refreshRackView = () => {
+      const modules = rack.list();
+      rackSummary.textContent = modules.length + ' modules · ' +
+        modules.filter(module => module.kind === 'instrument').length + ' instruments · ' +
+        modules.filter(module => module.kind === 'effect').length + ' effects · ' +
+        modules.filter(module => module.kind === 'controller').length + ' controllers · ' +
+        modules.filter(module => module.kind === 'utility').length + ' utilities. All tracks share one AudioContext.';
+      rackInventory.replaceChildren();
+      for (const module of modules) {
+        const track = project.tracks.find(item => item.instrumentModuleId === module.id);
+        const effectTrack = project.tracks.find(item => item.effects.some(effect => effect.id === module.id));
+        const row = document.createElement(track ? 'button' : 'article');
+        row.className = 'rack-module-card' + (track?.id === project.activeTrackId ? ' is-selected' : '');
+        row.setAttribute('role', 'listitem');
+        const heading = document.createElement('strong');
+        heading.textContent = track?.name ?? (effectTrack
+          ? (module.kind === 'effect' ? 'Insert · ' + effectTrack.name : module.id)
+          : module.id === masterBus.id ? 'Master output'
+            : module.id === sharedDelayEffect.id ? 'Shared delay return'
+              : module.id === sharedReverbEffect.id ? 'Shared reverb return'
+                : module.id === theremin.id ? 'Main theremin controller'
+                  : module.id.startsWith('track-bus-') ? 'Track output bus'
+                    : module.id);
+        const detail = document.createElement('small');
+        detail.textContent = module.kind.toUpperCase() + ' · ' + module.id;
+        row.append(heading, detail);
+        if (track && row instanceof HTMLButtonElement) {
+          row.type = 'button';
+          row.addEventListener('click', () => {
+            if (recorder.isRecording || track.id === project.activeTrackId) return;
+            project = setActiveProjectTrack(project, track.id);
+            selectedClipId = undefined; selectedClip = undefined; selectedPianoNote = undefined;
+            updateProjectUi(); void persistProject(); setDockTab('Instrument');
+          });
+        }
+        rackInventory.append(row);
+      }
+    };
+    refreshRackView();
     take<HTMLElement>('#sample-import-row', instrumentPane);
     const instrumentEditor = document.createElement('section');
     instrumentEditor.id = 'instrument-editor';
@@ -1762,6 +1813,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     refreshClipList();
     drawArrangement();
     applyTrackMix();
+    refreshRackView();
     syncControllerRoutes();
     refreshControllerDesigner();
     refreshStudioRoom();
