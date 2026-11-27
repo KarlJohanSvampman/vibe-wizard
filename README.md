@@ -8,7 +8,9 @@ Vibe-Wizard is a browser-first digital audio workstation for immersive music cre
 
 The prototype includes:
 - Meta IWSDK project setup and desktop development runtime.
-- A shared local Web Audio runtime and global rack.\n- A dedicated Rack dock listing live instruments, effects, controllers, and utility modules, with quick selection of instrument tracks.\n- A dedicated Mixer dock with track faders/pan, insert chains, shared delay/reverb sends and returns, master gain, post-limiter peak meter, and limiter status.
+- A shared local Web Audio runtime and global rack.
+- A dedicated Rack dock listing live instruments, effects, controllers, and utility modules, with quick selection of instrument tracks.
+- A dedicated Mixer dock with track faders/pan, insert chains, shared delay/reverb sends and returns, master gain, post-limiter peak meter, and limiter status.
 - Multiple instrument tracks with independent output buses, track level, pan, mute, and solo.
 - Desktop slider input and tracked right-index-finger spatial theremin control.
 - Typed recording of notes and continuous controller movement.
