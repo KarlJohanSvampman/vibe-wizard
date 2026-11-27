@@ -69,3 +69,88 @@ export function encodeMonoWav(pcm: Float32Array, sampleRate: number): ArrayBuffe
   }
   return buffer;
 }
+
+export type DrumHitType = 'kick' | 'snare' | 'hi-hat' | 'percussion' | 'unknown';
+
+export interface DrumHitClassification {
+  readonly suggestedType: DrumHitType;
+  /** Heuristic confidence, not a calibrated probability. */
+  readonly confidence: number;
+  readonly lowRatio: number;
+  readonly midRatio: number;
+  readonly highRatio: number;
+  readonly durationMs: number;
+}
+
+/**
+ * Suggests a broad drum family from spectral balance and decay.
+ * This is deliberately advisory: real drum sounds overlap and must be checked by ear.
+ */
+export function classifyDrumHit(pcm: Float32Array, sampleRate: number): DrumHitClassification {
+  if (!(pcm instanceof Float32Array) || pcm.length < 16) throw new Error('A non-empty drum hit is required.');
+  if (!Number.isFinite(sampleRate) || sampleRate < 8000 || sampleRate > 384000) throw new Error('Invalid drum hit sample rate.');
+
+  const alphaLow = 1 - Math.exp((-2 * Math.PI * 150) / sampleRate);
+  const alphaHigh = 1 - Math.exp((-2 * Math.PI * 4000) / sampleRate);
+  let lowState = 0;
+  let broadState = 0;
+  let lowEnergy = 0;
+  let midEnergy = 0;
+  let highEnergy = 0;
+  let totalEnergy = 0;
+  let firstActive = -1;
+  let lastActive = -1;
+  const peak = pcm.reduce((max, value, index) => {
+    const magnitude = Math.abs(Number.isFinite(value) ? value : 0);
+    if (magnitude > max) return magnitude;
+    return max;
+  }, 0);
+  const gate = Math.max(0.002, peak * 0.08);
+
+  for (let i = 0; i < pcm.length; i += 1) {
+    const sample = Number.isFinite(pcm[i]) ? pcm[i]! : 0;
+    lowState += alphaLow * (sample - lowState);
+    broadState += alphaHigh * (sample - broadState);
+    const low = lowState;
+    const mid = broadState - lowState;
+    const high = sample - broadState;
+    lowEnergy += low * low;
+    midEnergy += mid * mid;
+    highEnergy += high * high;
+    totalEnergy += sample * sample;
+    if (Math.abs(sample) >= gate) {
+      if (firstActive < 0) firstActive = i;
+      lastActive = i;
+    }
+  }
+
+  const denominator = Math.max(totalEnergy, 1e-12);
+  const lowRatio = lowEnergy / denominator;
+  const midRatio = midEnergy / denominator;
+  const highRatio = highEnergy / denominator;
+  const durationMs = firstActive < 0 ? 0 : ((lastActive - firstActive + 1) / sampleRate) * 1000;
+
+  let suggestedType: DrumHitType = 'percussion';
+  let confidence = 0.42;
+  if (peak < 0.005 || totalEnergy < 1e-8) {
+    suggestedType = 'unknown';
+    confidence = 0.2;
+  } else if (lowRatio > 0.48 && highRatio < 0.22) {
+    suggestedType = 'kick';
+    confidence = Math.min(0.9, 0.5 + (lowRatio - 0.48) * 0.65);
+  } else if (highRatio > 0.38 && durationMs < 220) {
+    suggestedType = 'hi-hat';
+    confidence = Math.min(0.88, 0.5 + (highRatio - 0.38) * 0.55);
+  } else if (midRatio > 0.35 && highRatio > 0.12) {
+    suggestedType = 'snare';
+    confidence = Math.min(0.82, 0.48 + (midRatio - 0.35) * 0.5);
+  }
+  return {
+    suggestedType,
+    confidence: Math.round(confidence * 100) / 100,
+    lowRatio: Math.round(lowRatio * 1000) / 1000,
+    midRatio: Math.round(midRatio * 1000) / 1000,
+    highRatio: Math.round(highRatio * 1000) / 1000,
+    durationMs: Math.round(durationMs * 10) / 10,
+  };
+}
