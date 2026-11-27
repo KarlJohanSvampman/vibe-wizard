@@ -341,13 +341,17 @@ export class AudioEngine implements RackModule {
 
     for (const source of sources) {
       source.onended = () => {
-        try { source.disconnect(); } catch { /* already disconnected */ }
         voice.remainingSources -= 1;
         if (voice.remainingSources <= 0) {
+          // Disconnect the complete voice graph exactly once after its final
+          // source ends. The source is included in nodes, so disconnecting it
+          // both here and in this loop needlessly duplicated cleanup.
           for (const node of nodes) {
             try { node.disconnect(); } catch { /* already disconnected */ }
           }
           if (this.voices.get(key) === voice) this.voices.delete(key);
+        } else {
+          try { source.disconnect(); } catch { /* already disconnected */ }
         }
       };
       if (this.instrumentType === 'sampler' && source === sources[0]) {
