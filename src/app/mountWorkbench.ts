@@ -465,7 +465,13 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     '      <label class="control-row" for="sampler-loop-start"><span><strong>Loop start</strong><small id="sampler-loop-start-time">0.00 s</small></span><input id="sampler-loop-start" type="range" min="0" max="0.999" step="0.001" value="0" /></label>',
     '      <label class="control-row" for="sampler-loop-end"><span><strong>Loop end</strong><small id="sampler-loop-end-time">100%</small></span><input id="sampler-loop-end" type="range" min="0.001" max="1" step="0.001" value="1" /></label>',
     '      <label for="sampler-root-note"><span>ROOT NOTE · MIDI</span><input id="sampler-root-note" type="number" min="0" max="127" step="1" value="60" /></label>',
-    '      <p class="sampler-hint">The root note plays the sample at its original pitch. Notes above and below transpose it chromatically.</p>',
+    '      <div class="sampler-envelope"><p class="eyebrow">AMPLITUDE ENVELOPE · GATE MODE</p>',
+    '        <label for="sampler-attack"><span>Attack · seconds</span><input id="sampler-attack" type="number" min="0.001" max="2" step="0.001" value="0.008" /></label>',
+    '        <label for="sampler-decay"><span>Decay · seconds</span><input id="sampler-decay" type="number" min="0.001" max="5" step="0.01" value="0.12" /></label>',
+    '        <label for="sampler-sustain"><span>Sustain · level</span><input id="sampler-sustain" type="number" min="0.01" max="1" step="0.01" value="0.8" /></label>',
+    '        <label for="sampler-release"><span>Release · seconds</span><input id="sampler-release" type="number" min="0.01" max="5" step="0.01" value="0.14" /></label>',
+    '      </div>',
+    '      <p class="sampler-hint">The root note plays the sample at its original pitch. Notes above and below transpose it chromatically. ADSR shapes held notes; one-shots play through independently.</p>',
     '      <section class="sampler-transform-panel">',
     '        <div class="section-heading"><div><p class="eyebrow">AI SOUND TRANSFORMATION</p><h3>Create a variation</h3></div><span class="module-chip">AUDIO REFERENCE</span></div>',
     '        <label for="sampler-transform-prompt"><span>HOW SHOULD IT CHANGE?</span><textarea id="sampler-transform-prompt" rows="2" maxlength="4000" placeholder="Turn this into a dark ambient texture with deeper low end, evolving granular layers, and a slow cinematic atmosphere."></textarea></label>',
@@ -826,6 +832,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   const samplerLoopStartInput = get<HTMLInputElement>('#sampler-loop-start');
   const samplerLoopEndInput = get<HTMLInputElement>('#sampler-loop-end');
   const samplerRootNoteInput = get<HTMLInputElement>('#sampler-root-note');
+  const samplerAttackInput = get<HTMLInputElement>('#sampler-attack');
+  const samplerDecayInput = get<HTMLInputElement>('#sampler-decay');
+  const samplerSustainInput = get<HTMLInputElement>('#sampler-sustain');
+  const samplerReleaseInput = get<HTMLInputElement>('#sampler-release');
   const samplerStartTime = get<HTMLElement>('#sampler-start-time');
   const samplerEndTime = get<HTMLElement>('#sampler-end-time');
   const samplerLoopStartTime = get<HTMLElement>('#sampler-loop-start-time');
@@ -913,7 +923,7 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     !trackSelect || !trackList || !deleteTrackButton || !newInstrumentTypeSelect || !sampleImportRow || !sampleFileInput ||
     !sampleStatus || !samplerEditor || !sampleDurationLabel || !sampleAuditionButton || !sampleAuditionStopButton ||
     !samplerPlaybackMode || !samplerStartInput || !samplerEndInput || !samplerLoopInput ||
-    !samplerLoopStartInput || !samplerLoopEndInput || !samplerRootNoteInput ||
+    !samplerLoopStartInput || !samplerLoopEndInput || !samplerRootNoteInput || !samplerAttackInput || !samplerDecayInput || !samplerSustainInput || !samplerReleaseInput ||
     !samplerStartTime || !samplerEndTime || !samplerLoopStartTime || !samplerLoopEndTime || !aiServiceUrlInput || !aiSamplePromptInput || !aiSampleDurationInput ||
     !aiGenerateButton || !aiCancelButton || !aiGenerationStatus ||
     !assetRefreshButton || !assetSearchInput || !assetFilterSelect || !assetBrowserList ||
@@ -1774,6 +1784,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     samplerLoopStartInput.value = String(samplerSettings.loopStart);
     samplerLoopEndInput.value = String(samplerSettings.loopEnd);
     samplerRootNoteInput.value = String(samplerSettings.rootNote);
+    samplerAttackInput.value = String(samplerSettings.attackSeconds);
+    samplerDecayInput.value = String(samplerSettings.decaySeconds);
+    samplerSustainInput.value = String(samplerSettings.sustainLevel);
+    samplerReleaseInput.value = String(samplerSettings.releaseSeconds);
     samplerLoopStartInput.disabled = !samplerSettings.loopEnabled || !samplerLoaded;
     samplerLoopEndInput.disabled = !samplerSettings.loopEnabled || !samplerLoaded;
     samplerStartInput.disabled = !samplerLoaded;
@@ -1781,6 +1795,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     samplerLoopInput.disabled = !samplerLoaded;
     samplerPlaybackMode.disabled = !samplerLoaded;
     samplerRootNoteInput.disabled = !samplerLoaded;
+    samplerAttackInput.disabled = !samplerLoaded;
+    samplerDecayInput.disabled = !samplerLoaded;
+    samplerSustainInput.disabled = !samplerLoaded;
+    samplerReleaseInput.disabled = !samplerLoaded;
     samplerTransformButton.disabled = !selectedTrack?.sampleAssetId || !audioReady ||
       recorder.isRecording || anyTransportPlaying() || generationAbortController !== undefined;
     samplerTransformPrompt.disabled = samplerTransformButton.disabled;
@@ -2917,6 +2935,10 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     const normalized: SamplerSettings = {
       ...next, startPosition, endPosition, loopStart, loopEnd,
       rootNote: Math.max(0, Math.min(127, Math.round(next.rootNote))),
+      attackSeconds: Math.max(0.001, Math.min(2, next.attackSeconds)),
+      decaySeconds: Math.max(0.001, Math.min(5, next.decaySeconds)),
+      sustainLevel: Math.max(0.01, Math.min(1, next.sustainLevel)),
+      releaseSeconds: Math.max(0.01, Math.min(5, next.releaseSeconds)),
     };
     const beforeEdit = project;
     project = updateProjectTrack(project, track.id, { samplerSettings: normalized });
@@ -2953,6 +2975,14 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
     saveSamplerSettings({ loopEnd: Number(samplerLoopEndInput.value) }));
   samplerRootNoteInput.addEventListener('change', () =>
     saveSamplerSettings({ rootNote: Number(samplerRootNoteInput.value) }));
+  samplerAttackInput.addEventListener('change', () =>
+    saveSamplerSettings({ attackSeconds: Number(samplerAttackInput.value) }));
+  samplerDecayInput.addEventListener('change', () =>
+    saveSamplerSettings({ decaySeconds: Number(samplerDecayInput.value) }));
+  samplerSustainInput.addEventListener('change', () =>
+    saveSamplerSettings({ sustainLevel: Number(samplerSustainInput.value) }));
+  samplerReleaseInput.addEventListener('change', () =>
+    saveSamplerSettings({ releaseSeconds: Number(samplerReleaseInput.value) }));
 
   if (!vocalGuideFileInput || !vocalGuideCanvas || !vocalGuideBpmInput || !vocalGuideAnalyzeButton || !vocalGuidePreviewButton || !vocalGuideStopButton || !vocalGuideAddTrackButton || !vocalGuideReadout || !vocalBackingPromptInput || !vocalBackingDurationInput || !vocalBackingGenerateButton || !vocalStemVariation || !vocalStemSeparateButton) return;
 
