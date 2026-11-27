@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import io
 import logging
 import os
 import time
+import zipfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -253,6 +255,76 @@ async def call_elevenlabs_transform(
     return data, output_mime
 
 
+class StemSeparationRequest(BaseModel):
+    variation: str = Field(default="six_stems_v1")
+
+    @field_validator("variation")
+    @classmethod
+    def validate_variation(cls, value: str) -> str:
+        if value not in {"two_stems_v1", "six_stems_v1"}:
+            raise ValueError("Stem variation must be two_stems_v1 or six_stems_v1.")
+        return value
+
+
+async def call_elevenlabs_stem_separation(source_data: bytes, file_name: str, mime_type: str, variation: str) -> list[dict[str, Any]]:
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("ELEVENLABS_API_KEY is not configured on the AI gateway.")
+    safe_name = Path(file_name).name[:120] or "source-audio"
+    async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20)) as client:
+        response = await client.post(
+            "https://api.elevenlabs.io/v1/music/stem-separation",
+            params={"output_format": os.getenv("ELEVENLABS_STEM_OUTPUT_FORMAT", "mp3_44100_128")},
+            headers={"xi-api-key": api_key, "Accept": "application/zip"},
+            data={"stem_variation_id": variation, "sign_with_c2pa": "false"},
+            files={"file": (safe_name, source_data, mime_type)},
+        )
+    if response.status_code in {401, 403}:
+        raise RuntimeError("ElevenLabs authentication failed. Check API key and Music API access.")
+    if response.status_code == 429:
+        raise RuntimeError("ElevenLabs rate limit or account concurrency limit reached.")
+    if response.status_code >= 400:
+        raise RuntimeError(f"ElevenLabs stem separation failed (HTTP {response.status_code}): {response.text[:300]}")
+    if len(response.content) > MAX_AUDIO_BYTES * 6:
+        raise RuntimeError("Separated stems exceed the gateway's combined size limit.")
+    if not zipfile.is_zipfile(io.BytesIO(response.content)):
+        raise RuntimeError("ElevenLabs returned a response that was not a valid ZIP archive.")
+    stems: list[dict[str, Any]] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            for item in archive.infolist():
+                if item.is_dir() or item.file_size <= 0:
+                    continue
+                name = Path(item.filename).name
+                if not name or name.startswith(".") or item.file_size > MAX_AUDIO_BYTES:
+                    continue
+                ext = Path(name).suffix.lower()
+                mime = "audio/mpeg" if ext == ".mp3" else "audio/wav" if ext in {".wav", ".wave"} else "audio/ogg" if ext == ".ogg" else "application/octet-stream"
+                if not mime.startswith("audio/"):
+                    continue
+                data = archive.read(item)
+                if data:
+                    stems.append({"id": uuid.uuid4().hex, "name": name[:120], "mimeType": mime, "data": data})
+    except (zipfile.BadZipFile, RuntimeError) as error:
+        raise RuntimeError("Could not safely extract the stem archive.") from error
+    if not stems:
+        raise RuntimeError("The stem archive contained no supported audio files.")
+    return stems
+
+
+async def _run_stem_separation(job_id: str, source_data: bytes, file_name: str, mime_type: str, variation: str) -> None:
+    job = JOBS.get(job_id)
+    if not job:
+        return
+    job.update(status="running", progress=5, message="Separating audio into stems with ElevenLabs")
+    try:
+        stems = await call_elevenlabs_stem_separation(source_data, file_name, mime_type, variation)
+        job.update(status="succeeded", progress=100, message=f"Separated into {len(stems)} stems", stems=stems)
+    except Exception as error:
+        logger.warning("Stem separation job %s failed: %s", job_id, error)
+        job.update(status="failed", progress=0, message=str(error)[:400] or "Stem separation failed.")
+
+
 async def _run_generation(job_id: str, request: GenerateAudioRequest) -> None:
     job = JOBS.get(job_id)
     if not job:
@@ -409,6 +481,56 @@ async def _run_transformation(
     except Exception as error:
         logger.warning("Audio transformation job %s failed: %s", job_id, error)
         job.update(status="failed", progress=0, message=str(error)[:400] or "Audio transformation failed.")
+
+
+@app.post("/api/audio/stem-separations", status_code=202)
+async def create_stem_separation(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    variation: str = Form("six_stems_v1"),
+) -> dict[str, str]:
+    if not os.getenv("ELEVENLABS_API_KEY", "").strip():
+        raise HTTPException(status_code=503, detail="Set ELEVENLABS_API_KEY in the server environment before separating stems.")
+    if not (file.content_type or "").lower().startswith("audio/"):
+        raise HTTPException(status_code=415, detail="Upload an audio file for stem separation.")
+    try:
+        request = StemSeparationRequest(variation=variation)
+    except Exception as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    source_data = await file.read(MAX_AUDIO_BYTES + 1)
+    if not source_data:
+        raise HTTPException(status_code=422, detail="The source audio file is empty.")
+    if len(source_data) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Source audio exceeds the 25 MB gateway limit.")
+    _prune_jobs()
+    job_id = uuid.uuid4().hex
+    JOBS[job_id] = {"jobId": job_id, "status": "queued", "progress": 0, "message": "Waiting for stem separation", "createdAtEpoch": time.time()}
+    background_tasks.add_task(_run_stem_separation, job_id, source_data, Path(file.filename or "source-audio").name, (file.content_type or "audio/mpeg").split(";", 1)[0].lower(), request.variation)
+    return {"jobId": job_id}
+
+
+@app.get("/api/audio/stem-separations/{job_id}")
+async def get_stem_separation(job_id: str) -> dict[str, Any]:
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Stem separation job not found or expired.")
+    result = None
+    if job["status"] == "succeeded":
+        result = {"stems": [{"id": stem["id"], "name": stem["name"], "mimeType": stem["mimeType"], "downloadUrl": f"/api/audio/stem-separations/{job_id}/stems/{stem['id']}"} for stem in job["stems"]]}
+    return {"jobId": job_id, "status": job["status"], "progress": job["progress"], "message": job["message"], **({"result": result} if result else {})}
+
+
+@app.get("/api/audio/stem-separations/{job_id}/stems/{stem_id}")
+async def download_separated_stem(job_id: str, stem_id: str) -> Response:
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Stem separation job not found or expired.")
+    if job["status"] != "succeeded":
+        raise HTTPException(status_code=409, detail="Separated stems are not ready.")
+    stem = next((item for item in job["stems"] if item["id"] == stem_id), None)
+    if not stem:
+        raise HTTPException(status_code=404, detail="Stem not found.")
+    return Response(content=stem["data"], media_type=stem["mimeType"], headers={"Content-Disposition": f'attachment; filename="{stem["name"]}"', "Cache-Control": "no-store"})
 
 
 @app.get("/api/audio/generations/{job_id}")
