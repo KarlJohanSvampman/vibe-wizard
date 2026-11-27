@@ -13,7 +13,7 @@ The application is split into independently testable domains:
 5. **Sequencer** — clip audition, arrangement transport, automation, piano roll.
 6. **Persistence** — project serialization, IndexedDB asset store, presets.
 7. **AI integration** — asynchronous generation/transformation providers.
-8. **Presentation** — desktop DAW views and IWSDK-powered spatial interactions.
+8. **Presentation** — desktop DAW views and IWSDK-powered spatial interactions.\n\nThe desktop workstation exposes separate Instrument, Rack, Mixer, Controllers, and Editor dock views. Rack is a live inventory of registered modules and can select the owning instrument track. Mixer owns track level/pan, insert effect order/bypass/parameters, shared send/return controls, and master output monitoring. These views are presentation adapters over the project/rack domains; they do not own audio nodes.
 
 ## 2. Runtime boundaries
 
