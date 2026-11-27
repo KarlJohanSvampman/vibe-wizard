@@ -2896,6 +2896,8 @@ export function mountWorkbench(root: HTMLElement, world: World): void {
   samplerRootNoteInput.addEventListener('change', () =>
     saveSamplerSettings({ rootNote: Number(samplerRootNoteInput.value) }));
 
+  if (!vocalGuideFileInput || !vocalGuideCanvas || !vocalGuideBpmInput || !vocalGuideAnalyzeButton || !vocalGuidePreviewButton || !vocalGuideStopButton || !vocalGuideAddTrackButton || !vocalGuideReadout || !vocalBackingPromptInput || !vocalBackingDurationInput || !vocalBackingGenerateButton) return;
+
   const drawVocalWaveform = (buffer: AudioBuffer, phrases: VocalAnalysisResult['phrases'] = []): void => {
     const canvas = vocalGuideCanvas;
     const context = canvas.getContext('2d');
