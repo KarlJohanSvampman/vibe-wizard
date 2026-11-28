@@ -135,11 +135,13 @@ describe('project model', () => {
     expect(track.samplerSettings).toEqual({
       startPosition: 0, endPosition: 1, loopEnabled: false,
       loopStart: 0, loopEnd: 1, rootNote: 60, playbackMode: 'gate',
+      attackSeconds: 0.008, decaySeconds: 0.12, sustainLevel: 0.8, releaseSeconds: 0.14,
     });
     const edited = updateProjectTrack(sampler, track.id, {
       samplerSettings: {
         startPosition: 0.1, endPosition: 0.9, loopEnabled: true,
         loopStart: 0.2, loopEnd: 0.8, rootNote: 48, playbackMode: 'one-shot',
+        attackSeconds: 0.025, decaySeconds: 0.2, sustainLevel: 0.65, releaseSeconds: 0.3,
       },
     });
     expect(validateProjectSnapshot(edited).tracks[1]?.samplerSettings).toMatchObject({
