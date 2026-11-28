@@ -890,7 +890,7 @@ export function validateProjectSnapshot(value: unknown): ProjectSnapshot {
         (item.samplerSettings.attackSeconds !== undefined && (!finiteNumber(item.samplerSettings.attackSeconds) || item.samplerSettings.attackSeconds < 0.001 || item.samplerSettings.attackSeconds > 2)) ||
         (item.samplerSettings.decaySeconds !== undefined && (!finiteNumber(item.samplerSettings.decaySeconds) || item.samplerSettings.decaySeconds < 0.001 || item.samplerSettings.decaySeconds > 5)) ||
         (item.samplerSettings.sustainLevel !== undefined && (!finiteNumber(item.samplerSettings.sustainLevel) || item.samplerSettings.sustainLevel < 0.01 || item.samplerSettings.sustainLevel > 1)) ||
-        (item.samplerSettings.releaseSeconds !== undefined && (!finiteNumber(item.samplerSettings.releaseSeconds) || item.samplerSettings.releaseSeconds < 0.01 || item.samplerSettings.releaseSeconds > 5))) ||
+        (item.samplerSettings.releaseSeconds !== undefined && (!finiteNumber(item.samplerSettings.releaseSeconds) || item.samplerSettings.releaseSeconds < 0.01 || item.samplerSettings.releaseSeconds > 5)))) ||
       !finiteNumber(item.order) ||
       typeof item.muted !== 'boolean' || typeof item.solo !== 'boolean' ||
       typeof item.armed !== 'boolean' ||
